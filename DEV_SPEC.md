@@ -394,7 +394,7 @@ DocumentVersion:
   error_message: str | None
 ```
 
-同一租户内相同 SHA-256 默认去重。相同内容上传到不同 Collection 时复用文件对象但创建独立文档关联，避免权限串联。
+去重判定键固定为 `(tenant_id, collection_id, sha256)`：同一范围重复上传返回首次创建的 document/version；相同逻辑名和新摘要为现有 document 创建新 version；相同内容上传到不同 Collection 或不同租户时复用不可变文件对象，但创建独立 document/version 和 content claim，避免权限串联。并发注册必须在 PostgreSQL 事务内同时获取内容键与逻辑文档键的 advisory lock，按稳定顺序加锁并由唯一约束兜底。
 
 ### 5.2 Root 与 Leaf
 
@@ -718,6 +718,7 @@ observability:
 | collections | id, tenant_id, name, visibility | tenant+name unique |
 | documents | id, tenant_id, collection_id, status, active_version_id | tenant/status index |
 | document_versions | id, document_id, sha256, object_key, status | document+sha unique |
+| document_content_claims | tenant_id, collection_id, sha256, document_id, version_id | tenant+collection+sha primary key；version unique |
 | roots | id, version_id, ordinal, raw_text, clean_text, metadata | version+ordinal unique |
 | leaves | id, root_id, ordinal, text, retrieval_text, metadata | root+ordinal unique |
 | ingestion_jobs | id, type, status, attempts, lease_owner, lease_until | status+available_at index |
@@ -1646,7 +1647,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | 里程碑 | 目标 | PR 数 | 状态 |
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
-| M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | M2-01～M2-04 完成 |
+| M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | M2-01～M2-05 完成 |
 | M3 | 多格式摄取流水线 | 10 | 未开始 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
@@ -1654,7 +1655,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 10/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 11/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1717,7 +1718,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 #### M2-05 文档注册与去重
 
 - version、SHA 去重、Collection 归属；
-- 验收：同租户重复、跨租户相同 hash、并发重复上传。
+- 协议：文件先进入 ObjectStore，再在单个 PostgreSQL 事务注册逻辑资源；数据库失败允许留下不可见孤儿对象，由 M2-06 reconcile 清理；
+- 并发：按排序后的内容键和逻辑文档键获取 transaction advisory lock，数据库唯一约束作为最终防线；
+- 权限：Collection 必须属于请求 tenant；摘要复用不得复用 document/version 或跨租户泄露资源是否存在；
+- 验收：同 tenant+collection 重复返回同一资源；跨 Collection、跨租户相同 hash 复用对象但逻辑资源独立；同逻辑名新 hash 创建新 version；8 路并发重复上传只产生一个 document/version/claim。
 
 #### M2-06 删除与 Reconcile
 

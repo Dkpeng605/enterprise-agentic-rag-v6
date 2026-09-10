@@ -60,19 +60,36 @@ class ErrorResponse:
         return {"error": self.error.to_dict()}
 
 
-@dataclass(frozen=True, slots=True)
 class AppError(Exception):
-    """Internal exception that exposes only its explicit sanitized fields."""
+    """Exception with read-only public fields and interpreter-managed traceback state."""
 
-    code: ErrorCode
-    message: str
-    details: Mapping[str, object] = field(default_factory=dict)
+    __slots__ = ("_code", "_details", "_message")
 
     default_message: ClassVar[str] = "The application could not complete the request."
 
-    def __post_init__(self) -> None:
-        require_non_empty(self.message, "message")
-        object.__setattr__(self, "details", freeze_mapping(self.details))
+    def __init__(
+        self,
+        code: ErrorCode,
+        message: str,
+        details: Mapping[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        require_non_empty(message, "message")
+        self._code = code
+        self._message = message
+        self._details = freeze_mapping(details or {})
+
+    @property
+    def code(self) -> ErrorCode:
+        return self._code
+
+    @property
+    def message(self) -> str:
+        return self._message
+
+    @property
+    def details(self) -> Mapping[str, object]:
+        return self._details
 
     def __str__(self) -> str:
         return f"{self.code}: {self.message}"

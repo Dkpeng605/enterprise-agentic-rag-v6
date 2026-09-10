@@ -97,9 +97,9 @@ Backend:
 ```bash
 docker compose -f infra/compose/compose.dev.yml up -d postgres
 export TEST_DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test
-uv run --project backend ruff check backend/src backend/tests backend/migrations
-uv run --project backend mypy backend/src backend/tests backend/migrations
-uv run --project backend pytest -q
+(cd backend && uv run ruff check src tests migrations)
+(cd backend && uv run mypy src tests migrations)
+(cd backend && uv run pytest -q)
 uv build --project backend
 ```
 
@@ -135,14 +135,19 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M2-01 PostgreSQL schema, Alembic, and async repository baseline: complete
 - M2-02 concurrency-safe ingestion job state machine: complete
 - M2-03 Milvus Lite vector-store adapter: complete
-- M2-04 crash-safe local object store: implemented by the current PR
-- Next: M2-05 document registration and deduplication
+- M2-04 crash-safe local object store: complete
+- M2-05 document registration and concurrency-safe deduplication: implemented by the current PR
+- Next: M2-06 asynchronous deletion and cross-store reconcile
 
 The PostgreSQL job repository now owns enqueue, exclusive lease, start, heartbeat, retry, cooperative cancellation, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and must renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
 The VectorStore port requires an index revision on every record and search. Milvus collections are isolated by revision so embedding dimensions cannot be mixed. Every search expression injects `tenant_id` and `status == "ready"`; optional collection and document scopes only narrow that mandatory filter. Dense and sparse vectors, scalar filtering, idempotent upsert, count, version deletion, persistence, and close behavior run against real Milvus Lite files in contract tests.
 
 The ObjectStore port accepts an asynchronous byte stream and publishes immutable objects under canonical SHA-256 keys. The local adapter bounds optional upload size, verifies an optional caller digest, fsyncs complete content, and atomically publishes without replacing an existing object. Interrupted and rejected uploads remove their `.part` files; traversal, absolute, malformed, mismatched-prefix, and symlink-escape keys are rejected before filesystem access.
+
+Document registration streams bytes to ObjectStore before opening its PostgreSQL unit of work. The deduplication identity is `(tenant_id, collection_id, sha256)`: repeats return the original document/version, while another collection or tenant gets independent logical ownership and can safely reuse the immutable physical object. A new hash under the same logical name creates a new version. PostgreSQL transaction advisory locks serialize both content and logical-name races, with primary/unique constraints as integrity backstops. The service exists at the application layer; an HTTP upload endpoint is intentionally deferred to its API acceptance slice.
+
+Application errors keep their explicit details deeply immutable, but the exception object itself is not frozen because Python must attach traceback state while errors cross asynchronous transaction context managers.
 
 M1 is complete. Product RAG behavior has not been implemented yet. The repository now provides the tested engineering foundation: packaging, CI and protected-main workflow, validated configuration loading, provider discovery and lifecycle rules, immutable domain models, stable content IDs, UUIDv7 identifiers, unified errors, application startup, and frontend mounting.
 
