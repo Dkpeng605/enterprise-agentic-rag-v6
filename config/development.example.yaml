@@ -9,6 +9,8 @@ ingestion:
   pdf_ocr_min_chars: 20
   pdf_render_scale: 2.5
   pdf_ocr_languages: [chi_sim, eng]
+  spreadsheet_rows_per_root: 60
+  csv_fallback_encoding: null
 
 deep:
   low_threshold: 0.45

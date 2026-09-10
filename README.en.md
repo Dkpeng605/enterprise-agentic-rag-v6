@@ -155,7 +155,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M2 storage and lifecycle milestone: complete
 - M3-01 PDF and OCR loader: complete
 - M3-02 DOCX/HTML/TXT/Markdown loaders: complete
-- Next: M3-03 XLSX/XLS/CSV loaders
+- M3-03 XLSX/XLS/CSV loaders: complete
+- Next: M3-04 Cleaner
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -176,6 +177,8 @@ M1 and M2 are complete. Product ingestion and query behavior has not been implem
 The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for the later image-storage slice. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. This capability currently lives in the Loader adapter and is not yet wired into the complete ingestion Pipeline or HTTP upload endpoint.
 
 The text-document Loader supports DOCX, HTML, TXT, and Markdown. DOCX headings become Section Roots, tables become normalized Markdown, and embedded-image bytes are retained. HTML scripts, styles, navigation, and active embedded objects are removed; body structure is converted to Markdown, while external image locations are recorded without network access. TXT and Markdown are accepted only as UTF-8. This remains a parsing adapter and is not yet connected to the Cleaner, Splitter, or persistence pipeline.
+
+The spreadsheet Loader parses XLSX, legacy XLS, and CSV independently. Each worksheet becomes header-bearing row blocks; continuation blocks repeat the header and preserve source row numbers. Empty outer rows and columns are trimmed while formula cache values and expressions remain traceable. CSV accepts UTF-8/UTF-8-SIG by default; a legacy encoding must be selected explicitly with `csv_fallback_encoding`. These loaders are not yet connected to the complete pipeline.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 
