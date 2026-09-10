@@ -52,6 +52,11 @@ class IngestionSettings(SettingsModel):
     pdf_ocr_languages: tuple[str, ...] = ("chi_sim", "eng")
     spreadsheet_rows_per_root: Annotated[int, Field(ge=1, le=1_000)] = 60
     csv_fallback_encoding: str | None = None
+    embedding_batch_size: Annotated[int, Field(ge=1, le=512)] = 32
+    embedding_batch_tokens: Annotated[int, Field(ge=1, le=1_000_000)] = 8_192
+    embedding_dimension: PositiveInt = 384
+    embedding_timeout_seconds: Annotated[float, Field(gt=0, le=300)] = 20.0
+    embedding_max_retries: Annotated[int, Field(ge=0, le=10)] = 2
 
     @model_validator(mode="after")
     def validate_token_window(self) -> "IngestionSettings":

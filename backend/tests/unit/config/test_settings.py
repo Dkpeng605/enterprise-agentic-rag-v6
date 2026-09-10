@@ -68,6 +68,28 @@ def test_production_missing_secrets_has_stable_sanitized_error() -> None:
     }
 
 
+def test_remote_embedding_requires_its_own_production_credentials() -> None:
+    environment = {
+        "ADMIN_BOOTSTRAP_EMAIL": "admin@example.test",
+        "ADMIN_BOOTSTRAP_PASSWORD": "password",
+        "DATABASE_URL": "postgresql+asyncpg://example.test/db",
+        "MCP_TOKEN_PEPPER": "pepper",
+        "SESSION_SECRET": "session",
+    }
+    with pytest.raises(SettingsError) as raised:
+        load_settings(
+            environ=environment,
+            overrides={
+                "app": {"environment": "production"},
+                "providers": {"llm": "mock", "embedding": "openai_compatible"},
+            },
+        )
+
+    assert raised.value.details == {
+        "fields": ("EMBEDDING_API_KEY", "EMBEDDING_BASE_URL", "EMBEDDING_MODEL")
+    }
+
+
 @pytest.mark.parametrize(
     "deep_config",
     [

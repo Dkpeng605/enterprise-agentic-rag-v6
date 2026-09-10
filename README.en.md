@@ -159,7 +159,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M3-04 deterministic Cleaner and audit report: complete
 - M3-05 structure-aware Root/Leaf Splitter: complete
 - M3-06 image storage, Vision port, and caption degradation: complete
-- Next: M3-07 Embedding Providers
+- M3-07 local multilingual and OpenAI-compatible Embedding Providers: complete
+- Next: M3-08 sparse encoding and projection
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -188,6 +189,13 @@ The deterministic Cleaner preserves both raw and cleaned text and records each e
 The structure-aware Splitter uses a versioned deterministic multilingual tokenizer, prioritizes headings, paragraphs, lists, code fences, and table rows within each Root, and then enforces target/max/overlap limits. Continuation table chunks repeat headers and count them toward the token cap. Root/Leaf IDs remain stable for the same version, index revision, content, and order. This lightweight tokenizer is not represented as equivalent to any remote model tokenizer; replacing it requires a new index revision.
 
 Image enrichment writes the original image extracted by a Loader to the content-addressed ObjectStore before invoking the pluggable Vision port. The default `vision: none` keeps the image and skips captioning. A Vision failure degrades only the caption, without discarding the stored image or exposing provider errors. ObjectStore failure still aborts ingestion because image persistence is not optional data.
+
+The Embedding port has local multilingual and OpenAI-compatible implementations. The local default is FastEmbed ONNX `paraphrase-multilingual-MiniLM-L12-v2` (384 dimensions, mean pooling), which downloads approximately 0.22GB on first use. The remote adapter applies item/token batch limits plus bounded retries for timeouts, rate limits, and 5xx responses. Both validate count, order, dimension, and finite values and return L2-normalized vectors. Run the real-model check explicitly with:
+
+```bash
+RUN_MODEL_TESTS=1 uv run --project backend pytest -q \
+  backend/tests/contract/test_embedding_providers.py -m model
+```
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

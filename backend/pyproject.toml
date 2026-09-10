@@ -8,6 +8,8 @@ dependencies = [
   "alembic>=1.16,<2",
   "asyncpg>=0.30,<1",
   "fastapi>=0.116,<1",
+  "fastembed>=0.8,<0.9",
+  "httpx>=0.28,<1",
   "openpyxl>=3.1,<4",
   "pillow>=11,<13",
   "pymilvus[milvus-lite]>=2.6,<3",
@@ -46,6 +48,7 @@ packages = ["src/enterprise_rag"]
 addopts = "-ra"
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = ["model: opt-in test that downloads and runs a real local model"]
 
 [tool.ruff]
 line-length = 100

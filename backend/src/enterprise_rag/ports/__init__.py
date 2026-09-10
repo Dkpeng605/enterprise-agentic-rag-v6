@@ -1,6 +1,7 @@
 """Stable interfaces between application services and replaceable adapters."""
 
 from enterprise_rag.ports.cleaner import Cleaner, CleaningAudit, CleanResult, CleanRoot
+from enterprise_rag.ports.embedding import EmbeddingProvider
 from enterprise_rag.ports.loader import (
     BinarySource,
     IngestionContext,
@@ -41,6 +42,7 @@ __all__ = [
     "CleaningAudit",
     "CleanResult",
     "CleanRoot",
+    "EmbeddingProvider",
     "Provider",
     "ProviderHealth",
     "ProviderInfo",

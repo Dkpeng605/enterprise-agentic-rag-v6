@@ -12,6 +12,11 @@ ingestion:
   pdf_ocr_languages: [chi_sim, eng]
   spreadsheet_rows_per_root: 60
   csv_fallback_encoding: null
+  embedding_batch_size: 32
+  embedding_batch_tokens: 8192
+  embedding_dimension: 384
+  embedding_timeout_seconds: 20.0
+  embedding_max_retries: 2
 
 deep:
   low_threshold: 0.45
