@@ -1,0 +1,53 @@
+name: Backend
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install locked dependencies
+        run: uv sync --project backend --locked
+
+      - name: Lint backend
+        working-directory: backend
+        run: uv run ruff check src tests
+
+      - name: Type-check backend
+        working-directory: backend
+        run: uv run mypy src tests
+
+      - name: Test backend
+        working-directory: backend
+        run: uv run pytest -q
+
+      - name: Build backend package
+        run: uv build --project backend
+
