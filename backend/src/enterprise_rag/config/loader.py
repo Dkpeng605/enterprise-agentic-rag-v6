@@ -42,6 +42,7 @@ KNOWN_PROVIDERS: dict[str, frozenset[str]] = {
     "splitter": frozenset({"structure_aware"}),
     "evaluator": frozenset({"deterministic"}),
     "ocr": frozenset({"tesseract"}),
+    "vision": frozenset({"none"}),
 }
 
 PRODUCTION_REQUIRED_ENV = (

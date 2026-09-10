@@ -4,6 +4,7 @@ app:
 
 providers:
   llm: mock
+  vision: none
 
 ingestion:
   pdf_ocr_min_chars: 20

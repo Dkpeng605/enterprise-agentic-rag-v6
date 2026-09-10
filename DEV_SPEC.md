@@ -1653,14 +1653,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
-| M3 | 多格式摄取流水线 | 10 | M3-01～M3-05 完成 |
+| M3 | 多格式摄取流水线 | 10 | M3-01～M3-06 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 17/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 18/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1782,8 +1782,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-06 图片增强
 
-- 图片存储、Vision Adapter、caption 降级；
-- 验收：无 Vision 配置仍可完成摄取。
+- 端口：`VisionProvider.caption(VisionImage)` 只接收已验证图片；默认 `NoopVisionProvider` 明确返回无 caption，不隐式调用远程服务；
+- 存储：`ImageEnricher` 在 caption 前按 Loader 提供的 SHA-256 写 ObjectStore，相同图片复用同一内容寻址对象；存储失败是摄取失败，不允许降级丢图；
+- 降级：未配置 Vision 时 caption 状态为 `skipped` 且摄取继续；Vision 异常时状态为 `degraded`、错误码固定为 `VISION_CAPTION_FAILED`，不保存供应商异常正文，图片对象和引用继续可用；
+- 输出：每张图片保留页码（未知时为空）、序号、名称、MIME、尺寸、hash、object key、caption 和状态；聚合结果显式标记是否 degraded；
+- 验收：真实 LocalObjectStore、重复图片去重、caption 成功、默认无 Vision、Vision 异常净化且图片保留、空图片列表和关闭幂等。
 
 #### M3-07 Embedding Providers
 

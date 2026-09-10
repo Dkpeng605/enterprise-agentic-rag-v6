@@ -34,6 +34,7 @@ from enterprise_rag.ports.vector_store import (
     VectorRecord,
     VectorStore,
 )
+from enterprise_rag.ports.vision import CaptionStatus, VisionImage, VisionProvider
 
 __all__ = [
     "Cleaner",
@@ -68,4 +69,7 @@ __all__ = [
     "object_key_for_sha256",
     "validate_object_key",
     "validate_sha256",
+    "CaptionStatus",
+    "VisionImage",
+    "VisionProvider",
 ]

@@ -1,6 +1,7 @@
 """Application services that coordinate ports and transactional adapters."""
 
 from enterprise_rag.services.documents import DocumentRegistrationService, RegisterDocument
+from enterprise_rag.services.images import EnrichedImage, ImageEnricher, ImageEnrichmentResult
 from enterprise_rag.services.lifecycle import (
     DeletionResult,
     DeletionStep,
@@ -16,6 +17,9 @@ __all__ = [
     "DeletionStep",
     "DocumentDeletionService",
     "DocumentRegistrationService",
+    "EnrichedImage",
+    "ImageEnricher",
+    "ImageEnrichmentResult",
     "ReconcileIssue",
     "ReconcileIssueKind",
     "ReconcileReport",

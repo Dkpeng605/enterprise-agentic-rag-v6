@@ -27,6 +27,7 @@ class ProviderSettings(SettingsModel):
     splitter: str = "structure_aware"
     evaluator: str = "deterministic"
     ocr: str = "tesseract"
+    vision: str = "none"
 
 
 class IngestionSettings(SettingsModel):
