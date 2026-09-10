@@ -128,8 +128,11 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M1-04 validated settings and secret loading: complete
 - M1-05 common plugin contract and registry: complete
 - M1-06 immutable domain types and unified errors: complete
-- M2-01 PostgreSQL schema, Alembic, and async repository baseline: implemented by the current PR
-- Next: M2-02 ingestion job state machine
+- M2-01 PostgreSQL schema, Alembic, and async repository baseline: complete
+- M2-02 concurrency-safe ingestion job state machine: implemented by the current PR
+- Next: M2-03 Milvus Lite vector-store adapter
+
+The PostgreSQL job repository now owns enqueue, exclusive lease, start, heartbeat, retry, cooperative cancellation, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and must renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
 M1 is complete. Product RAG behavior has not been implemented yet. The repository now provides the tested engineering foundation: packaging, CI and protected-main workflow, validated configuration loading, provider discovery and lifecycle rules, immutable domain models, stable content IDs, UUIDv7 identifiers, unified errors, application startup, and frontend mounting.
 

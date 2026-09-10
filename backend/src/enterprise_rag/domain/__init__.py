@@ -12,6 +12,7 @@ from enterprise_rag.domain.documents import (
     RootKind,
 )
 from enterprise_rag.domain.errors import AppError, ErrorCode, ErrorDetail, ErrorResponse
+from enterprise_rag.domain.jobs import TERMINAL_JOB_STATUSES, JobSnapshot, JobStatus
 from enterprise_rag.domain.retrieval import (
     Citation,
     QueryIntent,
@@ -33,6 +34,8 @@ __all__ = [
     "ErrorDetail",
     "ErrorResponse",
     "LeafChunk",
+    "JobSnapshot",
+    "JobStatus",
     "QueryIntent",
     "QueryMode",
     "QueryPlan",
@@ -40,6 +43,7 @@ __all__ = [
     "RetrievalHit",
     "RootChunk",
     "RootKind",
+    "TERMINAL_JOB_STATUSES",
     "new_uuid7",
     "stable_content_id",
     "utc_now",
