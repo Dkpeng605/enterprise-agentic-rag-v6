@@ -1,7 +1,8 @@
 """Document upload registration orchestration."""
 
 from collections.abc import AsyncIterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime
 from uuid import UUID
 
 from enterprise_rag.adapters.database.documents import (
@@ -9,7 +10,8 @@ from enterprise_rag.adapters.database.documents import (
     DocumentRegistrationRepository,
 )
 from enterprise_rag.adapters.database.engine import Database
-from enterprise_rag.domain.common import require_non_empty, require_uuid7
+from enterprise_rag.adapters.database.jobs import IngestionJobRepository
+from enterprise_rag.domain.common import require_non_empty, require_utc, require_uuid7, utc_now
 from enterprise_rag.domain.documents import DocumentVisibility
 from enterprise_rag.ports.object_store import ObjectStore, validate_sha256
 
@@ -52,13 +54,28 @@ class RegisterDocument:
 
 
 class DocumentRegistrationService:
-    def __init__(self, database: Database, object_store: ObjectStore) -> None:
+    def __init__(
+        self,
+        database: Database,
+        object_store: ObjectStore,
+        *,
+        max_attempts: int = 3,
+    ) -> None:
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be positive")
         self._database = database
         self._object_store = object_store
+        self._max_attempts = max_attempts
 
     async def register(
-        self, command: RegisterDocument, chunks: AsyncIterable[bytes]
+        self,
+        command: RegisterDocument,
+        chunks: AsyncIterable[bytes],
+        *,
+        now: datetime | None = None,
     ) -> DocumentRegistration:
+        submitted_at = now or utc_now()
+        require_utc(submitted_at, "now")
         async with self._object_store.mutation_guard():
             stored_object = await self._object_store.put(
                 chunks,
@@ -66,7 +83,7 @@ class DocumentRegistrationService:
                 max_bytes=command.max_bytes,
             )
             async with self._database.session() as session:
-                return await DocumentRegistrationRepository(session).register(
+                registration = await DocumentRegistrationRepository(session).register(
                     tenant_id=command.tenant_id,
                     collection_id=command.collection_id,
                     created_by=command.created_by,
@@ -79,3 +96,13 @@ class DocumentRegistrationService:
                     parser_version=command.parser_version,
                     stored_object=stored_object,
                 )
+                jobs = IngestionJobRepository(session)
+                existing_job = await jobs.get_for_version(registration.version_id)
+                job = existing_job or await jobs.enqueue(
+                    tenant_id=command.tenant_id,
+                    document_id=registration.document_id,
+                    version_id=registration.version_id,
+                    available_at=submitted_at,
+                    max_attempts=self._max_attempts,
+                )
+                return replace(registration, job_id=job.id)

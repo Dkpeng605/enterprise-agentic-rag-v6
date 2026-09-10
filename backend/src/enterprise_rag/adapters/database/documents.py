@@ -30,6 +30,7 @@ class DocumentRegistration:
     object_key: str
     deduplicated: bool
     new_document: bool
+    job_id: UUID | None = None
 
 
 class DocumentRegistrationRepository:

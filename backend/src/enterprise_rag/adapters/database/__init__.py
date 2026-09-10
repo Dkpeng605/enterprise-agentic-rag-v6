@@ -6,6 +6,11 @@ from enterprise_rag.adapters.database.documents import (
     DocumentRegistrationRepository,
 )
 from enterprise_rag.adapters.database.engine import Database
+from enterprise_rag.adapters.database.ingestion import (
+    IngestionContentRepository,
+    IngestionPersistenceError,
+    IngestionWork,
+)
 from enterprise_rag.adapters.database.jobs import IngestionJobRepository, JobStateError
 from enterprise_rag.adapters.database.lifecycle import (
     DeleteRequest,
@@ -28,5 +33,8 @@ __all__ = [
     "DocumentLifecycleError",
     "DocumentLifecycleRepository",
     "IngestionJobRepository",
+    "IngestionContentRepository",
+    "IngestionPersistenceError",
+    "IngestionWork",
     "JobStateError",
 ]
