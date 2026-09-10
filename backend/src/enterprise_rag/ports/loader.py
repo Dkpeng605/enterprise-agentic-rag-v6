@@ -41,7 +41,7 @@ class IngestionContext:
 
 @dataclass(frozen=True, slots=True)
 class LoadedImage:
-    page: int
+    page: int | None
     ordinal: int
     name: str
     media_type: str
@@ -51,8 +51,8 @@ class LoadedImage:
     data: bytes = field(repr=False)
 
     def __post_init__(self) -> None:
-        if self.page <= 0 or self.ordinal < 0:
-            raise ValueError("image page must be positive and ordinal non-negative")
+        if (self.page is not None and self.page <= 0) or self.ordinal < 0:
+            raise ValueError("image page must be positive when known and ordinal non-negative")
         require_non_empty(self.name, "name")
         require_non_empty(self.media_type, "media_type")
         require_sha256(self.sha256, "sha256")

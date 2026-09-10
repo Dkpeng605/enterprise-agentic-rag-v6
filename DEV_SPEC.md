@@ -1653,14 +1653,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
-| M3 | 多格式摄取流水线 | 10 | M3-01 完成 |
+| M3 | 多格式摄取流水线 | 10 | M3-01～M3-02 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 13/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 14/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1749,8 +1749,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-02 文本类 Loader
 
-- DOCX、HTML、TXT、Markdown；
-- 验收：标题、表格、代码、图片引用和恶意 HTML。
+- DOCX：按 Heading 形成 Root，无标题正文归入最近标题，表格规范化为 Markdown，内嵌图片保留字节、尺寸与 hash；不伪造页码；
+- HTML：仅解析上传字节，移除 script/style/nav/iframe/object 等主动或非正文节点，标题、段落、列表、代码和表格转为 Markdown；记录但绝不请求外部图片；
+- TXT/Markdown：只接受 UTF-8/UTF-8-SIG，不猜测编码，Markdown 原文结构保持不变；
+- 安全：DOCX 校验 OOXML 必需部件、归档路径、条目数和解压后总大小；格式、空内容、编码和损坏输入使用稳定错误；
+- 验收：真实 OOXML 结构覆盖标题、表格和内嵌图片；HTML 覆盖代码、列表、表格、外链图片和恶意节点；TXT/MD 覆盖中文、BOM、坏编码、类型不匹配和关闭幂等。
 
 #### M3-03 表格类 Loader
 
