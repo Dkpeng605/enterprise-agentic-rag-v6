@@ -117,7 +117,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M1-03 CI and protected-main workflow: complete
 - M1-04 validated settings and secret loading: complete
 - M1-05 common plugin contract and registry: complete
-- M1-06 immutable domain types and unified errors: implemented by the current PR
+- M1-06 immutable domain types and unified errors: complete
 - Next milestone: M2 storage and document lifecycle
 
 M1 is complete. Product RAG behavior has not been implemented yet. The repository now provides the tested engineering foundation: packaging, CI and protected-main workflow, validated configuration loading, provider discovery and lifecycle rules, immutable domain models, stable content IDs, UUIDv7 identifiers, unified errors, application startup, and frontend mounting.
@@ -125,3 +125,5 @@ M1 is complete. Product RAG behavior has not been implemented yet. The repositor
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 
 Root and Leaf IDs are derived from immutable identity fields and content hashes. Reprocessing the same version with the same index revision produces the same IDs; changing content, ordinal, kind, or index revision produces different IDs. Domain timestamps must be timezone-aware UTC, metadata is copied into deeply immutable structures, and `to_dict()` outputs JSON-compatible API values.
+
+M1 was delivered through independently checked pull requests: [specification #1](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/1), [anonymous demo boundary #2](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/2), [Monorepo #3](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/3), [CI and branch protection #4](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/4), [settings #5](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/5), [plugin registry #6](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/6), and [domain types #7](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/7).
