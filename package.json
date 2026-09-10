@@ -1,0 +1,15 @@
+{
+  "name": "enterprise-agentic-rag-v6-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "frontend:build": "pnpm --dir frontend build",
+    "frontend:dev": "pnpm --dir frontend dev",
+    "frontend:test": "pnpm --dir frontend test",
+    "frontend:typecheck": "pnpm --dir frontend typecheck"
+  }
+}
+
