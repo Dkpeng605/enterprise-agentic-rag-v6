@@ -147,7 +147,7 @@ class DocumentVersionModel(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("document_id", "sha256", name="uq_document_versions_document_sha"),
         CheckConstraint(
-            "status IN ('pending', 'processing', 'indexed', 'failed', 'superseded')",
+            "status IN ('pending', 'processing', 'indexed', 'failed', 'superseded', 'deleted')",
             name="status",
         ),
         CheckConstraint("size_bytes >= 0", name="size_non_negative"),

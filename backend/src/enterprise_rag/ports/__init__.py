@@ -20,6 +20,7 @@ from enterprise_rag.ports.vector_store import (
     SparseSearchRequest,
     UpsertResult,
     VectorHit,
+    VectorProjection,
     VectorRecord,
     VectorStore,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "SparseSearchRequest",
     "UpsertResult",
     "VectorHit",
+    "VectorProjection",
     "VectorRecord",
     "VectorStore",
     "ObjectStore",

@@ -5,6 +5,7 @@ import hashlib
 import os
 import tempfile
 from collections.abc import AsyncIterable, AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from enterprise_rag.ports.object_store import (
@@ -25,6 +26,14 @@ class LocalObjectStore:
         self._temporary_root = self._root / "temporary"
         self._objects_root.mkdir(parents=True, exist_ok=True)
         self._temporary_root.mkdir(parents=True, exist_ok=True)
+        self._mutation_lock = asyncio.Lock()
+
+    @asynccontextmanager
+    async def mutation_guard(self) -> AsyncIterator[None]:
+        """Serialize reference-changing operations for the single-process local adapter."""
+
+        async with self._mutation_lock:
+            yield
 
     def info(self) -> ProviderInfo:
         return ProviderInfo(

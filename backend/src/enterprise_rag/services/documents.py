@@ -59,22 +59,23 @@ class DocumentRegistrationService:
     async def register(
         self, command: RegisterDocument, chunks: AsyncIterable[bytes]
     ) -> DocumentRegistration:
-        stored_object = await self._object_store.put(
-            chunks,
-            expected_sha256=command.expected_sha256,
-            max_bytes=command.max_bytes,
-        )
-        async with self._database.session() as session:
-            return await DocumentRegistrationRepository(session).register(
-                tenant_id=command.tenant_id,
-                collection_id=command.collection_id,
-                created_by=command.created_by,
-                logical_name=command.logical_name,
-                title=command.title,
-                source_name=command.source_name,
-                media_type=command.media_type,
-                visibility=command.visibility,
-                parser_provider=command.parser_provider,
-                parser_version=command.parser_version,
-                stored_object=stored_object,
+        async with self._object_store.mutation_guard():
+            stored_object = await self._object_store.put(
+                chunks,
+                expected_sha256=command.expected_sha256,
+                max_bytes=command.max_bytes,
             )
+            async with self._database.session() as session:
+                return await DocumentRegistrationRepository(session).register(
+                    tenant_id=command.tenant_id,
+                    collection_id=command.collection_id,
+                    created_by=command.created_by,
+                    logical_name=command.logical_name,
+                    title=command.title,
+                    source_name=command.source_name,
+                    media_type=command.media_type,
+                    visibility=command.visibility,
+                    parser_provider=command.parser_provider,
+                    parser_version=command.parser_version,
+                    stored_object=stored_object,
+                )

@@ -42,6 +42,7 @@ class DocumentVersionStatus(StrEnum):
     INDEXED = "indexed"
     FAILED = "failed"
     SUPERSEDED = "superseded"
+    DELETED = "deleted"
 
 
 class RootKind(StrEnum):

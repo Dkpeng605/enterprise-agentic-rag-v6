@@ -7,6 +7,12 @@ from enterprise_rag.adapters.database.documents import (
 )
 from enterprise_rag.adapters.database.engine import Database
 from enterprise_rag.adapters.database.jobs import IngestionJobRepository, JobStateError
+from enterprise_rag.adapters.database.lifecycle import (
+    DeleteRequest,
+    DeletionContext,
+    DocumentLifecycleError,
+    DocumentLifecycleRepository,
+)
 from enterprise_rag.adapters.database.models import Base
 from enterprise_rag.adapters.database.repository import AsyncRepository
 
@@ -17,6 +23,10 @@ __all__ = [
     "DocumentRegistration",
     "DocumentRegistrationError",
     "DocumentRegistrationRepository",
+    "DeleteRequest",
+    "DeletionContext",
+    "DocumentLifecycleError",
+    "DocumentLifecycleRepository",
     "IngestionJobRepository",
     "JobStateError",
 ]

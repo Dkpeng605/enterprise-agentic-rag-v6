@@ -77,6 +77,12 @@ async def test_milvus_lite_contract_covers_schema_upsert_search_filter_and_delet
         assert result.count == 4
         assert await store.count_by_version(TENANT_A, VERSION_A) == 2
         assert await store.count_by_version(TENANT_B, VERSION_A) == 1
+        projections = await store.list_version_projections()
+        assert {(item.tenant_id, item.version_id, item.count) for item in projections} == {
+            (TENANT_A, VERSION_A, 2),
+            (TENANT_A, VERSION_B, 1),
+            (TENANT_B, VERSION_A, 1),
+        }
 
         dense_hits = await store.dense_search(
             DenseSearchRequest(
