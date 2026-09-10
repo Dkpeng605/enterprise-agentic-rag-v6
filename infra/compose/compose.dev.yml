@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: enterprise_rag_test
+      POSTGRES_USER: enterprise_rag
+      POSTGRES_PASSWORD: enterprise_rag
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U enterprise_rag -d enterprise_rag_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-dev-data:

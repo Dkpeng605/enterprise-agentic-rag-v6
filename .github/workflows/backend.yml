@@ -18,6 +18,22 @@ jobs:
     name: backend-quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:5432/enterprise_rag_test
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: enterprise_rag_test
+          POSTGRES_USER: enterprise_rag
+          POSTGRES_PASSWORD: enterprise_rag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U enterprise_rag -d enterprise_rag_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -38,11 +54,11 @@ jobs:
 
       - name: Lint backend
         working-directory: backend
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests migrations
 
       - name: Type-check backend
         working-directory: backend
-        run: uv run mypy src tests
+        run: uv run mypy src tests migrations
 
       - name: Test backend
         working-directory: backend
