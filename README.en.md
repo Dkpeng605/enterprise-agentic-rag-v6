@@ -161,7 +161,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M3-06 image storage, Vision port, and caption degradation: complete
 - M3-07 local multilingual and OpenAI-compatible Embedding Providers: complete
 - M3-08 sparse encoding and compensating projection: complete
-- Next: M3-09 Pipeline assembly
+- M3-09 recoverable ingestion Pipeline: complete
+- Next: M3-10 document API
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -177,13 +178,13 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
-M1 and M2 are complete. Product ingestion and query behavior has not been implemented yet. The repository now provides the tested engineering foundation plus PostgreSQL lifecycle state, concurrency-safe jobs and document registration, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation.
+M1 and M2 are complete, and M3 ingestion now reaches a recoverable background Pipeline. The HTTP document API and product query behavior are not implemented yet. The repository provides the tested engineering foundation plus PostgreSQL lifecycle state, concurrency-safe jobs and document registration, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation.
 
-The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for the later image-storage slice. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. This capability currently lives in the Loader adapter and is not yet wired into the complete ingestion Pipeline or HTTP upload endpoint.
+The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for image enrichment. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. The Loader is wired into the background ingestion Pipeline; the HTTP upload endpoint arrives in M3-10.
 
-The text-document Loader supports DOCX, HTML, TXT, and Markdown. DOCX headings become Section Roots, tables become normalized Markdown, and embedded-image bytes are retained. HTML scripts, styles, navigation, and active embedded objects are removed; body structure is converted to Markdown, while external image locations are recorded without network access. TXT and Markdown are accepted only as UTF-8. This remains a parsing adapter and is not yet connected to the Cleaner, Splitter, or persistence pipeline.
+The text-document Loader supports DOCX, HTML, TXT, and Markdown. DOCX headings become Section Roots, tables become normalized Markdown, and embedded-image bytes are retained. HTML scripts, styles, navigation, and active embedded objects are removed; body structure is converted to Markdown, while external image locations are recorded without network access. TXT and Markdown are accepted only as UTF-8. These Loaders are connected to the Cleaner, Splitter, and persistence pipeline.
 
-The spreadsheet Loader parses XLSX, legacy XLS, and CSV independently. Each worksheet becomes header-bearing row blocks; continuation blocks repeat the header and preserve source row numbers. Empty outer rows and columns are trimmed while formula cache values and expressions remain traceable. CSV accepts UTF-8/UTF-8-SIG by default; a legacy encoding must be selected explicitly with `csv_fallback_encoding`. These loaders are not yet connected to the complete pipeline.
+The spreadsheet Loader parses XLSX, legacy XLS, and CSV independently. Each worksheet becomes header-bearing row blocks; continuation blocks repeat the header and preserve source row numbers. Empty outer rows and columns are trimmed while formula cache values and expressions remain traceable. CSV accepts UTF-8/UTF-8-SIG by default; a legacy encoding must be selected explicitly with `csv_fallback_encoding`. These Loaders are connected to the complete background pipeline.
 
 The deterministic Cleaner preserves both raw and cleaned text and records each effective rule, occurrence count, and before/after content hash. It normalizes invisible controls, common OCR artifacts, and whitespace, and uses batch Root statistics to remove repeated headers and footers. Re-cleaning the same text makes no further changes, and no LLM rewrites document content.
 
@@ -199,6 +200,8 @@ RUN_MODEL_TESTS=1 uv run --project backend pytest -q \
 ```
 
 The Sparse Encoder produces Milvus sparse vectors with stable multilingual lexical hashes, log-TF weights, and L2 normalization; it is not represented as BM25. The Projection Service writes Dense/Sparse records in `processing` batches, verifies their count, activates them as `ready`, and verifies again. Repeated runs overwrite the same Leaf IDs. A partial write or verification failure removes every vector for the version with bounded delete retries.
+
+The ingestion Pipeline creates or reuses its Job in the document-registration transaction, then executes Loader → image enrichment → Cleaner → Splitter → PostgreSQL → Milvus → final commit. Each checkpoint renews the lease, advances monotonic progress, and observes cancellation. Deterministic input errors fail immediately; transient failures retry up to the configured limit. Failure and cancellation compensate PostgreSQL content and Milvus projections for that version, and a document becomes `ready` only after both stores verify successfully. The service currently runs through `run_once(owner=...)`; the long-running Worker entry point is deferred to deployment work.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

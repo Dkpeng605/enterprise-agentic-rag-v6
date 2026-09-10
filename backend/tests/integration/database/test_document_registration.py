@@ -15,6 +15,7 @@ from enterprise_rag.adapters.database.models import (
     DocumentContentClaimModel,
     DocumentModel,
     DocumentVersionModel,
+    IngestionJobModel,
     TenantModel,
     UserModel,
 )
@@ -90,15 +91,9 @@ async def seed(database: Database) -> None:
         await session.flush()
         session.add_all(
             [
-                CollectionModel(
-                    id=COLLECTION_A1, tenant_id=TENANT_A, name="Tenant A / One"
-                ),
-                CollectionModel(
-                    id=COLLECTION_A2, tenant_id=TENANT_A, name="Tenant A / Two"
-                ),
-                CollectionModel(
-                    id=COLLECTION_B1, tenant_id=TENANT_B, name="Tenant B / One"
-                ),
+                CollectionModel(id=COLLECTION_A1, tenant_id=TENANT_A, name="Tenant A / One"),
+                CollectionModel(id=COLLECTION_A2, tenant_id=TENANT_A, name="Tenant A / Two"),
+                CollectionModel(id=COLLECTION_B1, tenant_id=TENANT_B, name="Tenant B / One"),
             ]
         )
 
@@ -124,12 +119,19 @@ async def test_same_tenant_collection_and_hash_returns_existing_registration(
         assert duplicate.deduplicated is True
         assert duplicate.document_id == first.document_id
         assert duplicate.version_id == first.version_id
+        assert duplicate.job_id == first.job_id
         assert duplicate.object_key == first.object_key
         async with database.session() as session:
             version = await session.get(DocumentVersionModel, first.version_id)
+            job_count = await session.scalar(
+                select(func.count())
+                .select_from(IngestionJobModel)
+                .where(IngestionJobModel.version_id == first.version_id)
+            )
             assert version is not None
             assert version.source_name == "../display-only.txt"
             assert version.object_key.startswith("sha256/")
+            assert job_count == 1
     finally:
         await database.dispose()
 
@@ -156,9 +158,7 @@ async def test_same_hash_has_independent_logical_ownership_across_collection_and
             payload(b"shared-object"),
         )
 
-        assert len(
-            {first.document_id, other_collection.document_id, other_tenant.document_id}
-        ) == 3
+        assert len({first.document_id, other_collection.document_id, other_tenant.document_id}) == 3
         assert len({first.version_id, other_collection.version_id, other_tenant.version_id}) == 3
         assert {first.object_key, other_collection.object_key, other_tenant.object_key} == {
             first.object_key
@@ -223,9 +223,10 @@ async def test_concurrent_duplicate_upload_has_one_document_version_and_claim(
                 DocumentModel,
                 DocumentVersionModel,
                 DocumentContentClaimModel,
+                IngestionJobModel,
             ):
                 counts.append(await session.scalar(select(func.count()).select_from(model)))
-            assert counts == [1, 1, 1]
+            assert counts == [1, 1, 1, 1]
         assert len(await store.list_keys()) == 1
     finally:
         await database.dispose()

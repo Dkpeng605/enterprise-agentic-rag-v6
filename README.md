@@ -161,7 +161,8 @@ pnpm --dir frontend build
 - M3-06 图片存储、Vision 端口与 caption 降级：已完成
 - M3-07 本地多语与 OpenAI-compatible Embedding Providers：已完成
 - M3-08 Sparse 编码与可补偿 Projection：已完成
-- 下一项：M3-09 Pipeline 组装
+- M3-09 可恢复摄取 Pipeline：已完成
+- 下一项：M3-10 文档 API
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
@@ -177,13 +178,13 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 
 Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
-M1 和 M2 已完成。产品级摄取与查询行为尚未实现。仓库目前提供经过测试的工程基座，以及 PostgreSQL 生命周期状态、并发安全任务与文档注册、Milvus Lite Projection、崩溃安全本地对象、幂等删除和跨存储 Reconcile。
+M1 和 M2 已完成，M3 摄取能力已完成到可恢复的后台 Pipeline；HTTP 文档 API 和产品级查询行为仍未实现。仓库目前提供经过测试的工程基座，以及 PostgreSQL 生命周期状态、并发安全任务与文档注册、Milvus Lite Projection、崩溃安全本地对象、幂等删除和跨存储 Reconcile。
 
-PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供后续图片存储 Slice 使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。当前能力位于 Loader Adapter，尚未接入完整摄取 Pipeline 或 HTTP 上传接口。
+PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供图片增强阶段使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。Loader 已接入后台摄取 Pipeline；HTTP 上传接口在 M3-10 交付。
 
-文本类 Loader 支持 DOCX、HTML、TXT 和 Markdown。DOCX 按标题生成 Section Root，将表格规范化为 Markdown，并保留内嵌图片原始内容；HTML 移除脚本、样式、导航和嵌入对象，将正文结构转为 Markdown，同时只记录外部图片地址而不发起网络请求；TXT/Markdown 严格接受 UTF-8。该能力仍是独立解析适配器，尚未接入 Cleaner、Splitter 或数据库流水线。
+文本类 Loader 支持 DOCX、HTML、TXT 和 Markdown。DOCX 按标题生成 Section Root，将表格规范化为 Markdown，并保留内嵌图片原始内容；HTML 移除脚本、样式、导航和嵌入对象，将正文结构转为 Markdown，同时只记录外部图片地址而不发起网络请求；TXT/Markdown 严格接受 UTF-8。这些 Loader 已接入 Cleaner、Splitter 和持久化流水线。
 
-表格类 Loader 分别解析 XLSX、旧 XLS 和 CSV。每个 worksheet 单独生成带表头的行块，续块重复表头并保留源行号；空白外围被裁剪，公式缓存值和公式表达式均可追踪。CSV 默认只接受 UTF-8/UTF-8-SIG，遗留编码必须通过 `csv_fallback_encoding` 显式指定。完整流水线尚未接入这些 Loader。
+表格类 Loader 分别解析 XLSX、旧 XLS 和 CSV。每个 worksheet 单独生成带表头的行块，续块重复表头并保留源行号；空白外围被裁剪，公式缓存值和公式表达式均可追踪。CSV 默认只接受 UTF-8/UTF-8-SIG，遗留编码必须通过 `csv_fallback_encoding` 显式指定。这些 Loader 已接入完整后台流水线。
 
 确定性 Cleaner 同时保留原文和清洗文本，并为每项实际变更记录规则、次数及前后内容 hash。它处理不可见控制字符、常见 OCR 异常和空白，并通过批量 Root 统计移除重复页眉页脚。相同文本重复清洗不会继续变化，默认不会使用 LLM 改写文档。
 
@@ -199,6 +200,8 @@ RUN_MODEL_TESTS=1 uv run --project backend pytest -q \
 ```
 
 Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化生成 Milvus 稀疏向量；它不等同于 BM25。Projection Service 将 Dense/Sparse 结果分批写为 `processing`，核对数量后激活为 `ready` 并再次核对。重复运行覆盖相同 Leaf ID；部分写入或核验失败会删除该版本全部向量，并对删除执行有界重试。
+
+摄取 Pipeline 在文档注册事务内创建或复用 Job，按 Loader → 图片增强 → Cleaner → Splitter → PostgreSQL → Milvus → 最终提交的顺序运行。每个 checkpoint 同时续租、更新单调进度并确认取消；确定性输入错误直接失败，瞬时错误按上限重试。失败或取消会补偿该版本的 PostgreSQL 内容和 Milvus 投影，只有双存储核验完成后文档才进入 `ready`。当前通过服务层 `run_once(owner=...)` 驱动；常驻 Worker 入口将在部署阶段补齐。
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 

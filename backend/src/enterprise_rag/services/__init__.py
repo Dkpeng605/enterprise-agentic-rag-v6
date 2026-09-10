@@ -2,6 +2,7 @@
 
 from enterprise_rag.services.documents import DocumentRegistrationService, RegisterDocument
 from enterprise_rag.services.images import EnrichedImage, ImageEnricher, ImageEnrichmentResult
+from enterprise_rag.services.ingestion import IngestionPipeline, PipelineRunResult
 from enterprise_rag.services.lifecycle import (
     DeletionResult,
     DeletionStep,
@@ -26,6 +27,8 @@ __all__ = [
     "EnrichedImage",
     "ImageEnricher",
     "ImageEnrichmentResult",
+    "IngestionPipeline",
+    "PipelineRunResult",
     "ProjectionError",
     "ProjectionRequest",
     "ProjectionResult",

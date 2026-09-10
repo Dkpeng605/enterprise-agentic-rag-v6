@@ -78,6 +78,13 @@ class StructureAwareSplitter:
             body = root.clean_text[start_offset:end_offset].strip()
             repeated_header = bool(header and start_token > 0 and not body.startswith(header))
             text = f"{header}\n{body}" if repeated_header else body
+            retrieval_text = text
+            captions = root.metadata.get("image_captions", ())
+            if ordinal == 0 and isinstance(captions, tuple):
+                valid_captions = [value for value in captions if isinstance(value, str)]
+                candidate = retrieval_text + "\n\n" + "\n".join(valid_captions)
+                if valid_captions and self.count_tokens(candidate) <= self._max_tokens:
+                    retrieval_text = candidate
             leaves.append(
                 LeafChunk.create(
                     root_id=root_chunk.id,
@@ -86,10 +93,10 @@ class StructureAwareSplitter:
                     version_id=context.version_id,
                     ordinal=ordinal,
                     text=text,
-                    retrieval_text=text,
+                    retrieval_text=retrieval_text,
                     start_offset=start_offset,
                     end_offset=end_offset,
-                    token_count=len(self._tokenize(text)),
+                    token_count=len(self._tokenize(retrieval_text)),
                     metadata={
                         "source_locator": dict(root.source_locator),
                         "repeated_table_header": repeated_header,

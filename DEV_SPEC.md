@@ -1653,14 +1653,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
-| M3 | 多格式摄取流水线 | 10 | M3-01～M3-08 完成 |
+| M3 | 多格式摄取流水线 | 10 | M3-01～M3-09 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 20/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 21/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1808,8 +1808,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-09 Pipeline 组装
 
-- 串联阶段、进度、取消、租约和恢复；
-- 验收：成功及每阶段注入失败的 E2E。
+- 注册：文档注册与 `ingest` Job 创建/复用位于同一个 PostgreSQL 事务；重复上传不会重复排队，Worker 只领取指定类型任务；
+- 编排：按 ObjectStore 读取、Loader、图片增强、Cleaner、Splitter、PostgreSQL Root/Leaf、Dense/Sparse Projection、最终可见性提交的固定顺序运行；
+- 状态：阶段 checkpoint 原子更新单调进度、heartbeat 与 lease；只有 PostgreSQL 内容和 Milvus 数量均核对后才把 version 标为 `indexed`、document 标为 `ready`、job 标为 `succeeded`；
+- 取消：运行中取消在下一 checkpoint 协作确认，清理该 version 的 PostgreSQL Root/Leaf 与 Milvus 投影，并把 version 标记为 `JOB_CANCELLED`；
+- 失败：确定性文档/OCR 错误直接终止，其他错误按 `max_attempts` 重试；每次失败先补偿 PostgreSQL/Milvus 部分写入，外部异常正文必须净化；超期 lease 延续 M2-02 的恢复协议；
+- 验收：真实 PostgreSQL、LocalObjectStore 与 Milvus Lite 覆盖成功链路、7 个阶段逐一故障注入、运行中取消，以及一次瞬时失败后从干净状态重试成功。
 
 #### M3-10 文档 API
 
