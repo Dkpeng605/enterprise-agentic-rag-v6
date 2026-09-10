@@ -1,5 +1,12 @@
 """Stable interfaces between application services and replaceable adapters."""
 
+from enterprise_rag.ports.object_store import (
+    ObjectStore,
+    StoredObject,
+    object_key_for_sha256,
+    validate_object_key,
+    validate_sha256,
+)
 from enterprise_rag.ports.provider import (
     Provider,
     ProviderHealth,
@@ -32,4 +39,9 @@ __all__ = [
     "VectorHit",
     "VectorRecord",
     "VectorStore",
+    "ObjectStore",
+    "StoredObject",
+    "object_key_for_sha256",
+    "validate_object_key",
+    "validate_sha256",
 ]

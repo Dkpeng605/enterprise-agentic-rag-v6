@@ -581,7 +581,26 @@ Milvus 字段必须包含 tenant、collection、document、version、root、leaf
 
 所有搜索必须包含 tenant filter。匿名请求被强制绑定到系统配置的 demo tenant，不能通过参数切换 tenant；可搜索该租户内全部未删除集合。`top_k` 最大 50。
 
-### 6.6 Reranker 与 LLM
+### 6.6 ObjectStore
+
+```python
+class ObjectStore(Protocol):
+    async def put(
+        self,
+        chunks: AsyncIterable[bytes],
+        *,
+        expected_sha256: str | None = None,
+        max_bytes: int | None = None,
+    ) -> StoredObject: ...
+    def read(self, key: str, *, chunk_size: int = 65536) -> AsyncIterator[bytes]: ...
+    async def exists(self, key: str) -> bool: ...
+    async def delete(self, key: str) -> bool: ...
+    async def list_keys(self) -> tuple[str, ...]: ...
+```
+
+本地实现的对象键固定为 `sha256/{前两位}/{次两位}/{64 位小写摘要}`，不得接受文件名、绝对路径、`..` 或非规范摘要作为键。写入期间仅允许在存储根目录内的 `temporary/*.part` 可见；完整流写入并 `fsync`、校验可选期望摘要和大小上限后，使用同文件系统硬链接原子发布。发布目标已存在时不得覆盖，必须验证已有文件的大小与 SHA-256 后返回 `created=false`。异常、取消、摘要不符和超限都必须清除临时文件。`delete` 幂等，`list_keys` 只返回通过规范键校验的对象，供 reconcile 使用。
+
+### 6.7 Reranker 与 LLM
 
 ```python
 class Reranker(Protocol):
@@ -596,7 +615,7 @@ class LLMProvider(Protocol):
 
 LLM 返回必须记录 provider、model、latency、input/output token、retry count 和 finish reason，不记录 API Key。结构化输出首先使用供应商 schema/JSON mode；解析失败仅允许一次修复请求。
 
-### 6.7 Evaluator 与 TraceExporter
+### 6.8 Evaluator 与 TraceExporter
 
 ```python
 class Evaluator(Protocol):
@@ -1627,7 +1646,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | 里程碑 | 目标 | PR 数 | 状态 |
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
-| M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | M2-01～M2-03 完成 |
+| M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | M2-01～M2-04 完成 |
 | M3 | 多格式摄取流水线 | 10 | 未开始 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
@@ -1635,7 +1654,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 9/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 10/64 完成 |
 
 ### M1：规格与工程基座
 

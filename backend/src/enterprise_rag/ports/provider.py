@@ -13,6 +13,7 @@ class ProviderKind(StrEnum):
     SPLITTER = "splitter"
     EMBEDDING = "embedding"
     VECTOR_STORE = "vector_store"
+    OBJECT_STORE = "object_store"
     RERANKER = "reranker"
     LLM = "llm"
     EVALUATOR = "evaluator"
