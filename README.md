@@ -155,7 +155,8 @@ pnpm --dir frontend build
 - M2 存储与生命周期里程碑：已完成
 - M3-01 PDF/OCR Loader：已完成
 - M3-02 DOCX/HTML/TXT/Markdown Loader：已完成
-- 下一项：M3-03 XLSX/XLS/CSV Loader
+- M3-03 XLSX/XLS/CSV Loader：已完成
+- 下一项：M3-04 Cleaner
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
@@ -176,6 +177,8 @@ M1 和 M2 已完成。产品级摄取与查询行为尚未实现。仓库目前�
 PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供后续图片存储 Slice 使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。当前能力位于 Loader Adapter，尚未接入完整摄取 Pipeline 或 HTTP 上传接口。
 
 文本类 Loader 支持 DOCX、HTML、TXT 和 Markdown。DOCX 按标题生成 Section Root，将表格规范化为 Markdown，并保留内嵌图片原始内容；HTML 移除脚本、样式、导航和嵌入对象，将正文结构转为 Markdown，同时只记录外部图片地址而不发起网络请求；TXT/Markdown 严格接受 UTF-8。该能力仍是独立解析适配器，尚未接入 Cleaner、Splitter 或数据库流水线。
+
+表格类 Loader 分别解析 XLSX、旧 XLS 和 CSV。每个 worksheet 单独生成带表头的行块，续块重复表头并保留源行号；空白外围被裁剪，公式缓存值和公式表达式均可追踪。CSV 默认只接受 UTF-8/UTF-8-SIG，遗留编码必须通过 `csv_fallback_encoding` 显式指定。完整流水线尚未接入这些 Loader。
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 

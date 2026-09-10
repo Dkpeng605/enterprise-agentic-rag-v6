@@ -49,6 +49,8 @@ class IngestionSettings(SettingsModel):
     pdf_ocr_min_chars: Annotated[int, Field(ge=0, le=10_000)] = 20
     pdf_render_scale: Annotated[float, Field(ge=1.0, le=4.0)] = 2.5
     pdf_ocr_languages: tuple[str, ...] = ("chi_sim", "eng")
+    spreadsheet_rows_per_root: Annotated[int, Field(ge=1, le=1_000)] = 60
+    csv_fallback_encoding: str | None = None
 
     @model_validator(mode="after")
     def validate_token_window(self) -> "IngestionSettings":
@@ -64,6 +66,8 @@ class IngestionSettings(SettingsModel):
             not value.strip() or "+" in value for value in self.pdf_ocr_languages
         ):
             raise ValueError("pdf_ocr_languages must contain individual language names")
+        if self.csv_fallback_encoding is not None and not self.csv_fallback_encoding.strip():
+            raise ValueError("csv_fallback_encoding must not be blank")
         return self
 
 

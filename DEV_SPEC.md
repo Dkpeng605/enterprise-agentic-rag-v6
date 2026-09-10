@@ -1653,14 +1653,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
-| M3 | 多格式摄取流水线 | 10 | M3-01～M3-02 完成 |
+| M3 | 多格式摄取流水线 | 10 | M3-01～M3-03 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 14/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 15/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1757,8 +1757,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-03 表格类 Loader
 
-- XLSX/XLS/CSV；
-- 验收：多 sheet、公式、空行、中文、超长表和坏编码。
+- 格式：XLSX 使用 OpenPyXL read-only 双视图读取缓存值与公式，旧 XLS 使用 xlrd 独立解析，CSV 使用标准库流语义解析；扩展名、MIME 与容器签名必须一致；
+- 结构：每个 worksheet 独立处理，裁剪外围空行列但保留有效顺序和原始 1-based 行号；首个有效行为表头，每个最多 60 数据行的续块重复表头；
+- 公式：优先输出缓存值；缺少缓存值时保留公式文本，并在 Root metadata 记录公式位置与表达式；
+- 编码：CSV 仅自动接受 UTF-8/UTF-8-SIG；其他编码必须通过 `csv_fallback_encoding` 明确配置，不做无限编码猜测；
+- 验收：XLSX 多 sheet、公式、空行列和中文，真实 XLS，带 BOM/超长 CSV、显式 GB18030 回退、坏编码、空表、损坏签名、类型不匹配与关闭幂等。
 
 #### M3-04 Cleaner
 
