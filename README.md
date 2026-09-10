@@ -60,6 +60,8 @@ The Vite development server prints its local URL. The current page confirms that
 
 PostgreSQL is required for migration and integration tests. The current HTTP skeleton does not query it yet. Model APIs, Milvus, authentication, and RAG behavior are introduced only by their acceptance PRs.
 
+Milvus Lite is embedded through PyMilvus and needs no separate service. Contract tests create isolated temporary `.db` files; runtime data belongs under ignored `data/runtime/`, never in Git. A single Milvus Lite file must only be opened by one application process.
+
 ## Configure the backend
 
 Settings use this deterministic priority, from lowest to highest:
@@ -129,10 +131,13 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M1-05 common plugin contract and registry: complete
 - M1-06 immutable domain types and unified errors: complete
 - M2-01 PostgreSQL schema, Alembic, and async repository baseline: complete
-- M2-02 concurrency-safe ingestion job state machine: implemented by the current PR
-- Next: M2-03 Milvus Lite vector-store adapter
+- M2-02 concurrency-safe ingestion job state machine: complete
+- M2-03 Milvus Lite vector-store adapter: implemented by the current PR
+- Next: M2-04 local object store
 
 The PostgreSQL job repository now owns enqueue, exclusive lease, start, heartbeat, retry, cooperative cancellation, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and must renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
+
+The VectorStore port requires an index revision on every record and search. Milvus collections are isolated by revision so embedding dimensions cannot be mixed. Every search expression injects `tenant_id` and `status == "ready"`; optional collection and document scopes only narrow that mandatory filter. Dense and sparse vectors, scalar filtering, idempotent upsert, count, version deletion, persistence, and close behavior run against real Milvus Lite files in contract tests.
 
 M1 is complete. Product RAG behavior has not been implemented yet. The repository now provides the tested engineering foundation: packaging, CI and protected-main workflow, validated configuration loading, provider discovery and lifecycle rules, immutable domain models, stable content IDs, UUIDv7 identifiers, unified errors, application startup, and frontend mounting.
 
