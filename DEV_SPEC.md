@@ -104,15 +104,15 @@
 8. Vue3 + TypeScript 可视化管理与公共问答；
 9. Query/Ingestion/Evaluation 可观测性；
 10. 低成本、可重复的评测闭环；
-11. 公开问答与受保护管理面的公网部署；
+11. 匿名单租户测试工作区与受保护系统管理面的公网部署；
 12. 最后阶段的多租户、RBAC、文档 ACL 和审计。
 
 ### 1.2 目标用户
 
 | 用户 | 主要任务 | 默认权限 |
 |---|---|---|
-| 匿名访客 | 体验指定公开知识库的问答 | 只读、限流、不能上传 |
-| 管理员 | 管理文档、查看 Trace、运行评测、诊断 Provider | 单租户全部管理权限 |
+| 匿名测试者 | 在隔离、可重置的 demo tenant 中测试完整业务链路 | 单租户业务管理权限、受配额限制 |
+| 系统管理员 | 管理系统配置、身份、Token、恢复任务和 Provider | 系统级权限 |
 | MCP 用户 | 从 IDE/桌面 Agent 查询被授权集合 | Token Scope 限定 |
 | 企业租户管理员 | 管理本租户用户、集合和 Token | 仅本租户 |
 | 企业编辑者 | 上传、更新和删除授权集合文档 | 无用户管理权限 |
@@ -127,7 +127,7 @@
 - MCP stdio 和 HTTP 对同一问题返回等价结构；
 - Dashboard 能定位每次检索的 Dense/Sparse/RRF/Rerank 排名变化；
 - 小型 golden set 达到本文件定义的合并阈值；
-- 公网匿名用户不能访问管理 API，管理操作必须可审计；
+- 公网匿名用户可在 demo tenant 内测试集合、文档、摄取、查询、Trace 和评测，不能访问系统级管理能力；
 - 2GB VPS 在资源限制内持续运行，服务异常后能恢复未完成任务；
 - 每项功能通过独立 PR 合并，`main` 始终可安装、可测试或明确处于文档阶段。
 
@@ -203,8 +203,9 @@ PostgreSQL 是唯一业务事实源。Milvus 只保存可重建 Leaf 投影。�
 
 ### 2.4 默认安全
 
-- 匿名用户只访问公开 demo collection；
-- 所有写操作需要认证和 CSRF 防护；
+- 匿名用户自动绑定唯一、可重置的 demo tenant，可操作该租户的集合、文档、摄取、查询、Trace 和受预算评测；
+- 匿名写操作需要服务端签发的匿名会话和 CSRF 防护，但不要求注册或登录；
+- Provider 密钥、系统设置、用户、Token、备份恢复和部署能力始终需要系统管理员认证；
 - 密钥只来自环境变量或 Secret；
 - 日志和 Trace 默认不记录密钥、Authorization、完整文档正文或原始 IP；
 - 上传文件先校验大小、扩展名、MIME signature，再进入解析器；
@@ -578,7 +579,7 @@ class VectorStore(Protocol):
 
 Milvus 字段必须包含 tenant、collection、document、version、root、leaf、status、dense vector、sparse vector和最小诊断元数据。正文权威副本留在 PostgreSQL。
 
-所有搜索必须包含 tenant filter；匿名查询还必须包含 public visibility 和允许的 demo collection。`top_k` 最大 50。
+所有搜索必须包含 tenant filter。匿名请求被强制绑定到系统配置的 demo tenant，不能通过参数切换 tenant；可搜索该租户内全部未删除集合。`top_k` 最大 50。
 
 ### 6.6 Reranker 与 LLM
 
@@ -654,8 +655,13 @@ deep:
   high_threshold: 0.80
 
 security:
-  anonymous_requests_per_minute: 5
+  anonymous_demo_full_access: true
+  anonymous_demo_tenant_slug: demo
+  anonymous_api_requests_per_minute: 10
+  anonymous_queries_per_minute: 5
   anonymous_daily_llm_calls: 500
+  anonymous_max_file_bytes: 20971520
+  anonymous_max_ready_documents: 20
   session_minutes: 480
 
 observability:
@@ -939,9 +945,18 @@ Recovery 结果与现有 Evidence Ledger 按 Leaf ID 去重。每轮至少为 Re
 
 #### `GET /auth/me`
 
-返回当前用户、租户、角色、权限和 CSRF token。未登录返回 401。
+当匿名 demo 开启时，无 Cookie 请求会创建匿名 session，并返回 `actor_type=anonymous`、固定 demo tenant、`demo_operator` 权限和 CSRF token；关闭匿名 demo 时，未登录返回 401。系统管理员登录后返回用户、租户、系统权限和新的 CSRF token。
 
-### 11.2 文档
+### 11.2 集合
+
+- `POST /collections`：匿名测试者可在 demo tenant 创建集合；
+- `GET /collections`：列出当前 Principal 可见集合；
+- `GET /collections/{id}`：返回统计和最近活动；
+- `PATCH /collections/{id}`：修改名称、描述和 demo 内可见性；
+- `DELETE /collections/{id}`：异步删除集合内文档，必须二次确认字段；
+- demo tenant 至少保留一个系统 seed collection，该集合可恢复但不能永久删除。
+
+### 11.3 文档
 
 #### `POST /documents`
 
@@ -973,7 +988,7 @@ Recovery 结果与现有 Evidence Ledger 按 Leaf ID 去重。每轮至少为 Re
 
 返回阶段、进度、attempts、时间和安全错误信息。只有所属租户可以读取。
 
-### 11.3 查询
+### 11.4 查询
 
 ```json
 POST /query
@@ -986,7 +1001,7 @@ POST /query
 }
 ```
 
-同步响应包含 answer、citations、mode、trace_id、usage、degraded flags。匿名用户的 collection_ids 会被强制限制为公开 demo 集合。
+同步响应包含 answer、citations、mode、trace_id、usage、degraded flags。匿名用户的 collection_ids 会被强制限制为 demo tenant 中存在的集合。
 
 `POST /query/stream` 使用 SSE：
 
@@ -1001,7 +1016,7 @@ POST /query
 
 客户端断开后取消尚未开始的 LLM 调用；已完成检索 Trace 仍可落库。SSE 每 15 秒发送注释 heartbeat。
 
-### 11.4 CLI 契约
+### 11.5 CLI 契约
 
 CLI 与 HTTP/MCP 必须调用同一 Application Service，禁止出现独立业务实现。统一入口为 `uv run enterprise-rag`：
 
@@ -1019,7 +1034,7 @@ CLI 与 HTTP/MCP 必须调用同一 Application Service，禁止出现独立业�
 
 默认 stdout 输出人类可读摘要；`--json` 输出稳定 JSON，日志始终写 stderr。破坏性修复必须显式传 `--apply`，否则 reconcile 只读。
 
-### 11.5 管理与评测
+### 11.6 管理与评测
 
 - `GET /system/overview`：Provider、文档、任务、查询和资源摘要；
 - `GET /providers`：当前 Provider 与健康状态，密钥仅显示 configured；
@@ -1029,7 +1044,7 @@ CLI 与 HTTP/MCP 必须调用同一 Application Service，禁止出现独立业�
 - `GET /evaluations/runs/{id}`：进度和结果；
 - `GET /evaluations/runs/{id}/cases`：逐 Case 诊断。
 
-### 11.6 健康与指标
+### 11.7 健康与指标
 
 - `/health/live`：进程事件循环可响应，不探测外部依赖；
 - `/health/ready`：检查 PostgreSQL、Milvus、配置和后台 Runner；
@@ -1313,14 +1328,14 @@ Fixture 文档重新编写或从许可清晰的公开资料生成，不复制 v5
 |---|---|---|
 | `/` | 匿名/登录 | 项目介绍与入口 |
 | `/chat` | 匿名/登录 | 问答演示 |
-| `/login` | 匿名 | 管理员登录 |
-| `/admin/overview` | 管理员 | 系统总览 |
-| `/admin/documents` | 编辑者+ | 文档浏览和生命周期 |
-| `/admin/ingestion` | 编辑者+ | 上传与任务 |
-| `/admin/traces/queries` | 管理员/审计者 | Query Trace |
-| `/admin/traces/ingestion` | 管理员/审计者 | Ingestion Trace |
-| `/admin/evaluations` | 管理员 | 评测运行与历史 |
-| `/admin/providers` | 管理员 | Provider 健康与只读配置 |
+| `/workspace/overview` | 匿名测试者/登录用户 | 当前租户业务总览 |
+| `/workspace/documents` | 匿名测试者/编辑者+ | 文档浏览和生命周期 |
+| `/workspace/ingestion` | 匿名测试者/编辑者+ | 上传与任务 |
+| `/workspace/traces/queries` | 匿名测试者/授权用户 | Query Trace |
+| `/workspace/traces/ingestion` | 匿名测试者/授权用户 | Ingestion Trace |
+| `/workspace/evaluations` | 匿名测试者/管理员 | 预算受控评测与历史 |
+| `/login` | 匿名 | 系统管理员登录 |
+| `/admin/providers` | 系统管理员 | Provider 健康、密钥状态与配置 |
 | `/admin/tenants` | 超级管理员 | 企业阶段租户管理 |
 | `/admin/users` | 租户管理员 | 用户与角色 |
 | `/admin/audit` | 管理员/审计者 | 审计日志 |
@@ -1346,13 +1361,13 @@ SSE 断线时显示已接收内容和 trace_id，不自动无限重连。用户�
 
 展示：
 
-- 当前 LLM/Embedding/Rerank/VectorStore/Splitter/Evaluator；
+- 当前 LLM/Embedding/Rerank/VectorStore/Splitter/Evaluator 的非敏感名称；
 - Provider healthy/degraded/unavailable；
 - ready/processing/failed 文档数；
 - Root/Leaf 数；
 - 最近 24 小时查询、错误率、p95；
 - 最近任务和评测；
-- VPS 资源只展示后端实际提供的安全指标。
+- VPS 资源只对系统管理员展示；匿名工作区只显示 demo tenant 的业务统计。
 
 ### 15.5 文档与摄取
 
@@ -1400,7 +1415,18 @@ Ingestion Trace 展示每阶段耗时、输入输出数量、Parser/OCR/Embeddin
 
 ## 16. 安全、鉴权与企业扩展
 
-### 16.1 单管理员首发
+### 16.1 匿名 Demo Principal
+
+- 首次匿名请求由后端签发随机匿名 session，Cookie 使用 HttpOnly、Secure、SameSite=Lax；
+- session 自动映射到固定 `DEMO_TENANT_ID` 和 `demo_operator` 角色，客户端提交的 tenant_id 一律忽略；
+- `demo_operator` 可创建/删除 demo collection，上传/删除文档，执行 Standard/Deep 查询，查看 demo Trace，运行预算允许的评测；
+- 匿名用户不能读取或修改 Provider 密钥、系统配置、用户、角色、API/MCP Token、备份、恢复和部署设置；
+- 匿名写请求仍需 CSRF token；
+- 所有匿名变更记录 session hash 和审计事件，不记录原始 IP；
+- demo tenant 是可丢弃数据区，定时从 seed manifest 恢复，不能存放真实敏感资料；
+- `ANONYMOUS_DEMO_FULL_ACCESS=false` 时完全关闭匿名工作区，保留登录用户路径。
+
+### 16.2 系统管理员
 
 - 首次启动读取 bootstrap email/password，只在用户表为空时创建管理员；
 - 密码使用 Argon2id；
@@ -1410,17 +1436,21 @@ Ingestion Trace 展示每阶段耗时、输入输出数量、Parser/OCR/Embeddin
 - 所有 cookie 写操作校验 CSRF token；
 - 登录按 IP hash 和 email 双维度限速。
 
-### 16.2 匿名问答保护
+### 16.3 匿名测试保护
 
-- 每 IP 每分钟 5 次；
+- 每匿名 session 每分钟 10 个普通 API 请求、每 IP hash 每分钟 30 个普通请求；
+- Query 每 session 每分钟 5 次；
 - 全局每日 LLM 调用默认 500 次；
 - 问题最大 2000 字符；
-- 只允许 Standard，或为 Deep 设置更低额度；
-- 只访问 public demo collection；
+- 允许 Standard/Deep，Deep 消耗更高的配额权重；
+- 单文件默认最大 20MB，单 session 同时只有一个上传，demo tenant 最多 20 个 ready 文档；
+- 同时只运行一个匿名 ingestion 和一个匿名 evaluation；
+- 只访问固定 demo tenant，不能选择或枚举其他 tenant；
+- Trace 对匿名用户隐藏原始正文、IP、密钥状态和其他 session 标识；
 - 达到全局额度返回 429，不回退到无依据回答；
-- 管理员可以暂停匿名问答。
+- 系统管理员可以暂停匿名工作区并一键恢复 seed 数据。
 
-### 16.3 企业 RBAC
+### 16.4 企业 RBAC
 
 | 权限 | super_admin | tenant_admin | editor | viewer | auditor |
 |---|---:|---:|---:|---:|---:|
@@ -1432,7 +1462,7 @@ Ingestion Trace 展示每阶段耗时、输入输出数量、Parser/OCR/Embeddin
 | 运行评测 | ✓ | ✓ |  |  |  |
 | 查看审计 | ✓ | ✓ |  |  | ✓ |
 
-### 16.4 文档 ACL
+### 16.5 文档 ACL
 
 - Collection visibility：private、tenant、public；
 - 可选 collection_members 指定 user/group 权限；
@@ -1442,7 +1472,7 @@ Ingestion Trace 展示每阶段耗时、输入输出数量、Parser/OCR/Embeddin
 - MCP Token scopes 不能扩大签发者自身权限；
 - 无权限与不存在统一返回 404，避免资源枚举。
 
-### 16.5 审计事件
+### 16.6 审计事件
 
 审计 create/update/delete document、login、token create/revoke、role change、eval run、provider config change、backup/restore。事件 append-only，包含 actor、tenant、action、target、outcome、request_id、时间和经过净化的 diff。
 
@@ -1525,7 +1555,7 @@ PostgreSQL 和 Milvus 不映射公网端口。Caddy 是唯一公网入口。API 
 5. 拉取镜像，执行数据库备份；
 6. 执行 Alembic upgrade；
 7. `docker compose up -d`；
-8. 检查 live、ready、首页、匿名 query 和管理员登录；
+8. 检查 live、ready、匿名工作区全链路和系统管理员登录；
 9. 失败时恢复上一个 image tag；
 10. 不自动回滚已执行且不可逆的数据迁移，迁移必须向后兼容。
 
@@ -1724,8 +1754,8 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-10 文档 API
 
-- 上传、列表、详情、任务、删除；
-- 验收：OpenAPI、权限、分页、错误模型。
+- 匿名 session、集合 CRUD、上传、列表、详情、任务、删除；
+- 验收：demo tenant 全业务权限、系统边界、OpenAPI、分页和错误模型。
 
 ### M4：检索与 Agentic RAG
 
@@ -1847,8 +1877,8 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-01 Shell/Auth
 
-- 设计令牌、布局、路由、生成 Client、登录；
-- 验收：route guard、401、CSRF。
+- 设计令牌、布局、路由、生成 Client、匿名 session 和管理员登录；
+- 验收：匿名 workspace、系统 route guard、401、CSRF。
 
 #### M7-02 Public Chat
 
@@ -1862,8 +1892,8 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-04 Documents/Ingestion
 
-- 上传、列表、详情、删除、任务进度；
-- 验收：完整管理员旅程。
+- 集合 CRUD、上传、列表、详情、删除、任务进度；
+- 验收：完整匿名 demo_operator 旅程和系统越权拒绝。
 
 #### M7-05 Query Trace
 
@@ -1882,7 +1912,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-08 Browser E2E
 
-- Playwright 登录、上传、查询、Trace、评测；
+- Playwright 匿名建集合、上传、查询、Trace、评测及管理员登录；
 - 验收：Compose 中全流程通过。
 
 ### M8：首次公网发布
@@ -1914,7 +1944,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M8-06 Public Release
 
-- 域名、HTTPS、匿名限流、后台鉴权；
+- 域名、HTTPS、匿名 demo tenant 全业务权限、系统后台鉴权；
 - 验收：公网 E2E、安全 Header、资源观察 24 小时。
 
 ### M9：企业扩展
@@ -1955,16 +1985,16 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 ### 21.1 首次使用
 
-1. 管理员登录；
-2. 创建 demo collection；
+1. 匿名访问后自动获得 demo session；
+2. 无需登录创建 demo collection；
 3. 上传 PDF/DOCX/XLSX；
 4. 观察任务进度并确认 ready；
 5. Standard 查询返回引用；
 6. Deep 比较问题触发 Recovery；
 7. Query Trace 展示排名变化；
 8. 运行 golden eval；
-9. 创建只读 MCP Token；
-10. stdio 与 HTTP MCP 均完成查询。
+9. 验证无法进入 Provider、用户、Token 和恢复管理；
+10. 系统管理员签发只读 MCP Token，stdio 与 HTTP MCP 均完成查询。
 
 ### 21.2 失败恢复
 
@@ -1992,15 +2022,15 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 3. 修改 API 参数、MCP Tool 参数和猜测 ID 均不能越权；
 4. Milvus 初筛和 PG 回源均执行隔离；
 5. 拒绝事件进入审计；
-6. 匿名用户只能访问 public demo collection。
+6. 匿名用户可管理 demo tenant，但无法切换或访问任一企业 tenant。
 
 ### 21.5 公网验收
 
 - HTTPS 证书有效；
 - 80 自动跳转 443；
 - PostgreSQL/Milvus 无公网端口；
-- 匿名问答限流有效；
-- 管理 API 未登录返回 401；
+- 匿名上传、删除、问答、Trace 和预算评测可用，配额限制有效；
+- Provider、身份、Token、备份恢复等系统 API 未登录返回 401；
 - MCP 无 Token 被拒绝；
 - readiness 能识别依赖故障；
 - VPS 峰值内存不触发 OOM；
@@ -2039,7 +2069,7 @@ README 中任何性能或质量数字必须链接到包含 dataset version、com
 - 后端 FastAPI；
 - 前端 Vue3 + TypeScript；
 - MCP 同时支持 stdio 和 Streamable HTTP；
-- 公网匿名问答，管理后台鉴权；
+- 公网匿名用户拥有隔离 demo tenant 的业务管理权限，系统后台仍需鉴权；
 - VPS 为 2GB 内存；
 - 生产 LLM/Embedding/Rerank 使用外部 API；
 - 本地开发支持中英双语小模型；
