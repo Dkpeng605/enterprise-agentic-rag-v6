@@ -1,5 +1,13 @@
 """Stable interfaces between application services and replaceable adapters."""
 
+from enterprise_rag.ports.loader import (
+    BinarySource,
+    IngestionContext,
+    LoadedImage,
+    LoadedRoot,
+    Loader,
+    OcrEngine,
+)
 from enterprise_rag.ports.object_store import (
     ObjectStore,
     StoredObject,
@@ -34,6 +42,8 @@ __all__ = [
     "RegistryError",
     "RegistryErrorCode",
     "DenseSearchRequest",
+    "BinarySource",
+    "IngestionContext",
     "IndexSchema",
     "SparseSearchRequest",
     "UpsertResult",
@@ -42,6 +52,10 @@ __all__ = [
     "VectorRecord",
     "VectorStore",
     "ObjectStore",
+    "LoadedImage",
+    "LoadedRoot",
+    "Loader",
+    "OcrEngine",
     "StoredObject",
     "object_key_for_sha256",
     "validate_object_key",

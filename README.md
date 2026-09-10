@@ -22,6 +22,7 @@ docs/      架构决策与运维文档
 - [uv](https://docs.astral.sh/uv/)
 - Node.js 22 或更高版本
 - pnpm 11
+- Tesseract 5，并安装 `chi_sim` 与 `eng` 语言数据
 
 ## 启动当前项目
 
@@ -30,6 +31,17 @@ docs/      架构决策与运维文档
 ```bash
 uv sync --project backend --locked
 pnpm install --frozen-lockfile
+```
+
+安装 PDF/OCR 所需系统依赖：
+
+```bash
+# macOS（Homebrew）
+brew install tesseract tesseract-lang
+
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install --yes tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim
 ```
 
 启动开发用 PostgreSQL 并执行数据库迁移：
@@ -141,7 +153,8 @@ pnpm --dir frontend build
 - M2-05 文档注册与并发安全去重：已完成
 - M2-06 异步删除 Saga 与跨存储 Reconcile：已完成
 - M2 存储与生命周期里程碑：已完成
-- 下一项：M3-01 PDF/OCR Loader
+- M3-01 PDF/OCR Loader：已完成
+- 下一项：M3-02 DOCX/HTML/TXT/Markdown Loader
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
@@ -158,6 +171,8 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
 M1 和 M2 已完成。产品级摄取与查询行为尚未实现。仓库目前提供经过测试的工程基座，以及 PostgreSQL 生命周期状态、并发安全任务与文档注册、Milvus Lite Projection、崩溃安全本地对象、幂等删除和跨存储 Reconcile。
+
+PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供后续图片存储 Slice 使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。当前能力位于 Loader Adapter，尚未接入完整摄取 Pipeline 或 HTTP 上传接口。
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 

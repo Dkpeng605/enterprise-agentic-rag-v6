@@ -5,6 +5,11 @@ app:
 providers:
   llm: mock
 
+ingestion:
+  pdf_ocr_min_chars: 20
+  pdf_render_scale: 2.5
+  pdf_ocr_languages: [chi_sim, eng]
+
 deep:
   low_threshold: 0.45
   high_threshold: 0.80

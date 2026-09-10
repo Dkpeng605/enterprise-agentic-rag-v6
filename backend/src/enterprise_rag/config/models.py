@@ -26,6 +26,7 @@ class ProviderSettings(SettingsModel):
     vector_store: str = "milvus_lite"
     splitter: str = "structure_aware"
     evaluator: str = "deterministic"
+    ocr: str = "tesseract"
 
 
 class IngestionSettings(SettingsModel):
@@ -45,6 +46,9 @@ class IngestionSettings(SettingsModel):
     max_tokens: PositiveInt = 480
     overlap_tokens: Annotated[int, Field(ge=0)] = 50
     max_attempts: PositiveInt = 3
+    pdf_ocr_min_chars: Annotated[int, Field(ge=0, le=10_000)] = 20
+    pdf_render_scale: Annotated[float, Field(ge=1.0, le=4.0)] = 2.5
+    pdf_ocr_languages: tuple[str, ...] = ("chi_sim", "eng")
 
     @model_validator(mode="after")
     def validate_token_window(self) -> "IngestionSettings":
@@ -56,6 +60,10 @@ class IngestionSettings(SettingsModel):
             not value.startswith(".") for value in self.allowed_suffixes
         ):
             raise ValueError("allowed_suffixes must contain dot-prefixed suffixes")
+        if not self.pdf_ocr_languages or any(
+            not value.strip() or "+" in value for value in self.pdf_ocr_languages
+        ):
+            raise ValueError("pdf_ocr_languages must contain individual language names")
         return self
 
 

@@ -22,6 +22,7 @@ docs/      Architecture decisions and operational documentation
 - [uv](https://docs.astral.sh/uv/)
 - Node.js 22 or newer
 - pnpm 11
+- Tesseract 5 with the `chi_sim` and `eng` language data installed
 
 ## Start the current project
 
@@ -30,6 +31,17 @@ Install all locked dependencies from the repository root:
 ```bash
 uv sync --project backend --locked
 pnpm install --frozen-lockfile
+```
+
+Install the PDF/OCR system dependencies:
+
+```bash
+# macOS (Homebrew)
+brew install tesseract tesseract-lang
+
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install --yes tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim
 ```
 
 Start the development PostgreSQL service and apply migrations:
@@ -141,7 +153,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M2-05 document registration and concurrency-safe deduplication: complete
 - M2-06 asynchronous deletion Saga and cross-store reconcile: complete
 - M2 storage and lifecycle milestone: complete
-- Next: M3-01 PDF and OCR loader
+- M3-01 PDF and OCR loader: complete
+- Next: M3-02 DOCX/HTML/TXT/Markdown loaders
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -158,6 +171,8 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
 M1 and M2 are complete. Product ingestion and query behavior has not been implemented yet. The repository now provides the tested engineering foundation plus PostgreSQL lifecycle state, concurrency-safe jobs and document registration, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation.
+
+The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for the later image-storage slice. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. This capability currently lives in the Loader adapter and is not yet wired into the complete ingestion Pipeline or HTTP upload endpoint.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 
