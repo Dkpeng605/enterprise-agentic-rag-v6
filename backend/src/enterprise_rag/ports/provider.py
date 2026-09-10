@@ -9,6 +9,7 @@ class ProviderKind(StrEnum):
     """Stable extension points across ingestion, retrieval, generation, and evaluation."""
 
     LOADER = "loader"
+    OCR = "ocr"
     CLEANER = "cleaner"
     SPLITTER = "splitter"
     EMBEDDING = "embedding"

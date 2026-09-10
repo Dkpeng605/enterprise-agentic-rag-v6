@@ -49,6 +49,11 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
+      - name: Install PDF and OCR system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim
+
       - name: Install locked dependencies
         run: uv sync --project backend --locked
 

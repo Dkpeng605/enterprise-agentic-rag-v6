@@ -11,6 +11,8 @@ def test_default_settings_are_valid_and_immutable() -> None:
 
     assert settings.app.environment == "development"
     assert settings.providers.vector_store == "milvus_lite"
+    assert settings.providers.ocr == "tesseract"
+    assert settings.ingestion.pdf_ocr_languages == ("chi_sim", "eng")
     field_name = "low_threshold"
     with pytest.raises(ValidationError):
         setattr(settings.deep, field_name, 0.1)
@@ -100,6 +102,19 @@ def test_nested_environment_can_override_numeric_setting() -> None:
     )
 
     assert settings.security.anonymous_queries_per_minute == 7
+
+
+def test_pdf_ocr_settings_are_bounded_and_require_individual_languages() -> None:
+    invalid_settings: tuple[dict[str, object], ...] = (
+        {"pdf_ocr_min_chars": -1},
+        {"pdf_render_scale": 4.1},
+        {"pdf_ocr_languages": []},
+        {"pdf_ocr_languages": ["chi_sim+eng"]},
+    )
+    for ingestion in invalid_settings:
+        with pytest.raises(SettingsError) as raised:
+            load_settings(environ={}, overrides={"ingestion": ingestion})
+        assert raised.value.code is SettingsErrorCode.CONFIG_VALUE_INVALID
 
 
 def test_invalid_yaml_root_has_stable_error(tmp_path: Path) -> None:

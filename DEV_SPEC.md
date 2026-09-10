@@ -1653,14 +1653,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
-| M3 | 多格式摄取流水线 | 10 | 未开始 |
+| M3 | 多格式摄取流水线 | 10 | M3-01 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 12/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 13/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1740,8 +1740,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-01 PDF/OCR
 
-- 文本 PDF、扫描 PDF、页码、图片引用；
-- 验收：中英 OCR fixture、空页、加密 PDF、损坏 PDF。
+- 端口：定义 BinarySource、IngestionContext、LoadedRoot、LoadedImage、Loader 与 OcrEngine；Loader 不写 PostgreSQL/Milvus，也不切 Leaf；
+- 文本：按页优先使用 pypdf 提取，低于可配置 `pdf_ocr_min_chars` 才渲染并 OCR；Root locator 使用 1-based 页码，空白页跳过且 ordinal 连续；
+- OCR：pypdfium2 渲染页面，Tesseract 默认严格要求 `chi_sim+eng`；缺二进制、语言包或识别失败使用不同稳定错误，不允许静默降级语言；
+- 图片：提取页码、序号、名称、媒体类型、尺寸、SHA-256 和原始字节，供 M3-06 持久化；不得在 Loader 内写 ObjectStore；
+- 安全：声明 MIME 与 `.pdf` 后缀都必须匹配，文件头必须为 `%PDF-`；拒绝加密/损坏输入，第三方异常净化，成功、失败和取消都清理临时文件；
+- 验收：真实中英扫描 PDF + Tesseract、文本 PDF、1-based 页码、内嵌图片、混合空页、全空、加密、截断、错误签名、语言缺失和关闭幂等。
 
 #### M3-02 文本类 Loader
 
