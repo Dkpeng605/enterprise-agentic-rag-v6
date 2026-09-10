@@ -157,7 +157,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M3-02 DOCX/HTML/TXT/Markdown loaders: complete
 - M3-03 XLSX/XLS/CSV loaders: complete
 - M3-04 deterministic Cleaner and audit report: complete
-- Next: M3-05 Root/Leaf Splitter
+- M3-05 structure-aware Root/Leaf Splitter: complete
+- Next: M3-06 image enrichment
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -182,6 +183,8 @@ The text-document Loader supports DOCX, HTML, TXT, and Markdown. DOCX headings b
 The spreadsheet Loader parses XLSX, legacy XLS, and CSV independently. Each worksheet becomes header-bearing row blocks; continuation blocks repeat the header and preserve source row numbers. Empty outer rows and columns are trimmed while formula cache values and expressions remain traceable. CSV accepts UTF-8/UTF-8-SIG by default; a legacy encoding must be selected explicitly with `csv_fallback_encoding`. These loaders are not yet connected to the complete pipeline.
 
 The deterministic Cleaner preserves both raw and cleaned text and records each effective rule, occurrence count, and before/after content hash. It normalizes invisible controls, common OCR artifacts, and whitespace, and uses batch Root statistics to remove repeated headers and footers. Re-cleaning the same text makes no further changes, and no LLM rewrites document content.
+
+The structure-aware Splitter uses a versioned deterministic multilingual tokenizer, prioritizes headings, paragraphs, lists, code fences, and table rows within each Root, and then enforces target/max/overlap limits. Continuation table chunks repeat headers and count them toward the token cap. Root/Leaf IDs remain stable for the same version, index revision, content, and order. This lightweight tokenizer is not represented as equivalent to any remote model tokenizer; replacing it requires a new index revision.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

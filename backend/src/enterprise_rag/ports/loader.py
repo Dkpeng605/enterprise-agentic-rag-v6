@@ -31,12 +31,14 @@ class IngestionContext:
     document_id: UUID
     version_id: UUID
     temporary_directory: Path
+    index_revision: str = "ingestion-v1"
 
     def __post_init__(self) -> None:
         for name in ("tenant_id", "document_id", "version_id"):
             require_uuid7(getattr(self, name), name)
         if not self.temporary_directory.is_dir():
             raise ValueError("temporary_directory must be an existing directory")
+        require_non_empty(self.index_revision, "index_revision")
 
 
 @dataclass(frozen=True, slots=True)
