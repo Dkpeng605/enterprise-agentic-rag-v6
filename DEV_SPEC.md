@@ -738,7 +738,7 @@ queued|retry_wait -> cancelled
 系统不做跨 PostgreSQL/Milvus 分布式事务，采用 Saga：
 
 1. 创建 version/job；
-2. 解析并在单个 PostgreSQL 事务写 Root/Leaf，version=`indexing`；
+2. 解析并在单个 PostgreSQL 事务写 Root/Leaf，version=`processing`；
 3. upsert Milvus；
 4. 按 version 核验数量；
 5. 将 version 和 document 标为 ready；
@@ -1627,7 +1627,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | 里程碑 | 目标 | PR 数 | 状态 |
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
-| M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 未开始 |
+| M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | M2-01 完成 |
 | M3 | 多格式摄取流水线 | 10 | 未开始 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
@@ -1635,7 +1635,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 6/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 7/64 完成 |
 
 ### M1：规格与工程基座
 

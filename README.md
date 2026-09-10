@@ -30,6 +30,14 @@ uv sync --project backend --locked
 pnpm install --frozen-lockfile
 ```
 
+Start the development PostgreSQL service and apply migrations:
+
+```bash
+docker compose -f infra/compose/compose.dev.yml up -d postgres
+DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test \
+  uv run --project backend alembic -c backend/alembic.ini upgrade head
+```
+
 Start the backend in the first terminal:
 
 ```bash
@@ -50,7 +58,7 @@ pnpm --dir frontend dev
 
 The Vite development server prints its local URL. The current page confirms that the Vue 3 and TypeScript application mounted successfully.
 
-No database, model API, Milvus, authentication, or RAG configuration is required for the current development startup. Those capabilities are introduced only by their acceptance PRs.
+PostgreSQL is required for migration and integration tests. The current HTTP skeleton does not query it yet. Model APIs, Milvus, authentication, and RAG behavior are introduced only by their acceptance PRs.
 
 ## Configure the backend
 
@@ -83,8 +91,10 @@ Production startup fails before serving traffic when required credentials are mi
 Backend:
 
 ```bash
-uv run --project backend ruff check backend/src backend/tests
-uv run --project backend mypy backend/src backend/tests
+docker compose -f infra/compose/compose.dev.yml up -d postgres
+export TEST_DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test
+uv run --project backend ruff check backend/src backend/tests backend/migrations
+uv run --project backend mypy backend/src backend/tests backend/migrations
 uv run --project backend pytest -q
 uv build --project backend
 ```
@@ -118,7 +128,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M1-04 validated settings and secret loading: complete
 - M1-05 common plugin contract and registry: complete
 - M1-06 immutable domain types and unified errors: complete
-- Next milestone: M2 storage and document lifecycle
+- M2-01 PostgreSQL schema, Alembic, and async repository baseline: implemented by the current PR
+- Next: M2-02 ingestion job state machine
 
 M1 is complete. Product RAG behavior has not been implemented yet. The repository now provides the tested engineering foundation: packaging, CI and protected-main workflow, validated configuration loading, provider discovery and lifecycle rules, immutable domain models, stable content IDs, UUIDv7 identifiers, unified errors, application startup, and frontend mounting.
 
