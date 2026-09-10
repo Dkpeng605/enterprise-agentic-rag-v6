@@ -1653,14 +1653,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
-| M3 | 多格式摄取流水线 | 10 | M3-01～M3-04 完成 |
+| M3 | 多格式摄取流水线 | 10 | M3-01～M3-05 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 16/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 17/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1773,8 +1773,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-05 Root/Leaf Splitter
 
-- 结构边界、token 限制、overlap、稳定 ID；
-- 验收：中英文、表格、代码块和超长无空格文本。
+- 端口：Splitter 将 `CleanRoot` 转为一个稳定 `RootChunk` 和至少一个隶属它的 `LeafChunk`；`IngestionContext.index_revision` 参与 Root ID，配置或 tokenizer 变化必须使用新 revision；
+- tokenizer：默认 `deterministic-multilingual-v1`，中文统一表意文字按字、英文数字按词、标点独立计数，超过 20 字符的连续无空格词硬分段；本实现不声称与任一远程模型 tokenizer 等价；
+- 边界：优先在标题、段落、列表、代码围栏和表格行边界结束，任何 Leaf 不超过 `max_tokens`；默认 target/max/overlap 为 350/480/50，overlap 只在同一 Root 内发生；
+- 表格：续块重复 Markdown 表头，表头 token 计入最大限制，metadata 标记是否重复；offset 始终指向 Root 原始 clean text 中的主体范围；
+- 稳定性：相同 version、revision、Root 内容与配置重跑得到相同 Root/Leaf ID；revision 或内容变化得到不同 ID；
+- 验收：中英文混排、结构边界、可容纳代码块不拆分、表格续块表头、token 上限、overlap、超长无空格文本、稳定 ID、revision 隔离和关闭幂等。
 
 #### M3-06 图片增强
 
