@@ -10,6 +10,7 @@ class ProviderKind(StrEnum):
 
     LOADER = "loader"
     OCR = "ocr"
+    VISION = "vision"
     CLEANER = "cleaner"
     SPLITTER = "splitter"
     EMBEDDING = "embedding"
