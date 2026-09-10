@@ -115,7 +115,10 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M1-01 detailed developer specification: complete
 - M1-02 runnable Monorepo skeleton: complete
 - M1-03 CI and protected-main workflow: complete
-- M1-04 validated settings and secret loading: implemented by the current PR
-- Next: M1-05 common plugin ports and registry
+- M1-04 validated settings and secret loading: complete
+- M1-05 common plugin contract and registry: implemented by the current PR
+- Next: M1-06 immutable domain types and unified errors
 
-Product RAG behavior has not been implemented yet. The repository currently proves packaging, validated configuration loading, application startup, frontend mounting, automated tests, type-checking, and production frontend builds.
+Product RAG behavior has not been implemented yet. The repository currently proves packaging, validated configuration loading, provider discovery and lifecycle rules, application startup, frontend mounting, automated tests, type-checking, and production frontend builds.
+
+All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
