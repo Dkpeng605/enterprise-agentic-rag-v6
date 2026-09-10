@@ -1653,14 +1653,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
-| M3 | 多格式摄取流水线 | 10 | M3-01～M3-07 完成 |
+| M3 | 多格式摄取流水线 | 10 | M3-01～M3-08 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 19/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 20/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1799,8 +1799,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-08 Sparse 与 Projection
 
-- Sparse 编码、批量 Milvus upsert、数量核验；
-- 验收：重复 upsert、部分失败、删除重试。
+- Sparse：`HashingSparseEncoder` 使用 Unicode 表意文字/英文数字词法 token、BLAKE2b 稳定映射、`1+log(tf)` 权重和 L2 归一化；它是确定性词法投影，不声称等同 BM25，BM25 检索在 M4 实现；
+- Projection：同一批 Leaf 分别调用 Dense Embedding 与 Sparse Encoder，校验数量后组装最小 VectorRecord；按 `projection_batch_size` 分批 upsert；
+- 可见性：先写 `processing` 记录并按 tenant/version 核对数量，再以相同主键 upsert 为 `ready` 并二次核验；Milvus 提前 ready 仍由 PostgreSQL ready 回源检查阻止未提交内容进入查询；
+- 失败：任一批部分返回、异常或数量不一致都按 tenant/version 删除全部投影；删除失败以 0.25 秒起始指数退避有界重试，清理后数量必须为零；第三方异常正文不对外暴露；
+- 幂等：相同 Leaf ID 重跑覆盖同一记录，count 不增加；
+- 验收：稳定多语 Sparse、真实 Milvus Lite Dense/Sparse 搜索、分批 staging/activation、双重 count verify、重复投影、第二批失败、删除首次失败后重试与错误净化。
 
 #### M3-09 Pipeline 组装
 

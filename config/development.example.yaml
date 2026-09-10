@@ -5,6 +5,7 @@ app:
 providers:
   llm: mock
   vision: none
+  sparse_encoder: hashing_lexical
 
 ingestion:
   pdf_ocr_min_chars: 20

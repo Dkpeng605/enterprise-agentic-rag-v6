@@ -24,6 +24,7 @@ from enterprise_rag.ports.provider import (
     ProviderKind,
 )
 from enterprise_rag.ports.registry import ProviderRegistry, RegistryError, RegistryErrorCode
+from enterprise_rag.ports.sparse import SparseEncoder
 from enterprise_rag.ports.splitter import SplitResult, Splitter
 from enterprise_rag.ports.vector_store import (
     DenseSearchRequest,
@@ -52,6 +53,7 @@ __all__ = [
     "RegistryErrorCode",
     "SplitResult",
     "Splitter",
+    "SparseEncoder",
     "DenseSearchRequest",
     "BinarySource",
     "IngestionContext",

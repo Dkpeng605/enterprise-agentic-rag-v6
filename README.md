@@ -160,7 +160,8 @@ pnpm --dir frontend build
 - M3-05 Root/Leaf 结构化 Splitter：已完成
 - M3-06 图片存储、Vision 端口与 caption 降级：已完成
 - M3-07 本地多语与 OpenAI-compatible Embedding Providers：已完成
-- 下一项：M3-08 Sparse 与 Projection
+- M3-08 Sparse 编码与可补偿 Projection：已完成
+- 下一项：M3-09 Pipeline 组装
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
@@ -196,6 +197,8 @@ Embedding 端口提供本地多语和 OpenAI-compatible 两种实现。本地默
 RUN_MODEL_TESTS=1 uv run --project backend pytest -q \
   backend/tests/contract/test_embedding_providers.py -m model
 ```
+
+Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化生成 Milvus 稀疏向量；它不等同于 BM25。Projection Service 将 Dense/Sparse 结果分批写为 `processing`，核对数量后激活为 `ready` 并再次核对。重复运行覆盖相同 Leaf ID；部分写入或核验失败会删除该版本全部向量，并对删除执行有界重试。
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 
