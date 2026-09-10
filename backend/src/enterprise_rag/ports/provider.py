@@ -14,6 +14,7 @@ class ProviderKind(StrEnum):
     CLEANER = "cleaner"
     SPLITTER = "splitter"
     EMBEDDING = "embedding"
+    SPARSE_ENCODER = "sparse_encoder"
     VECTOR_STORE = "vector_store"
     OBJECT_STORE = "object_store"
     RERANKER = "reranker"

@@ -11,6 +11,12 @@ from enterprise_rag.services.lifecycle import (
     ReconcileReport,
     ReconcileService,
 )
+from enterprise_rag.services.projection import (
+    ProjectionError,
+    ProjectionRequest,
+    ProjectionResult,
+    ProjectionService,
+)
 
 __all__ = [
     "DeletionResult",
@@ -20,6 +26,10 @@ __all__ = [
     "EnrichedImage",
     "ImageEnricher",
     "ImageEnrichmentResult",
+    "ProjectionError",
+    "ProjectionRequest",
+    "ProjectionResult",
+    "ProjectionService",
     "ReconcileIssue",
     "ReconcileIssueKind",
     "ReconcileReport",

@@ -28,6 +28,7 @@ class ProviderSettings(SettingsModel):
     evaluator: str = "deterministic"
     ocr: str = "tesseract"
     vision: str = "none"
+    sparse_encoder: str = "hashing_lexical"
 
 
 class IngestionSettings(SettingsModel):

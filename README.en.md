@@ -160,7 +160,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M3-05 structure-aware Root/Leaf Splitter: complete
 - M3-06 image storage, Vision port, and caption degradation: complete
 - M3-07 local multilingual and OpenAI-compatible Embedding Providers: complete
-- Next: M3-08 sparse encoding and projection
+- M3-08 sparse encoding and compensating projection: complete
+- Next: M3-09 Pipeline assembly
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -196,6 +197,8 @@ The Embedding port has local multilingual and OpenAI-compatible implementations.
 RUN_MODEL_TESTS=1 uv run --project backend pytest -q \
   backend/tests/contract/test_embedding_providers.py -m model
 ```
+
+The Sparse Encoder produces Milvus sparse vectors with stable multilingual lexical hashes, log-TF weights, and L2 normalization; it is not represented as BM25. The Projection Service writes Dense/Sparse records in `processing` batches, verifies their count, activates them as `ready`, and verifies again. Repeated runs overwrite the same Leaf IDs. A partial write or verification failure removes every vector for the version with bounded delete retries.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 
