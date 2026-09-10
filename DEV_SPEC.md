@@ -1653,14 +1653,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
-| M3 | 多格式摄取流水线 | 10 | M3-01～M3-03 完成 |
+| M3 | 多格式摄取流水线 | 10 | M3-01～M3-04 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 15/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 16/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1765,8 +1765,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-04 Cleaner
 
-- 确定性清洗和 audit report；
-- 验收：原文保留、规则逐项可追踪、幂等。
+- 端口：`CleanRoot` 同时保留 `raw_text` 与 `clean_text`；`CleaningAudit` 为每个实际发生变化的规则记录次数和前后 SHA-256；
+- 规则：按固定顺序处理 NUL/不可见控制字符、常见 OCR 连字/软连字符/跨行断词、行尾与空白归一化；默认不调用 LLM，不改写事实内容；
+- 重复边界：单 Root 无法判定重复页眉页脚，因此 Cleaner 提供 `clean_all` 批量契约；仅当首行或末行达到可配置比例且至少出现两次时删除，并保留逐 Root audit；
+- 语义：输入 metadata、图片和 locator 原样保留；清洗后为空返回 `DOCUMENT_EMPTY`；相同输入输出稳定，清洗结果再次输入不会产生新变化；
+- 验收：原文保留、规则顺序和 hash 可追踪、三页页眉页脚统计、非重复页脚保留、幂等、清洗后空内容和关闭幂等。
 
 #### M3-05 Root/Leaf Splitter
 
