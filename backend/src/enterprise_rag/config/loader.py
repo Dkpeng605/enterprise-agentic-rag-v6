@@ -79,7 +79,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
         content = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError) as exc:
         raise SettingsError(
-            SettingsErrorCode.FILE_INVALID,
+            SettingsErrorCode.CONFIG_FILE_INVALID,
             "The configuration file cannot be loaded.",
             {"path": str(path)},
         ) from exc
@@ -87,7 +87,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
         return {}
     if not isinstance(content, dict):
         raise SettingsError(
-            SettingsErrorCode.FILE_INVALID,
+            SettingsErrorCode.CONFIG_FILE_INVALID,
             "The configuration file root must be a mapping.",
             {"path": str(path)},
         )
@@ -122,7 +122,7 @@ def _validate_provider_names(settings: AppSettings) -> None:
     for kind, name in selected.items():
         if name not in KNOWN_PROVIDERS[kind]:
             raise SettingsError(
-                SettingsErrorCode.PROVIDER_UNKNOWN,
+                SettingsErrorCode.CONFIG_PROVIDER_UNKNOWN,
                 "A configured provider name is not recognized.",
                 {"kind": kind, "name": name},
             )
@@ -151,7 +151,7 @@ def _validate_production_secrets(settings: AppSettings) -> None:
                 missing.append(env_name)
     if missing:
         raise SettingsError(
-            SettingsErrorCode.SECRET_MISSING,
+            SettingsErrorCode.CONFIG_SECRET_MISSING,
             "Required production configuration is missing.",
             {"fields": sorted(missing)},
         )
@@ -177,7 +177,7 @@ def load_settings(
         settings = AppSettings.model_validate(data)
     except ValidationError as exc:
         raise SettingsError(
-            SettingsErrorCode.VALUE_INVALID,
+            SettingsErrorCode.CONFIG_VALUE_INVALID,
             "Configuration validation failed.",
             {"fields": _validation_fields(exc)},
         ) from exc

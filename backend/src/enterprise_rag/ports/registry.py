@@ -1,29 +1,16 @@
 """Provider registration, capability resolution, and lifecycle ownership."""
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
-from enum import StrEnum
-from typing import Any
 
+from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.ports.provider import Provider, ProviderInfo, ProviderKind
 
 
-class RegistryErrorCode(StrEnum):
-    DUPLICATE = "PROVIDER_DUPLICATE"
-    UNKNOWN = "PROVIDER_UNKNOWN"
-    CAPABILITY_MISMATCH = "PROVIDER_CAPABILITY_MISMATCH"
-    REGISTRY_CLOSED = "PROVIDER_REGISTRY_CLOSED"
-    CLOSE_FAILED = "PROVIDER_CLOSE_FAILED"
+class RegistryError(AppError):
+    """Provider error retained as a catchable boundary-specific type."""
 
 
-@dataclass(frozen=True, slots=True)
-class RegistryError(Exception):
-    code: RegistryErrorCode
-    message: str
-    details: dict[str, Any] = field(default_factory=dict)
-
-    def __str__(self) -> str:
-        return f"{self.code}: {self.message}"
+RegistryErrorCode = ErrorCode
 
 
 class ProviderRegistry:
@@ -38,13 +25,13 @@ class ProviderRegistry:
 
         if self._closed:
             raise RegistryError(
-                RegistryErrorCode.REGISTRY_CLOSED,
+                RegistryErrorCode.PROVIDER_REGISTRY_CLOSED,
                 "The provider registry is already closed.",
             )
         info = provider.info()
         if info.key in self._providers:
             raise RegistryError(
-                RegistryErrorCode.DUPLICATE,
+                RegistryErrorCode.PROVIDER_DUPLICATE,
                 "A provider with the same kind and name is already registered.",
                 {"kind": info.kind.value, "name": info.name},
             )
@@ -62,7 +49,7 @@ class ProviderRegistry:
         provider = self._providers.get((kind, name))
         if provider is None:
             raise RegistryError(
-                RegistryErrorCode.UNKNOWN,
+                RegistryErrorCode.PROVIDER_UNKNOWN,
                 "The requested provider is not registered.",
                 {"kind": kind.value, "name": name},
             )
@@ -70,7 +57,7 @@ class ProviderRegistry:
         missing = required - provider.info().capabilities
         if missing:
             raise RegistryError(
-                RegistryErrorCode.CAPABILITY_MISMATCH,
+                RegistryErrorCode.PROVIDER_CAPABILITY_MISMATCH,
                 "The provider does not support every required capability.",
                 {
                     "kind": kind.value,
@@ -106,7 +93,7 @@ class ProviderRegistry:
         self._providers.clear()
         if failures:
             raise RegistryError(
-                RegistryErrorCode.CLOSE_FAILED,
+                RegistryErrorCode.PROVIDER_CLOSE_FAILED,
                 "One or more providers failed to close.",
                 {"providers": failures},
             )

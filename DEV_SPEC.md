@@ -1626,7 +1626,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 | 里程碑 | 目标 | PR 数 | 状态 |
 |---|---|---:|---|
-| M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | M1-01～M1-05 完成 |
+| M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 未开始 |
 | M3 | 多格式摄取流水线 | 10 | 未开始 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
@@ -1635,7 +1635,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 5/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 6/64 完成 |
 
 ### M1：规格与工程基座
 
