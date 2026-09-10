@@ -91,7 +91,7 @@ def test_duplicate_provider_key_is_rejected_without_taking_ownership() -> None:
     with pytest.raises(RegistryError) as raised:
         registry.register(duplicate)
 
-    assert raised.value.code is RegistryErrorCode.DUPLICATE
+    assert raised.value.code is RegistryErrorCode.PROVIDER_DUPLICATE
     assert raised.value.details == {"kind": "embedding", "name": "fake"}
     assert duplicate.close_count == 0
 
@@ -102,7 +102,7 @@ def test_unknown_provider_has_stable_error() -> None:
     with pytest.raises(RegistryError) as raised:
         registry.resolve(ProviderKind.LLM, "missing")
 
-    assert raised.value.code is RegistryErrorCode.UNKNOWN
+    assert raised.value.code is RegistryErrorCode.PROVIDER_UNKNOWN
     assert raised.value.details == {"kind": "llm", "name": "missing"}
 
 
@@ -118,11 +118,11 @@ def test_capability_mismatch_lists_only_missing_capabilities() -> None:
             required_capabilities={"documents", "query"},
         )
 
-    assert raised.value.code is RegistryErrorCode.CAPABILITY_MISMATCH
+    assert raised.value.code is RegistryErrorCode.PROVIDER_CAPABILITY_MISMATCH
     assert raised.value.details == {
         "kind": "embedding",
         "name": "fake",
-        "missing_capabilities": ["documents"],
+        "missing_capabilities": ("documents",),
     }
 
 
@@ -176,8 +176,10 @@ async def test_close_attempts_every_provider_and_sanitizes_failures() -> None:
         await registry.aclose()
 
     assert events == ["failing", "healthy"]
-    assert raised.value.code is RegistryErrorCode.CLOSE_FAILED
-    assert raised.value.details == {"providers": [{"kind": "llm", "name": "failing"}]}
+    assert raised.value.code is RegistryErrorCode.PROVIDER_CLOSE_FAILED
+    assert raised.value.details == {
+        "providers": ({"kind": "llm", "name": "failing"},)
+    }
     assert "private provider failure" not in str(raised.value)
 
 
@@ -189,4 +191,4 @@ async def test_register_after_close_is_rejected() -> None:
     with pytest.raises(RegistryError) as raised:
         registry.register(FakeProvider(provider_info()))
 
-    assert raised.value.code is RegistryErrorCode.REGISTRY_CLOSED
+    assert raised.value.code is RegistryErrorCode.PROVIDER_REGISTRY_CLOSED

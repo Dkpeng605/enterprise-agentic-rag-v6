@@ -54,15 +54,15 @@ def test_production_missing_secrets_has_stable_sanitized_error() -> None:
             overrides={"app": {"environment": "production"}, "providers": {"llm": "mock"}},
         )
 
-    assert raised.value.code is SettingsErrorCode.SECRET_MISSING
+    assert raised.value.code is SettingsErrorCode.CONFIG_SECRET_MISSING
     assert raised.value.details == {
-        "fields": [
+        "fields": (
             "ADMIN_BOOTSTRAP_EMAIL",
             "ADMIN_BOOTSTRAP_PASSWORD",
             "DATABASE_URL",
             "MCP_TOKEN_PEPPER",
             "SESSION_SECRET",
-        ]
+        )
     }
 
 
@@ -79,18 +79,18 @@ def test_illegal_threshold_has_stable_error(deep_config: dict[str, float]) -> No
     with pytest.raises(SettingsError) as raised:
         load_settings(environ={}, overrides={"deep": deep_config})
 
-    assert raised.value.code is SettingsErrorCode.VALUE_INVALID
+    assert raised.value.code is SettingsErrorCode.CONFIG_VALUE_INVALID
     assert raised.value.message == "Configuration validation failed."
-    assert raised.value.details["fields"] == ["deep"] or raised.value.details["fields"] == [
-        f"deep.{next(iter(deep_config))}"
-    ]
+    assert raised.value.details["fields"] == ("deep",) or raised.value.details["fields"] == (
+        f"deep.{next(iter(deep_config))}",
+    )
 
 
 def test_unknown_provider_has_stable_error() -> None:
     with pytest.raises(SettingsError) as raised:
         load_settings(environ={}, overrides={"providers": {"embedding": "invented"}})
 
-    assert raised.value.code is SettingsErrorCode.PROVIDER_UNKNOWN
+    assert raised.value.code is SettingsErrorCode.CONFIG_PROVIDER_UNKNOWN
     assert raised.value.details == {"kind": "embedding", "name": "invented"}
 
 
@@ -109,5 +109,5 @@ def test_invalid_yaml_root_has_stable_error(tmp_path: Path) -> None:
     with pytest.raises(SettingsError) as raised:
         load_settings(config_file, environ={})
 
-    assert raised.value.code is SettingsErrorCode.FILE_INVALID
+    assert raised.value.code is SettingsErrorCode.CONFIG_FILE_INVALID
     assert raised.value.details == {"path": str(config_file)}
