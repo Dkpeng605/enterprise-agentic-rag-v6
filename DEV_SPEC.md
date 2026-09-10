@@ -1653,14 +1653,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
-| M3 | 多格式摄取流水线 | 10 | M3-01～M3-06 完成 |
+| M3 | 多格式摄取流水线 | 10 | M3-01～M3-07 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 18/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 19/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1790,8 +1790,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-07 Embedding Providers
 
-- 本地多语和 OpenAI-compatible；
-- 验收：维度、batch、归一化、限流、重试和无效响应。
+- 端口：EmbeddingProvider 固定暴露 dimension、文档批量向量化、查询向量化和 Provider 生命周期；返回顺序必须与输入严格一致；
+- 本地：默认通过 FastEmbed 0.8.x + ONNX 运行 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`，384 维、mean pooling；Provider revision 同时记录模型名、FastEmbed 版本和 pooling，首次运行按需下载约 0.22GB 模型；
+- 远程：OpenAI-compatible Adapter 调用 `/embeddings`，密钥只进入 Authorization header；401/4xx 不重试，网络错误、超时、429 和 5xx 使用 0.25 秒起始的指数退避，最多按配置重试；
+- 批处理：按最大条数和估算 token 总数双重分批；空文本和单项超限在调用 Provider 前失败；
+- 校验：严格检查返回数量、index 完整且唯一、维度固定、数值有限且非零；所有输出统一 L2 归一化，供应商正文和密钥不进入错误；
+- 验收：fake local 与 HTTP MockTransport 契约覆盖顺序、batch、token、归一化、维度、限流、重试和坏响应；另提供 opt-in 真实中英文 ONNX 模型测试，本 PR 已实际运行通过。
 
 #### M3-08 Sparse 与 Projection
 

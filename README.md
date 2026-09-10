@@ -159,7 +159,8 @@ pnpm --dir frontend build
 - M3-04 确定性 Cleaner 与审计报告：已完成
 - M3-05 Root/Leaf 结构化 Splitter：已完成
 - M3-06 图片存储、Vision 端口与 caption 降级：已完成
-- 下一项：M3-07 Embedding Providers
+- M3-07 本地多语与 OpenAI-compatible Embedding Providers：已完成
+- 下一项：M3-08 Sparse 与 Projection
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
@@ -188,6 +189,13 @@ PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr
 结构化 Splitter 使用版本化的确定性多语 tokenizer，在 Root 内优先尊重标题、段落、列表、代码围栏和表格行边界，再应用 target/max/overlap 限制。表格续块会重复表头且计入 token 上限；Root/Leaf ID 对相同 version、index revision、内容和顺序保持稳定。该轻量 tokenizer 不等同于任何远程模型 tokenizer，后续替换时必须创建新索引 revision。
 
 图片增强服务先把 Loader 提取的原始图片写入内容寻址 ObjectStore，再调用可插拔 Vision 端口。默认 `vision: none` 会保留图片并跳过 caption；Vision 异常只将 caption 标记为降级，不会丢弃已存图片或泄露供应商错误。ObjectStore 写入失败仍会中止摄取，因为图片持久化不是可选数据。
+
+Embedding 端口提供本地多语和 OpenAI-compatible 两种实现。本地默认使用 FastEmbed ONNX 的 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling），首次调用会下载约 0.22GB 模型；远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
+
+```bash
+RUN_MODEL_TESTS=1 uv run --project backend pytest -q \
+  backend/tests/contract/test_embedding_providers.py -m model
+```
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 

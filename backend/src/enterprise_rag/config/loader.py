@@ -151,6 +151,10 @@ def _validate_production_secrets(settings: AppSettings) -> None:
         for env_name in ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL"):
             if is_missing(getattr(credentials, ENV_ALIASES[env_name][-1])):
                 missing.append(env_name)
+    if settings.providers.embedding == "openai_compatible":
+        for env_name in ("EMBEDDING_API_KEY", "EMBEDDING_BASE_URL", "EMBEDDING_MODEL"):
+            if is_missing(getattr(credentials, ENV_ALIASES[env_name][-1])):
+                missing.append(env_name)
     if missing:
         raise SettingsError(
             SettingsErrorCode.CONFIG_SECRET_MISSING,
