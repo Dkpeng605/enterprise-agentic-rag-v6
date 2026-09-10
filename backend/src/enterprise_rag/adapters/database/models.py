@@ -241,6 +241,8 @@ class IngestionJobModel(TimestampMixin, Base):
             name="status",
         ),
         CheckConstraint("attempts >= 0", name="attempts_non_negative"),
+        CheckConstraint("max_attempts > 0", name="max_attempts_positive"),
+        CheckConstraint("progress BETWEEN 0 AND 100", name="progress_range"),
         Index("ix_ingestion_jobs_status_available", "status", "available_at"),
     )
 
