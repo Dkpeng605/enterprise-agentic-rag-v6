@@ -133,6 +133,19 @@ class UpsertResult:
             raise ValueError("upsert count must not be negative")
 
 
+@dataclass(frozen=True, slots=True)
+class VectorProjection:
+    tenant_id: UUID
+    version_id: UUID
+    count: int
+
+    def __post_init__(self) -> None:
+        require_uuid7(self.tenant_id, "tenant_id")
+        require_uuid7(self.version_id, "version_id")
+        if self.count <= 0:
+            raise ValueError("projection count must be positive")
+
+
 class VectorStore(Provider, Protocol):
     async def ensure_revision(self, schema: IndexSchema) -> None: ...
 
@@ -145,3 +158,5 @@ class VectorStore(Provider, Protocol):
     async def delete_by_version(self, tenant_id: UUID, version_id: UUID) -> int: ...
 
     async def count_by_version(self, tenant_id: UUID, version_id: UUID) -> int: ...
+
+    async def list_version_projections(self) -> tuple[VectorProjection, ...]: ...

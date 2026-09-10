@@ -136,8 +136,10 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M2-02 concurrency-safe ingestion job state machine: complete
 - M2-03 Milvus Lite vector-store adapter: complete
 - M2-04 crash-safe local object store: complete
-- M2-05 document registration and concurrency-safe deduplication: implemented by the current PR
-- Next: M2-06 asynchronous deletion and cross-store reconcile
+- M2-05 document registration and concurrency-safe deduplication: complete
+- M2-06 asynchronous deletion Saga and cross-store reconcile: complete
+- M2 storage and lifecycle milestone: complete
+- Next: M3-01 PDF and OCR loader
 
 The PostgreSQL job repository now owns enqueue, exclusive lease, start, heartbeat, retry, cooperative cancellation, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and must renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -149,7 +151,11 @@ Document registration streams bytes to ObjectStore before opening its PostgreSQL
 
 Application errors keep their explicit details deeply immutable, but the exception object itself is not frozen because Python must attach traceback state while errors cross asynchronous transaction context managers.
 
-M1 is complete. Product RAG behavior has not been implemented yet. The repository now provides the tested engineering foundation: packaging, CI and protected-main workflow, validated configuration loading, provider discovery and lifecycle rules, immutable domain models, stable content IDs, UUIDv7 identifiers, unified errors, application startup, and frontend mounting.
+Deletion requests immediately move a tenant-owned document out of `ready`, clear its active version, cancel ingestion work, and enqueue one reusable delete job. The worker runs an idempotent Saga across Milvus, PostgreSQL content, and unreferenced object files before persisting document/version tombstones and completing the job. Shared content-addressed files remain until no non-deleted version references them.
+
+Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
+
+M1 and M2 are complete. Product ingestion and query behavior has not been implemented yet. The repository now provides the tested engineering foundation plus PostgreSQL lifecycle state, concurrency-safe jobs and document registration, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

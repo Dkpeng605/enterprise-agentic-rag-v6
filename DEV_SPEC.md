@@ -389,7 +389,7 @@ DocumentVersion:
   object_key: str
   parser_provider: str
   parser_version: str
-  status: pending | processing | indexed | failed | superseded
+  status: pending | processing | indexed | failed | superseded | deleted
   error_code: str | None
   error_message: str | None
 ```
@@ -598,7 +598,7 @@ class ObjectStore(Protocol):
     async def list_keys(self) -> tuple[str, ...]: ...
 ```
 
-本地实现的对象键固定为 `sha256/{前两位}/{次两位}/{64 位小写摘要}`，不得接受文件名、绝对路径、`..` 或非规范摘要作为键。写入期间仅允许在存储根目录内的 `temporary/*.part` 可见；完整流写入并 `fsync`、校验可选期望摘要和大小上限后，使用同文件系统硬链接原子发布。发布目标已存在时不得覆盖，必须验证已有文件的大小与 SHA-256 后返回 `created=false`。异常、取消、摘要不符和超限都必须清除临时文件。`delete` 幂等，`list_keys` 只返回通过规范键校验的对象，供 reconcile 使用。
+本地实现的对象键固定为 `sha256/{前两位}/{次两位}/{64 位小写摘要}`，不得接受文件名、绝对路径、`..` 或非规范摘要作为键。写入期间仅允许在存储根目录内的 `temporary/*.part` 可见；完整流写入并 `fsync`、校验可选期望摘要和大小上限后，使用同文件系统硬链接原子发布。发布目标已存在时不得覆盖，必须验证已有文件的大小与 SHA-256 后返回 `created=false`。异常、取消、摘要不符和超限都必须清除临时文件。`delete` 幂等，`list_keys` 只返回通过规范键校验的对象，供 reconcile 使用。`mutation_guard` 在单进程 Local Adapter 内串行化“对象发布 + 数据库引用提交”和“引用核验 + 对象删除”，避免去重注册与清理竞态；多进程部署必须更换支持分布式互斥的 Adapter。
 
 ### 6.7 Reranker 与 LLM
 
@@ -765,6 +765,10 @@ queued|retry_wait -> cancelled
 6. 失败时删除该 version 的 Milvus 投影并保留错误记录。
 
 查询只接受 PostgreSQL `ready` version。reconcile 扫描：孤儿向量、缺失向量、数量不一致、超期 lease、无对象文件版本和无数据库记录对象文件。
+
+删除采用可重入 Saga：请求事务先将 document 改为 `deleting`、清空 active version、取消或请求取消摄取任务并创建 delete job，使查询立即不可见；worker 再依次删除全部 version 的 Milvus 投影、Root/Leaf 与 content claim、无其他活跃引用的对象文件，最后把 version/document 写为 `deleted` tombstone 并完成 job。每一步都可重复，跨存储调用之间不宣称原子性。
+
+reconcile 默认只读。`--apply` 仅自动删除数据库已无引用的向量/对象并回收超期 lease；缺失对象和向量数量不一致需要源内容或重新 embedding，必须报告但不得猜测性重建。扫描向量时先读 Projection 再读 PostgreSQL，清理对象时在 ObjectStore mutation guard 内重新读取数据库引用，避免把并发新注册资源误判为孤儿。
 
 ---
 
@@ -1647,7 +1651,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | 里程碑 | 目标 | PR 数 | 状态 |
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
-| M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | M2-01～M2-05 完成 |
+| M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 未开始 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
@@ -1655,7 +1659,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 11/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 12/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1725,8 +1729,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M2-06 删除与 Reconcile
 
-- 异步删除、孤儿/缺失扫描和修复；
-- 验收：每个中断点重跑均幂等。
+- 请求：tenant-scoped 条件锁定 document，立即转为 `deleting`，清空 active version，取消摄取并幂等返回同一进行中 delete job；
+- worker：按 Milvus、PostgreSQL 内容、无引用对象、最终 tombstone/job 的顺序执行可重入 Saga，共享对象仍被任一非 deleted version 引用时不得删除；
+- reconcile：扫描孤儿向量、向量计数不一致、缺失/孤儿对象和超期 lease；默认只报告，apply 只修复可证明安全的孤儿与 lease；
+- 竞态：Vector Projection 先于 PostgreSQL 快照读取，对象比较在 mutation guard 内重取引用快照；
+- 验收：三个跨存储中断点逐一注入故障并重跑；重复删除/完成幂等；共享对象保留；reconcile dry-run 零修改、apply 可重复且不掩盖不可自动修复项。
 
 ### M3：摄取流水线
 

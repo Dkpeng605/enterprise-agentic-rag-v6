@@ -18,6 +18,7 @@ from enterprise_rag.ports.vector_store import (
     SparseSearchRequest,
     UpsertResult,
     VectorHit,
+    VectorProjection,
     VectorRecord,
 )
 
@@ -238,6 +239,27 @@ class MilvusLiteVectorStore:
                 count += self._count_rows(result)
         return count
 
+    async def list_version_projections(self) -> tuple[VectorProjection, ...]:
+        """Return aggregate projection ownership without exposing vector payloads."""
+
+        self._ensure_open()
+        counts: dict[tuple[UUID, UUID], int] = defaultdict(int)
+        async with self._lock:
+            for collection_name in await self._collection_names():
+                rows = await asyncio.to_thread(
+                    self._projection_rows,
+                    collection_name,
+                )
+                for row in rows:
+                    key = (UUID(str(row["tenant_id"])), UUID(str(row["version_id"])))
+                    counts[key] += 1
+        return tuple(
+            VectorProjection(tenant_id=key[0], version_id=key[1], count=count)
+            for key, count in sorted(
+                counts.items(), key=lambda item: (str(item[0][0]), str(item[0][1]))
+            )
+        )
+
     async def aclose(self) -> None:
         if self._closed:
             return
@@ -292,6 +314,22 @@ class MilvusLiteVectorStore:
     async def _collection_names(self) -> tuple[str, ...]:
         names = await asyncio.to_thread(self._client.list_collections)
         return tuple(name for name in names if name.startswith(f"{self._prefix}_"))
+
+    def _projection_rows(self, collection_name: str) -> list[Mapping[str, object]]:
+        iterator = self._client.query_iterator(
+            collection_name=collection_name,
+            batch_size=1000,
+            limit=-1,
+            filter="",
+            output_fields=["tenant_id", "version_id"],
+        )
+        rows: list[Mapping[str, object]] = []
+        try:
+            while batch := iterator.next():
+                rows.extend(cast(list[Mapping[str, object]], batch))
+        finally:
+            iterator.close()
+        return rows
 
     def _collection_name(self, revision: str) -> str:
         suffix = sha256(revision.encode("utf-8")).hexdigest()[:24]

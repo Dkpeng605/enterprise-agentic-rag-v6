@@ -79,6 +79,16 @@ class IngestionJobRepository:
         model = await self.session.get(IngestionJobModel, job_id)
         return None if model is None else _snapshot(model)
 
+    async def ensure_owned_running(
+        self, job_id: UUID, *, owner: str, now: datetime
+    ) -> JobSnapshot:
+        """Lock and validate a running job before its worker performs side effects."""
+
+        model = await self._lock_owned_active(job_id, owner=owner, now=now)
+        if model.status != JobStatus.RUNNING.value or model.cancel_requested:
+            await self._raise_invalid(job_id, "perform running job")
+        return _snapshot(model)
+
     async def lease_next(
         self,
         *,

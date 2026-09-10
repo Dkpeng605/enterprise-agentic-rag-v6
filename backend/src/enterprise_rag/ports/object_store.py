@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import AsyncIterable, AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -55,6 +56,8 @@ class StoredObject:
 
 
 class ObjectStore(Provider, Protocol):
+    def mutation_guard(self) -> AbstractAsyncContextManager[None]: ...
+
     async def put(
         self,
         chunks: AsyncIterable[bytes],
