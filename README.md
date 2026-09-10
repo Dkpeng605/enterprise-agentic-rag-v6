@@ -71,7 +71,7 @@ pnpm --dir frontend typecheck
 pnpm --dir frontend build
 ```
 
-The same commands run on every GitHub pull request. Both `Backend / quality` and `Frontend / quality` must pass before merge.
+The same commands run on every GitHub pull request. Both `backend-quality` and `frontend-quality` must pass before merge.
 
 ## Contribution workflow
 

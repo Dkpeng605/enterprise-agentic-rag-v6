@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: quality
+  frontend-quality:
+    name: frontend-quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -45,4 +45,3 @@ jobs:
 
       - name: Build frontend
         run: pnpm --dir frontend build
-

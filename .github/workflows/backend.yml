@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: quality
+  backend-quality:
+    name: backend-quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -28,7 +28,7 @@ jobs:
           python-version: "3.12"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
@@ -50,4 +50,3 @@ jobs:
 
       - name: Build backend package
         run: uv build --project backend
-
