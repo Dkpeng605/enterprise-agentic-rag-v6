@@ -1,0 +1,10 @@
+app:
+  environment: development
+  public_base_url: http://localhost:8000
+
+providers:
+  llm: mock
+
+deep:
+  low_threshold: 0.45
+  high_threshold: 0.80

@@ -15,7 +15,8 @@ async def test_service_descriptor_reports_runnable_skeleton() -> None:
     assert response.json() == {
         "service": "enterprise-agentic-rag-v6",
         "version": __version__,
-        "status": "skeleton-ready",
+        "status": "configuration-ready",
+        "environment": "development",
     }
 
 
