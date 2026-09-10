@@ -156,7 +156,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M3-01 PDF and OCR loader: complete
 - M3-02 DOCX/HTML/TXT/Markdown loaders: complete
 - M3-03 XLSX/XLS/CSV loaders: complete
-- Next: M3-04 Cleaner
+- M3-04 deterministic Cleaner and audit report: complete
+- Next: M3-05 Root/Leaf Splitter
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -179,6 +180,8 @@ The PDF Loader streams input through a temporary file, extracts each page's text
 The text-document Loader supports DOCX, HTML, TXT, and Markdown. DOCX headings become Section Roots, tables become normalized Markdown, and embedded-image bytes are retained. HTML scripts, styles, navigation, and active embedded objects are removed; body structure is converted to Markdown, while external image locations are recorded without network access. TXT and Markdown are accepted only as UTF-8. This remains a parsing adapter and is not yet connected to the Cleaner, Splitter, or persistence pipeline.
 
 The spreadsheet Loader parses XLSX, legacy XLS, and CSV independently. Each worksheet becomes header-bearing row blocks; continuation blocks repeat the header and preserve source row numbers. Empty outer rows and columns are trimmed while formula cache values and expressions remain traceable. CSV accepts UTF-8/UTF-8-SIG by default; a legacy encoding must be selected explicitly with `csv_fallback_encoding`. These loaders are not yet connected to the complete pipeline.
+
+The deterministic Cleaner preserves both raw and cleaned text and records each effective rule, occurrence count, and before/after content hash. It normalizes invisible controls, common OCR artifacts, and whitespace, and uses batch Root statistics to remove repeated headers and footers. Re-cleaning the same text makes no further changes, and no LLM rewrites document content.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 
