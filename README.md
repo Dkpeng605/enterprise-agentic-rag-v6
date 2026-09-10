@@ -38,7 +38,7 @@ uv run --project backend uvicorn enterprise_rag.main:app --reload
 
 The development API is available at `http://127.0.0.1:8000`. The current skeleton exposes:
 
-- `GET /` — service name, version, and skeleton status
+- `GET /` — service name, version, configuration status, and active environment
 - `GET /docs` — interactive OpenAPI documentation
 - `GET /openapi.json` — OpenAPI schema
 
@@ -50,7 +50,33 @@ pnpm --dir frontend dev
 
 The Vite development server prints its local URL. The current page confirms that the Vue 3 and TypeScript application mounted successfully.
 
-No database, model API, Milvus, authentication, or RAG configuration is required at M1-03. Those capabilities are introduced only by their acceptance PRs.
+No database, model API, Milvus, authentication, or RAG configuration is required for the current development startup. Those capabilities are introduced only by their acceptance PRs.
+
+## Configure the backend
+
+Settings use this deterministic priority, from lowest to highest:
+
+```text
+code defaults < YAML file < environment variables < explicit test/bootstrap overrides
+```
+
+The default development configuration starts without a file or secrets. To load the checked example YAML:
+
+```bash
+ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
+  uv run --project backend uvicorn enterprise_rag.main:app --reload
+```
+
+`.env.example` lists every supported deployment variable with deliberately unusable values. Copy it only for local editing, keep the resulting `.env` untracked, and load it explicitly:
+
+```bash
+cp .env.example .env
+uv run --project backend uvicorn enterprise_rag.main:app --reload --env-file .env
+```
+
+Flat deployment variables such as `DATABASE_URL`, `SESSION_SECRET`, and `LLM_API_KEY` are supported. Any regular setting can also be overridden with a nested name such as `ENTERPRISE_RAG__DEEP__LOW_THRESHOLD=0.50`.
+
+Production startup fails before serving traffic when required credentials are missing, thresholds are invalid, YAML is malformed, or a configured Provider name is unknown. Secret values use masked types and are never included in validation error details.
 
 ## Run the local quality gates
 
@@ -88,7 +114,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 
 - M1-01 detailed developer specification: complete
 - M1-02 runnable Monorepo skeleton: complete
-- M1-03 CI and protected-main workflow: implemented by the current PR
-- Next: M1-04 validated settings and secret loading
+- M1-03 CI and protected-main workflow: complete
+- M1-04 validated settings and secret loading: implemented by the current PR
+- Next: M1-05 common plugin ports and registry
 
-Product RAG behavior has not been implemented yet. The repository currently proves packaging, application startup, frontend mounting, automated tests, type-checking, and production frontend builds.
+Product RAG behavior has not been implemented yet. The repository currently proves packaging, validated configuration loading, application startup, frontend mounting, automated tests, type-checking, and production frontend builds.
