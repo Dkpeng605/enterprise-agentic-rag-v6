@@ -11,8 +11,9 @@ def test_default_settings_are_valid_and_immutable() -> None:
 
     assert settings.app.environment == "development"
     assert settings.providers.vector_store == "milvus_lite"
+    field_name = "low_threshold"
     with pytest.raises(ValidationError):
-        settings.deep.low_threshold = 0.1  # type: ignore[misc]
+        setattr(settings.deep, field_name, 0.1)
 
 
 def test_precedence_is_defaults_then_yaml_then_env_then_override(tmp_path: Path) -> None:
