@@ -1,5 +1,10 @@
 """PostgreSQL persistence adapter."""
 
+from enterprise_rag.adapters.database.documents import (
+    DocumentRegistration,
+    DocumentRegistrationError,
+    DocumentRegistrationRepository,
+)
 from enterprise_rag.adapters.database.engine import Database
 from enterprise_rag.adapters.database.jobs import IngestionJobRepository, JobStateError
 from enterprise_rag.adapters.database.models import Base
@@ -9,6 +14,9 @@ __all__ = [
     "AsyncRepository",
     "Base",
     "Database",
+    "DocumentRegistration",
+    "DocumentRegistrationError",
+    "DocumentRegistrationRepository",
     "IngestionJobRepository",
     "JobStateError",
 ]

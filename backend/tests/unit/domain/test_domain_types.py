@@ -266,7 +266,7 @@ def test_hit_and_citation_validate_rank_score_and_source_boundaries() -> None:
         RetrievalHit(leaf.id, root.id, 1, None, float("nan"), None, False)
 
 
-def test_unified_error_shape_is_stable_immutable_and_json_serializable() -> None:
+def test_unified_error_shape_has_immutable_details_and_is_json_serializable() -> None:
     request_id = UUID("01900000-0000-7000-8000-000000000006")
     error = AppError(
         ErrorCode.DOCUMENT_UNSUPPORTED_TYPE,
@@ -287,5 +287,7 @@ def test_unified_error_shape_is_stable_immutable_and_json_serializable() -> None
         }
     }
     assert "Traceback" not in json.dumps(response)
+    with pytest.raises(AttributeError):
+        error.message = "mutated"  # type: ignore[misc]
     with pytest.raises(TypeError):
         cast(MutableMapping[str, object], error.details)["private"] = "leak"

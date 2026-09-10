@@ -15,6 +15,7 @@ from enterprise_rag.adapters.database.models import Base, TenantModel
 BACKEND_ROOT = Path(__file__).parents[3]
 EXPECTED_TABLES = {
     "collections",
+    "document_content_claims",
     "document_versions",
     "documents",
     "index_revisions",
