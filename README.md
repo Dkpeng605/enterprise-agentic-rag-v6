@@ -1,36 +1,38 @@
 # Enterprise Agentic RAG v6
 
-Evaluation-driven, fully pluggable enterprise Agentic RAG platform.
+简体中文 | [English](README.en.md)
 
-The project is being built from scratch through small, reviewed pull requests. The complete architecture, acceptance criteria, and 64-PR roadmap live in [DEV_SPEC.md](DEV_SPEC.md).
+一个由评测驱动、全链路可插拔的企业级 Agentic RAG 平台。
 
-## Repository layout
+项目从零开始，通过小粒度、经评审的 Pull Request 持续构建。完整架构、验收标准和 64 个 PR 的开发路线见 [DEV_SPEC.md](DEV_SPEC.md)。
+
+## 仓库结构
 
 ```text
-backend/   FastAPI backend and Python tests
-frontend/  Vue 3 + TypeScript application
-evals/     Versioned evaluation datasets and fixtures
-infra/     Local and production infrastructure
-docs/      Architecture decisions and operational documentation
+backend/   FastAPI 后端与 Python 测试
+frontend/  Vue 3 + TypeScript 前端
+evals/     版本化评测数据集与 fixture
+infra/     本地及生产基础设施
+docs/      架构决策与运维文档
 ```
 
-## Prerequisites
+## 环境要求
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
-- Node.js 22 or newer
+- Node.js 22 或更高版本
 - pnpm 11
 
-## Start the current project
+## 启动当前项目
 
-Install all locked dependencies from the repository root:
+在仓库根目录安装所有锁定依赖：
 
 ```bash
 uv sync --project backend --locked
 pnpm install --frozen-lockfile
 ```
 
-Start the development PostgreSQL service and apply migrations:
+启动开发用 PostgreSQL 并执行数据库迁移：
 
 ```bash
 docker compose -f infra/compose/compose.dev.yml up -d postgres
@@ -38,61 +40,61 @@ DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/
   uv run --project backend alembic -c backend/alembic.ini upgrade head
 ```
 
-Start the backend in the first terminal:
+在第一个终端启动后端：
 
 ```bash
 uv run --project backend uvicorn enterprise_rag.main:app --reload
 ```
 
-The development API is available at `http://127.0.0.1:8000`. The current skeleton exposes:
+开发 API 位于 `http://127.0.0.1:8000`。当前骨架提供：
 
-- `GET /` — service name, version, configuration status, and active environment
-- `GET /docs` — interactive OpenAPI documentation
-- `GET /openapi.json` — OpenAPI schema
+- `GET /` — 服务名称、版本、配置状态和当前环境
+- `GET /docs` — 交互式 OpenAPI 文档
+- `GET /openapi.json` — OpenAPI Schema
 
-Start the frontend in a second terminal:
+在第二个终端启动前端：
 
 ```bash
 pnpm --dir frontend dev
 ```
 
-The Vite development server prints its local URL. The current page confirms that the Vue 3 and TypeScript application mounted successfully.
+Vite 开发服务器会输出本地访问地址。当前页面用于确认 Vue 3 和 TypeScript 应用已成功挂载。
 
-PostgreSQL is required for migration and integration tests. The current HTTP skeleton does not query it yet. Model APIs, Milvus, authentication, and RAG behavior are introduced only by their acceptance PRs.
+数据库迁移和集成测试需要 PostgreSQL。当前 HTTP 骨架尚未访问数据库；模型 API、鉴权及完整 RAG 行为会在各自验收 PR 中逐步加入。
 
-Milvus Lite is embedded through PyMilvus and needs no separate service. Contract tests create isolated temporary `.db` files; runtime data belongs under ignored `data/runtime/`, never in Git. A single Milvus Lite file must only be opened by one application process.
+Milvus Lite 通过 PyMilvus 嵌入运行，无需启动独立服务。契约测试会创建隔离的临时 `.db` 文件；运行数据应放在已忽略的 `data/runtime/` 下，不得提交到 Git。同一个 Milvus Lite 文件只能由一个应用进程打开。
 
-The local object store also needs no separate service. Configure application code with a directory under `data/runtime/objects`; content is streamed into a private temporary file and becomes visible only after its size and SHA-256 checks pass. User filenames are metadata only and never become filesystem paths.
+本地对象存储同样不需要独立服务。应用代码应使用 `data/runtime/objects` 下的目录；内容先流式写入私有临时文件，仅在大小和 SHA-256 校验通过后可见。用户文件名只作为元数据，绝不作为文件系统路径。
 
-## Configure the backend
+## 配置后端
 
-Settings use this deterministic priority, from lowest to highest:
+配置使用以下确定性优先级，由低到高：
 
 ```text
-code defaults < YAML file < environment variables < explicit test/bootstrap overrides
+代码默认值 < YAML 文件 < 环境变量 < 测试或启动时显式覆盖
 ```
 
-The default development configuration starts without a file or secrets. To load the checked example YAML:
+默认开发配置无需文件或密钥即可启动。如需载入仓库中的示例 YAML：
 
 ```bash
 ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
   uv run --project backend uvicorn enterprise_rag.main:app --reload
 ```
 
-`.env.example` lists every supported deployment variable with deliberately unusable values. Copy it only for local editing, keep the resulting `.env` untracked, and load it explicitly:
+`.env.example` 列出了所有支持的部署变量，其中的值均为不可用占位符。仅在本地复制编辑，生成的 `.env` 必须保持未跟踪，并显式载入：
 
 ```bash
 cp .env.example .env
 uv run --project backend uvicorn enterprise_rag.main:app --reload --env-file .env
 ```
 
-Flat deployment variables such as `DATABASE_URL`, `SESSION_SECRET`, and `LLM_API_KEY` are supported. Any regular setting can also be overridden with a nested name such as `ENTERPRISE_RAG__DEEP__LOW_THRESHOLD=0.50`.
+支持 `DATABASE_URL`、`SESSION_SECRET`、`LLM_API_KEY` 等扁平部署变量。普通配置也可使用嵌套名称覆盖，例如 `ENTERPRISE_RAG__DEEP__LOW_THRESHOLD=0.50`。
 
-Production startup fails before serving traffic when required credentials are missing, thresholds are invalid, YAML is malformed, or a configured Provider name is unknown. Secret values use masked types and are never included in validation error details.
+生产环境缺少必要密钥、阈值非法、YAML 格式错误或配置了未知 Provider 时，应用会在提供服务前拒绝启动。密钥使用遮蔽类型，校验错误详情中不会包含密钥值。
 
-## Run the local quality gates
+## 运行本地质量门禁
 
-Backend:
+后端：
 
 ```bash
 docker compose -f infra/compose/compose.dev.yml up -d postgres
@@ -103,7 +105,7 @@ export TEST_DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.
 uv build --project backend
 ```
 
-Frontend:
+前端：
 
 ```bash
 pnpm --dir frontend test
@@ -111,54 +113,54 @@ pnpm --dir frontend typecheck
 pnpm --dir frontend build
 ```
 
-The same commands run on every GitHub pull request. Both `backend-quality` and `frontend-quality` must pass before merge.
+每个 GitHub Pull Request 都会执行相同命令。合并前必须通过 `backend-quality` 和 `frontend-quality` 两项检查。
 
-## Contribution workflow
+## 贡献流程
 
-1. Create one branch for one acceptance slice.
-2. Add or update the acceptance test, implementation, and necessary documentation together.
-3. Review and update this README on every PR so its startup commands and milestone status remain accurate.
-4. Push the branch and open a PR using the repository template.
-5. Merge with Squash Merge only after all required checks pass.
-6. Delete the merged branch and start the next slice from the latest `main`.
+1. 每个验收 Slice 创建一个独立分支。
+2. 在同一 PR 中增加或更新验收测试、实现和必要文档。
+3. 每个 PR 都检查并同步维护中英文 README，确保启动命令与里程碑状态准确。
+4. 推送分支并使用仓库模板创建 PR。
+5. 所有必需检查通过后，只使用 Squash Merge 合并。
+6. 删除已合并分支，从最新 `main` 开始下一个 Slice。
 
-Direct pushes and force pushes to `main` are prohibited by branch protection.
+分支保护禁止直接推送或强制推送到 `main`。
 
-## Current milestone
+## 当前里程碑
 
-- M1-01 detailed developer specification: complete
-- M1-02 runnable Monorepo skeleton: complete
-- M1-03 CI and protected-main workflow: complete
-- M1-04 validated settings and secret loading: complete
-- M1-05 common plugin contract and registry: complete
-- M1-06 immutable domain types and unified errors: complete
-- M2-01 PostgreSQL schema, Alembic, and async repository baseline: complete
-- M2-02 concurrency-safe ingestion job state machine: complete
-- M2-03 Milvus Lite vector-store adapter: complete
-- M2-04 crash-safe local object store: complete
-- M2-05 document registration and concurrency-safe deduplication: complete
-- M2-06 asynchronous deletion Saga and cross-store reconcile: complete
-- M2 storage and lifecycle milestone: complete
-- Next: M3-01 PDF and OCR loader
+- M1-01 详细开发规格：已完成
+- M1-02 可运行 Monorepo 骨架：已完成
+- M1-03 CI 与 main 分支保护：已完成
+- M1-04 配置与密钥校验：已完成
+- M1-05 通用插件契约与注册表：已完成
+- M1-06 不可变领域类型与统一错误：已完成
+- M2-01 PostgreSQL Schema、Alembic 与异步 Repository 基线：已完成
+- M2-02 并发安全的摄取任务状态机：已完成
+- M2-03 Milvus Lite 向量存储适配器：已完成
+- M2-04 崩溃安全的本地对象存储：已完成
+- M2-05 文档注册与并发安全去重：已完成
+- M2-06 异步删除 Saga 与跨存储 Reconcile：已完成
+- M2 存储与生命周期里程碑：已完成
+- 下一项：M3-01 PDF/OCR Loader
 
-The PostgreSQL job repository now owns enqueue, exclusive lease, start, heartbeat, retry, cooperative cancellation, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and must renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
+PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
-The VectorStore port requires an index revision on every record and search. Milvus collections are isolated by revision so embedding dimensions cannot be mixed. Every search expression injects `tenant_id` and `status == "ready"`; optional collection and document scopes only narrow that mandatory filter. Dense and sparse vectors, scalar filtering, idempotent upsert, count, version deletion, persistence, and close behavior run against real Milvus Lite files in contract tests.
+VectorStore 端口要求每条记录和每次检索都携带 index revision。Milvus Collection 按 revision 隔离，避免混用不同 Embedding 维度。每个检索表达式都会强制注入 `tenant_id` 和 `status == "ready"`；可选 Collection、Document 范围只能收窄该强制过滤。契约测试在真实 Milvus Lite 文件上验证 dense/sparse 向量、标量过滤、幂等 upsert、计数、版本删除、持久化和关闭行为。
 
-The ObjectStore port accepts an asynchronous byte stream and publishes immutable objects under canonical SHA-256 keys. The local adapter bounds optional upload size, verifies an optional caller digest, fsyncs complete content, and atomically publishes without replacing an existing object. Interrupted and rejected uploads remove their `.part` files; traversal, absolute, malformed, mismatched-prefix, and symlink-escape keys are rejected before filesystem access.
+ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不可变对象。本地适配器支持上传大小限制、调用方摘要校验、完整内容 `fsync` 和不覆盖已有对象的原子发布。中断或被拒绝的上传会清除 `.part` 文件；路径穿越、绝对路径、格式错误、摘要前缀不匹配和符号链接逃逸都会在文件系统访问前被拒绝。
 
-Document registration streams bytes to ObjectStore before opening its PostgreSQL unit of work. The deduplication identity is `(tenant_id, collection_id, sha256)`: repeats return the original document/version, while another collection or tenant gets independent logical ownership and can safely reuse the immutable physical object. A new hash under the same logical name creates a new version. PostgreSQL transaction advisory locks serialize both content and logical-name races, with primary/unique constraints as integrity backstops. The service exists at the application layer; an HTTP upload endpoint is intentionally deferred to its API acceptance slice.
+文档注册先将字节流写入 ObjectStore，再开启 PostgreSQL 工作单元。去重身份为 `(tenant_id, collection_id, sha256)`：相同范围的重复内容返回已有 document/version；不同 Collection 或租户拥有独立逻辑资源，同时安全复用不可变物理对象。同一逻辑名出现新 hash 时创建新版本。PostgreSQL transaction advisory lock 会串行化内容键和逻辑名竞争，复合主键与唯一约束作为最终完整性防线。该能力目前位于应用服务层，HTTP 上传端点会在对应 API Slice 中实现。
 
-Application errors keep their explicit details deeply immutable, but the exception object itself is not frozen because Python must attach traceback state while errors cross asynchronous transaction context managers.
+应用错误的显式详情保持深度不可变；异常对象本身不使用 frozen dataclass，因为 Python 在异常穿过异步事务上下文时必须写入 traceback 状态。
 
-Deletion requests immediately move a tenant-owned document out of `ready`, clear its active version, cancel ingestion work, and enqueue one reusable delete job. The worker runs an idempotent Saga across Milvus, PostgreSQL content, and unreferenced object files before persisting document/version tombstones and completing the job. Shared content-addressed files remain until no non-deleted version references them.
+删除请求会立即让租户所属文档退出 `ready`、清空 active version、取消摄取任务，并创建或复用一个 delete job。Worker 通过可重入 Saga 依次清理 Milvus、PostgreSQL 内容和无引用对象文件，最后保存 document/version tombstone 并完成任务。只要仍有非 deleted version 引用，共享内容寻址文件就会保留。
 
-Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
+Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
-M1 and M2 are complete. Product ingestion and query behavior has not been implemented yet. The repository now provides the tested engineering foundation plus PostgreSQL lifecycle state, concurrency-safe jobs and document registration, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation.
+M1 和 M2 已完成。产品级摄取与查询行为尚未实现。仓库目前提供经过测试的工程基座，以及 PostgreSQL 生命周期状态、并发安全任务与文档注册、Milvus Lite Projection、崩溃安全本地对象、幂等删除和跨存储 Reconcile。
 
-All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
+所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 
-Root and Leaf IDs are derived from immutable identity fields and content hashes. Reprocessing the same version with the same index revision produces the same IDs; changing content, ordinal, kind, or index revision produces different IDs. Domain timestamps must be timezone-aware UTC, metadata is copied into deeply immutable structures, and `to_dict()` outputs JSON-compatible API values.
+Root 和 Leaf ID 由不可变身份字段与内容 hash 派生。使用同一 index revision 重新处理同一版本会产生相同 ID；内容、序号、类型或 index revision 改变时 ID 也会改变。领域时间必须是带时区的 UTC，metadata 会被复制为深度不可变结构，`to_dict()` 输出与 JSON 兼容的 API 值。
 
-M1 was delivered through independently checked pull requests: [specification #1](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/1), [anonymous demo boundary #2](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/2), [Monorepo #3](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/3), [CI and branch protection #4](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/4), [settings #5](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/5), [plugin registry #6](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/6), and [domain types #7](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/7).
+M1 通过独立检查的 PR 交付：[开发规格 #1](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/1)、[匿名演示边界 #2](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/2)、[Monorepo #3](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/3)、[CI 与分支保护 #4](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/4)、[配置 #5](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/5)、[插件注册表 #6](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/6) 和 [领域类型 #7](https://github.com/Dkpeng605/enterprise-agentic-rag-v6/pull/7)。

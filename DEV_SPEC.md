@@ -295,6 +295,7 @@ VPS SHOULD 配置 2GB swap 作为 OOM 缓冲，但 swap 不能作为正常容量
 enterprise-agentic-rag-v6/
 ├── DEV_SPEC.md
 ├── README.md
+├── README.en.md
 ├── LICENSE
 ├── .env.example
 ├── .github/
@@ -2073,7 +2074,8 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 最终仓库必须包含：
 
-- README：10–15 分钟快速开始；
+- `README.md`：默认展示的简体中文 10–15 分钟快速开始；
+- `README.en.md`：与中文 README 能力边界、启动命令和里程碑同步的完整英文版本；
 - DEV_SPEC：本文件；
 - ADR：关键选型与变更；
 - Architecture：组件图、数据流、状态机；
@@ -2084,7 +2086,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - Learning：每个模块知识点、关键取舍和面试问答；
 - Security：威胁边界、权限模型和已知限制。
 
-README 中任何性能或质量数字必须链接到包含 dataset version、commit SHA、配置 hash、Provider、Case 数和运行时间的报告。
+每个 PR 必须同步检查两种语言的 README；若该 PR 改变启动方式、能力边界或里程碑，两份文件必须在同一 PR 更新。README 中任何性能或质量数字必须链接到包含 dataset version、commit SHA、配置 hash、Provider、Case 数和运行时间的报告。
 
 ---
 
