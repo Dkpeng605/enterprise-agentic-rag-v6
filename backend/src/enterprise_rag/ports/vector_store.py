@@ -119,6 +119,8 @@ class VectorHit:
     metadata: Mapping[str, object]
 
     def __post_init__(self) -> None:
+        if not self.leaf_id.startswith("leaf_") or not self.root_id.startswith("root_"):
+            raise ValueError("vector hit IDs must use leaf_ and root_ prefixes")
         if not math.isfinite(self.score):
             raise ValueError("vector hit score must be finite")
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
