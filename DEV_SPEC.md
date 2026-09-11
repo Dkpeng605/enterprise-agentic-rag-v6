@@ -1654,13 +1654,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
-| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-04 完成 |
+| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-05 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 26/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 27/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1868,8 +1868,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-05 QueryPlan
 
-- 结构化 Planner 与确定性 fallback；
-- 验收：比较、多条件、指代和非法 Scope。
+- 输入：`PlannerRequest` 包含非空原问题、最多 20 轮带 user/assistant role 的历史、调用方显式 `QueryScope` 和不可由模型覆盖的 Standard/Deep mode；不把 tenant 或授权声明交给 Planner；
+- Provider：可插拔 `QueryPlannerProvider` 返回不可信结构化 mapping，必须精确包含 rewritten_query、intent、sub_queries、requirements、scope、language，禁止未知字段；intent 只接受领域枚举，sub-query 为 1～4 个、requirements 为 0～8 个非空且不重复字符串；
+- Scope：collection/document 必须是 UUID。Planner 只能在调用方已提供的 ID 集合内继续收窄，调用方未提供 ID 时禁止模型凭空加入；调用方显式 metadata 不能被替换，未显式设置的 title、organization、media type、active version UUID 与 section 可由 Planner 提取，最终仍由 M4-04 PostgreSQL 事实源校验；
+- 输出：生成不可变 `QueryPlan`，original query 保持原样、mode 固定沿用请求；Provider 名、是否降级及稳定错误码单独保存在 `PlannerOutcome`，不把供应商异常文本放入计划；
+- 降级：Provider 不可用、未知/缺失字段、坏枚举、重复/超量列表、非法 UUID 或 Scope 扩大均整体丢弃模型结果，使用确定性 fallback；fallback 保留调用方 Scope，根据中英文模式识别 factual/comparison/procedural/summary，根据分隔条件生成最多 4 个子查询，并用最近 user 历史为中英文指代补充上下文；
+- 验收：覆盖合法比较计划、Deep mode 不可覆盖、Collection 越权扩张、非法 UUID、未知字段、重复子查询、Provider 安全降级，以及比较 + 多条件 + 指代的确定性结果。
 
 #### M4-06 Standard
 
