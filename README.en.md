@@ -178,7 +178,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M4-04 Scope/Root authorization filtering and recovery: complete
 - M4-05 structured QueryPlan with deterministic fallback: complete
 - M4-06 Standard explicit state graph: complete
-- Next: M4-07 Deep Evidence Ledger and Recovery
+- M4-07 Deep Evidence Ledger and Recovery: complete
+- Next: M4-08 Answer Verify/Repair/Abstain
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -237,6 +238,8 @@ The Scope/Root service resolves server-side authorization and user metadata cons
 The Query Planning Service treats structured Planner output as untrusted input and strictly validates fields, intent, sub-query and requirement limits, UUIDs, and scope narrowing. A model cannot change Standard/Deep mode, invent Collection or Document IDs, or replace explicit caller metadata. Any malformed response or Provider failure falls back as one unit to a deterministic plan that preserves the original scope, recognizes Chinese and English comparison, procedural, and summary intent, splits multiple conditions, and uses the latest user turn to resolve pronouns. Provider exception text never enters the QueryPlan.
 
 The Standard Query Graph is an explicit state machine connecting Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer. Every run returns its actual transitions. Empty RRF output, authorized Leaves, or rechecked Roots terminate as NoResults without invoking the answer model. Standard counts the Planner attempt as LLM call one and final answer generation as call two, with a runtime hard ceiling; Planner degradation adds no call. Unclassified failures terminate as Failed with a sanitized error code and no exception text exposed to clients.
+
+Deep Recovery uses an Evidence Ledger deduplicated by Leaf ID across rounds and reserves final slots for new Recovery evidence. Deterministic evidence scores answer at or above 0.80, recover below 0.45, and invoke the Evidence Assessor only in the middle band. Recovery is capped at two rounds before Abstain. Its four routes are Rewrite Hybrid, HyDE Dense-only, Exact-term Sparse-only, and Scope repair that removes only a proven bad field. The current Sparse implementation is hashing lexical, not BM25, so neither code nor documentation mislabels the exact-term route; a true BM25 Provider can replace it later.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

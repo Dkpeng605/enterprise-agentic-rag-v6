@@ -1,6 +1,19 @@
 """Application services that coordinate ports and transactional adapters."""
 
 from enterprise_rag.services.auth import AnonymousSessionService, Principal, SessionGrant
+from enterprise_rag.services.deep_recovery import (
+    DeepRecoveryController,
+    DeepRecoveryOutcome,
+    DeepRecoveryRequest,
+    EvidenceAssessment,
+    EvidenceDecision,
+    EvidenceItem,
+    EvidenceLedger,
+    RecoveryAction,
+    RecoveryPlanner,
+    RecoveryRoute,
+    RetrievalMode,
+)
 from enterprise_rag.services.documents import DocumentRegistrationService, RegisterDocument
 from enterprise_rag.services.fusion import FusionDiagnostic, FusionResult, ReciprocalRankFusion
 from enterprise_rag.services.images import EnrichedImage, ImageEnricher, ImageEnrichmentResult
@@ -50,9 +63,16 @@ __all__ = [
     "DeletionStep",
     "DocumentDeletionService",
     "DocumentRegistrationService",
+    "DeepRecoveryController",
+    "DeepRecoveryOutcome",
+    "DeepRecoveryRequest",
     "DualSearchResult",
     "DualSearchService",
     "EnrichedImage",
+    "EvidenceAssessment",
+    "EvidenceDecision",
+    "EvidenceItem",
+    "EvidenceLedger",
     "FusionDiagnostic",
     "FusionResult",
     "ImageEnricher",
@@ -75,12 +95,16 @@ __all__ = [
     "ReconcileReport",
     "ReconcileService",
     "RecoveredContext",
+    "RecoveryAction",
+    "RecoveryPlanner",
+    "RecoveryRoute",
     "ReciprocalRankFusion",
     "RegisterDocument",
     "RerankItem",
     "RerankOutcome",
     "RerankingService",
     "RootContext",
+    "RetrievalMode",
     "SessionGrant",
     "SearchBranchResult",
     "SearchDiagnostic",
