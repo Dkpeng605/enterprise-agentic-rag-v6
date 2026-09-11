@@ -1654,13 +1654,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
-| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-05 完成 |
+| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-06 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 27/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 28/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1877,8 +1877,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-06 Standard
 
-- LangGraph 或等价显式状态图；
-- 验收：正常、无结果、Planner 降级、两次 LLM 调用上限。
+- 图模型：采用无额外运行时依赖的等价显式状态图，固定状态为 Plan → Search → Fuse → Authorize → Rerank → Recover → Answer → Complete，并以 `StageTransition` 保存实际执行顺序；终止分支为 NoResults 或 Failed，禁止隐藏式递归和隐式 Agent 循环；
+- 请求：`StandardQueryRequest` 只接收 query、有限历史、调用方 Scope、服务端 `ScopeAuthorization` 和 index revision；图固定创建 `mode=standard` 的 PlannerRequest，模型不能把请求升级为 Deep；
+- 执行：对 QueryPlan 的最多 4 个 sub-query 并发执行 M4-01 双路检索，随后依次使用 M4-02 RRF、M4-04 PostgreSQL Scope/Leaf 校验、M4-03 Reranker 和 M4-04 Root 恢复；仅把恢复后 Root 的 title、source name 和 clean text 放入答案 prompt；
+- 空结果：RRF 为空仍解析显式 Scope 以保留冲突语义；获准 Leaf 为空或 Root 二次校验后为空均走 NoResults，不调用答案模型；
+- LLM 上限：Standard 将 Planner 尝试计为第 1 次、答案生成计为第 2 次，运行时硬校验不得超过 2；Embedding、Sparse 与 Reranker 不计为 LLM call；Planner 降级不会重试或增加调用；
+- 结果：返回 status、answer、QueryPlan、Root context、完整 transitions、LLM call 数、Planner/Reranker degraded 标记和净化 error code；任何未分类异常进入 Failed，不回显异常文本；
+- 端口：新增最小 `LanguageModel.complete(CompletionRequest) -> CompletionResult`，请求约束 system/user prompt 与输出上限，响应约束非空文本和非负 token 计数，为 M4-08/M4-10 的验证及配额提供稳定接口；
+- 验收：正常路径精确匹配八个状态且恰好 2 次模型调用；两路 sub-query 均执行；无结果仍校验 Scope 且跳过 Rerank/Answer；Planner 降级对外可见且不增加模型调用。
 
 #### M4-07 Deep
 
