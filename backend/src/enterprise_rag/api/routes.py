@@ -1,5 +1,6 @@
-"""FastAPI routes for anonymous demo collection and document workflows."""
+"""FastAPI routes for anonymous demo document and query workflows."""
 
+import json
 from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from pathlib import Path
@@ -12,10 +13,12 @@ from fastapi import (
     File,
     Form,
     Query,
+    Request,
     Response,
     UploadFile,
     status,
 )
+from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyCookie, APIKeyHeader
 
 from enterprise_rag.api.schemas import (
@@ -32,13 +35,19 @@ from enterprise_rag.api.schemas import (
     DocumentResponse,
     ErrorResponseModel,
     JobResponse,
+    QueryRequestModel,
+    QueryResponseModel,
     TenantModel,
     UploadResponse,
 )
+from enterprise_rag.domain.common import new_uuid7, to_json_value
 from enterprise_rag.domain.documents import DocumentStatus, DocumentVisibility
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.jobs import JobSnapshot
+from enterprise_rag.domain.retrieval import QueryMode, QueryScope
+from enterprise_rag.ports.planner import ConversationRole, ConversationTurn
 from enterprise_rag.services.auth import SESSION_COOKIE, AnonymousSessionService, Principal
+from enterprise_rag.services.query_api import QueryApiService, QueryCommand
 from enterprise_rag.services.workspace import (
     CollectionSnapshot,
     DocumentDetail,
@@ -93,6 +102,7 @@ def create_api_router(
     *,
     auth: AnonymousSessionService | None,
     workspace: WorkspaceService | None,
+    query_api: QueryApiService | None,
     tenant_slug: str,
     allowed_suffixes: tuple[str, ...],
     max_upload_bytes: int,
@@ -124,6 +134,11 @@ def create_api_router(
         if workspace is None:
             raise _unavailable()
         return workspace
+
+    def _query_api() -> QueryApiService:
+        if query_api is None:
+            raise _unavailable()
+        return query_api
 
     @router.get("/auth/me", response_model=AuthMeResponse, tags=["auth"])
     async def auth_me(
@@ -368,6 +383,45 @@ def create_api_router(
     ) -> JobResponse:
         return _job(await _workspace().get_job(principal.tenant_id, job_id))
 
+    @router.post(
+        "/queries",
+        response_model=QueryResponseModel,
+        tags=["queries"],
+    )
+    async def execute_query(
+        body: QueryRequestModel,
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> QueryResponseModel:
+        result = await _query_api().execute(_query_command(body, principal))
+        return QueryResponseModel.model_validate(result.to_dict())
+
+    @router.post(
+        "/queries/stream",
+        response_class=StreamingResponse,
+        responses={200: {"content": {"text/event-stream": {}}}},
+        tags=["queries"],
+    )
+    async def stream_query(
+        body: QueryRequestModel,
+        request: Request,
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> StreamingResponse:
+        command = _query_command(body, principal)
+        service = _query_api()
+
+        async def events() -> AsyncIterator[str]:
+            async for event in service.stream(command, disconnected=request.is_disconnected):
+                payload = json.dumps(
+                    to_json_value(event.data), ensure_ascii=False, separators=(",", ":")
+                )
+                yield f"id: {event.sequence}\nevent: {event.event}\ndata: {payload}\n\n"
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     @router.get("/system/status", tags=["system"])
     async def system_status(
         principal: Annotated[Principal, Depends(reader)],
@@ -404,6 +458,34 @@ def _unavailable() -> AppError:
         ErrorCode.SERVICE_UNAVAILABLE,
         "The workspace infrastructure is not configured.",
     )
+
+
+def _query_command(body: QueryRequestModel, principal: Principal) -> QueryCommand:
+    try:
+        scope = QueryScope(
+            tuple(body.scope.collection_ids),
+            tuple(body.scope.document_ids),
+            tuple(body.scope.titles),
+            tuple(body.scope.organizations),
+            tuple(body.scope.doc_types),
+            tuple(body.scope.versions),
+            tuple(body.scope.sections),
+        )
+        history = tuple(
+            ConversationTurn(ConversationRole(item.role), item.content.strip())
+            for item in body.history
+        )
+        return QueryCommand(
+            new_uuid7(),
+            principal.tenant_id,
+            principal.actor_id,
+            body.query.strip(),
+            QueryMode(body.mode),
+            scope,
+            history,
+        )
+    except ValueError as error:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "The query request is invalid.") from error
 
 
 def _collection(item: CollectionSnapshot) -> CollectionResponse:

@@ -1654,13 +1654,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
-| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-08 完成 |
+| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-09 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 30/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 31/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1910,8 +1910,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-09 Query REST/SSE
 
-- 同步和流式 API；
-- 验收：事件顺序、断线、错误、heartbeat、OpenAPI。
+- 端点：提供 `POST /api/v1/queries` 同步响应与 `POST /api/v1/queries/stream` SSE 流；两者复用同一 `QueryRunner` 应用端口，不复制检索或回答逻辑；
+- 身份边界：匿名 `reader` 可执行查询；`tenant_id`、`actor_id` 与 UUIDv7 `query_id` 只由服务端会话和服务端生成器绑定，请求体不能覆盖租户或调用者；查询端点只读，因此不要求 CSRF；
+- 请求：`query` 去空白后非空且不超过 4,000 字符，mode 仅允许 `standard/deep`，Scope 七类字段各不超过 100 项并继续执行领域去重校验，history 仅允许 user/assistant、最多 12 轮且合计不超过 12,000 字符；所有 Schema 禁止未知字段；
+- 同步响应：固定返回 query ID、`answered/abstained/no_results` 状态、答案、结构化 Citation、可 JSON 序列化 diagnostics 与 usage；
+- SSE 契约：事件使用递增正整数 `id`，顺序固定为 `accepted` → 单调且不重复的 `progress` → `completed`；空闲每 15 秒发送 `heartbeat`，终止事件只能是 `completed` 或净化后的 `error`；响应声明 `text/event-stream`、`Cache-Control: no-cache` 与 `X-Accel-Buffering: no`；
+- 生命周期：客户端断开后取消正在执行的 Runner，且不再发送 completed/error；Runner 异常只暴露稳定错误码和通用消息，不泄漏供应商原文；未配置 Runner 时在创建流之前稳定返回 503；
+- 验收：单元测试覆盖同步、事件次序、heartbeat、异常净化与断线取消；真实 PostgreSQL 匿名会话集成测试覆盖服务端租户绑定、输入边界、SSE header/payload、OpenAPI 和未配置依赖的 503。
 
 #### M4-10 Cost Guard
 

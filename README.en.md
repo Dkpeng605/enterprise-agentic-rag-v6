@@ -180,7 +180,10 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M4-06 Standard explicit state graph: complete
 - M4-07 Deep Evidence Ledger and Recovery: complete
 - M4-08 Answer Verify/Repair/Abstain: complete
-- Next: M4-09 Query REST/SSE API
+- M4-09 Query REST/SSE API: complete
+- Next: M4-10 Cost Guard
+
+The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
