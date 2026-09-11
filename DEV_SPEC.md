@@ -646,7 +646,7 @@ app:
 providers:
   llm: openai_compatible
   embedding: local_multilingual_minilm
-  reranker: local_mmarco
+  reranker: local_cross_encoder
   vector_store: milvus_lite
   splitter: structure_aware
   evaluator: deterministic
@@ -1654,13 +1654,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
-| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-02 完成 |
+| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-03 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 24/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 25/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1847,8 +1847,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-03 Reranker
 
-- local、HTTP、noop 和降级；
-- 验收：候选 ID 对齐、超时、坏响应。
+- 端口：`Reranker.rerank(query, candidates, top_k)` 只接收带稳定 candidate ID、检索文本和 fused score 的候选，并返回 candidate ID 与有限分数；候选必须非空、ID 唯一，`top_k` 必须落在候选范围内；
+- 本地：`local_cross_encoder` 使用 FastEmbed ONNX `TextCrossEncoder`，延迟加载并在线程中执行阻塞推理；默认 `Xenova/ms-marco-MiniLM-L-6-v2` 约 0.08GB，明确仅按英文模型能力声明，不把它描述为多语模型；需要中文/多语时必须显式配置相应 CrossEncoder，2GB 生产机默认改用远程 Reranker；
+- HTTP：`openai_compatible` 调用 `{base_url}/rerank`，请求包含 model/query/documents/top_n，认证密钥只进入 Authorization header；超时、网络错误、429 与 5xx 执行最多 2 次的 0.25s 指数退避，其他 4xx 不重试；响应只接受唯一且范围内的 index、有限 relevance_score 和精确 Top-K 数量，禁止回显供应商 body 或密钥；
+- Noop：显式 `reranker: none` 按 RRF 顺序和 fused score 选择，不标记降级；它用于无模型环境，不能伪装成 CrossEncoder；
+- 服务：默认只将前 20 个 RRF 候选送入重排并选择前 8 个；按 ID 回填 `rerank_score`，同分保持原 RRF 顺序。缺失、重复、未知 ID、非有限分数、超时或 Provider 异常均安全降级到前 8 个 RRF 候选，清空 rerank score，并只暴露 `RERANKER_UNAVAILABLE` 或 `RERANKER_INVALID_RESPONSE`；
+- 配置：默认 Provider 名从含糊且未实现的 `local_mmarco` 修正为 `local_cross_encoder`；生产选择远程实现时 `RERANK_BASE_URL`、`RERANK_API_KEY`、`RERANK_MODEL` 必填；
+- 验收：Fake Provider 覆盖候选漏项、重复、未知 ID、NaN、稳定同分和 RRF 降级；MockTransport 覆盖乱序 index、429 重试、4xx 不重试、坏响应和错误净化；可选真实模型测试实际下载并执行默认 CrossEncoder。
 
 #### M4-04 Scope/Root
 

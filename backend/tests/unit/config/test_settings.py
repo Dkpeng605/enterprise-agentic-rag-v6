@@ -12,6 +12,7 @@ def test_default_settings_are_valid_and_immutable() -> None:
     assert settings.app.environment == "development"
     assert settings.providers.vector_store == "milvus_lite"
     assert settings.providers.ocr == "tesseract"
+    assert settings.providers.reranker == "local_cross_encoder"
     assert settings.ingestion.pdf_ocr_languages == ("chi_sim", "eng")
     field_name = "low_threshold"
     with pytest.raises(ValidationError):
@@ -87,6 +88,32 @@ def test_remote_embedding_requires_its_own_production_credentials() -> None:
 
     assert raised.value.details == {
         "fields": ("EMBEDDING_API_KEY", "EMBEDDING_BASE_URL", "EMBEDDING_MODEL")
+    }
+
+
+def test_remote_reranker_requires_its_own_production_credentials() -> None:
+    environment = {
+        "ADMIN_BOOTSTRAP_EMAIL": "admin@example.test",
+        "ADMIN_BOOTSTRAP_PASSWORD": "password",
+        "DATABASE_URL": "postgresql+asyncpg://example.test/db",
+        "MCP_TOKEN_PEPPER": "pepper",
+        "SESSION_SECRET": "session",
+    }
+    with pytest.raises(SettingsError) as raised:
+        load_settings(
+            environ=environment,
+            overrides={
+                "app": {"environment": "production"},
+                "providers": {
+                    "llm": "mock",
+                    "embedding": "local_multilingual_minilm",
+                    "reranker": "openai_compatible",
+                },
+            },
+        )
+
+    assert raised.value.details == {
+        "fields": ("RERANK_API_KEY", "RERANK_BASE_URL", "RERANK_MODEL")
     }
 
 

@@ -4,6 +4,7 @@ app:
 
 providers:
   llm: mock
+  reranker: local_cross_encoder
   vision: none
   sparse_encoder: hashing_lexical
 
