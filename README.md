@@ -179,7 +179,8 @@ pnpm --dir=frontend build
 - M4-05 结构化 QueryPlan 与确定性降级：已完成
 - M4-06 Standard 显式状态图：已完成
 - M4-07 Deep Evidence Ledger 与 Recovery：已完成
-- 下一项：M4-08 Answer Verify/Repair/Abstain
+- M4-08 Answer Verify/Repair/Abstain：已完成
+- 下一项：M4-09 Query REST/SSE API
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
@@ -240,6 +241,8 @@ Query Planning Service 将结构化 Planner 输出视为不可信输入，严格
 Standard Query Graph 使用显式状态机串联 Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer。每次运行返回真实状态转移；RRF、授权 Leaf 或二次校验 Root 为空都会进入 NoResults 并跳过答案模型。Standard 固定把 Planner 尝试计为第 1 次 LLM 调用、最终答案计为第 2 次并执行硬上限；Planner 降级不触发额外调用。未分类故障进入带净化错误码的 Failed 状态，不把异常文本交给客户端。
 
 Deep Recovery 使用按 Leaf ID 跨轮去重的 Evidence Ledger，并给 Recovery 新证据预留最终名额。确定性证据分数在 0.80 及以上直接回答、低于 0.45 直接恢复，中间区间才调用 Evidence Assessor；默认最多两轮，仍有缺口则 Abstain。四条恢复路径为 Rewrite Hybrid、HyDE Dense-only、Exact-term Sparse-only 和仅放宽已证明错误字段的 Scope repair。当前 Sparse 实现是 hashing lexical，不是 BM25，因此代码和文档都不会把精确术语路径虚称为 BM25；未来可替换真正 BM25 Provider。
+
+Answer Verification 要求每个事实段落绑定引用；引用 Root 必须来自本轮授权上下文、Leaf 必须属于该 Root，quote 必须是 Root clean text 中真实存在的连续片段，同时覆盖 QueryPlan 的全部 requirements。结构或覆盖错误最多 Repair 一次，并使用完全相同的证据集合再次校验；Evidence conflict 不会通过改写掩盖，而是直接 Abstain。最终只有验证通过的答案会生成带 document/root/Leaf、page/section、quote 和 score 的领域 Citation；其余返回有边界拒答和空引用，不泄露供应商错误。
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 
