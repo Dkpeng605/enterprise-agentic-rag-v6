@@ -69,6 +69,7 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `/api/v1/collections` — demo-tenant collection CRUD
 - `/api/v1/documents` — streaming upload, filtering, and cursor pagination
 - `/api/v1/documents/{id}` and `/api/v1/ingestion-jobs/{id}` — document and ingestion status
+- `POST /api/v1/queries` and `POST /api/v1/queries/stream` — synchronous and SSE query contracts; the current entry point returns 503 until a QueryRunner is injected
 
 Before a write, call `GET /api/v1/auth/me`, retain its Cookie, and send the returned `csrf_token` in the `X-CSRF-Token` header. Development HTTP cookies omit Secure; production or an HTTPS base URL always enables Secure.
 
@@ -80,7 +81,7 @@ pnpm --dir=frontend dev
 
 The Vite development server prints its local URL. The current page confirms that the Vue 3 and TypeScript application mounted successfully.
 
-PostgreSQL is required by migrations, anonymous sessions, collection/document APIs, and integration tests. Without a configured database, object directory, or session secret, the static OpenAPI contract remains available while business routes return a stable 503. Query APIs and complete Agentic RAG behavior arrive incrementally in M4.
+PostgreSQL is required by migrations, anonymous sessions, collection/document APIs, query budgets, and integration tests. Without a configured database, object directory, or session secret, the static OpenAPI contract remains available while business routes return a stable 503. M4 now provides composable QueryRunner, synchronous/SSE, retrieval, and Agentic RAG contracts and services. The current `enterprise_rag.main:app` does not yet inject a concrete QueryRunner, so query endpoints return a stable 503 until later milestones compose production Providers and process entry points.
 
 Milvus Lite is embedded through PyMilvus and needs no separate service. Contract tests create isolated temporary `.db` files; runtime data belongs under ignored `data/runtime/`, never in Git. A single Milvus Lite file must only be opened by one application process.
 
@@ -181,9 +182,13 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M4-07 Deep Evidence Ledger and Recovery: complete
 - M4-08 Answer Verify/Repair/Abstain: complete
 - M4-09 Query REST/SSE API: complete
-- Next: M4-10 Cost Guard
+- M4-10 PostgreSQL Cost Guard and Provider timeout/retry: complete
+- M4 Hybrid Retrieval and Agentic RAG milestone: complete
+- Next: M5-01 MCP Application Layer
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
+
+The Cost Guard atomically reserves a per-minute query slot and worst-case call/token capacity with PostgreSQL conditional upserts before QueryRunner can enter Provider logic. Minute limits are isolated per anonymous session, UTC daily capacity is shared by all anonymous sessions, and Standard/Deep use different weights. Successful calls refund unused capacity from trustworthy usage; failures or unverifiable usage conservatively consume the reservation, and 429 responses include `Retry-After`. The LLM decorator adds configurable per-attempt timeout, bounded transient-only retries, and a retry count. Apply the new tables first with the `alembic upgrade head` command above.
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -199,7 +204,7 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
-M1, M2, and M3 are complete. Product query behavior is not implemented yet. The repository now provides the tested engineering foundation, the complete multi-format ingestion path, anonymous demo-tenant collection/document APIs, PostgreSQL lifecycle state, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation.
+M1, M2, M3, and M4 are complete. The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, synchronous/SSE query contracts, a PostgreSQL Cost Guard, lifecycle state, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation. A concrete production QueryRunner/Provider composition entry point is not wired yet, so the default entry point does not pretend to be a usable complete query product.
 
 The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for image enrichment. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. The Loader is wired into the background ingestion Pipeline; the HTTP upload endpoint arrives in M3-10.
 

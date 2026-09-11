@@ -57,7 +57,7 @@ class FakeQueryRunner:
             "来自测试 Runner 的答案",
             (),
             {"mode": command.mode.value},
-            {"llm_calls": 2},
+            {"llm_calls": 2, "input_tokens": 120, "output_tokens": 30},
         )
 
 
@@ -104,7 +104,11 @@ async def test_query_rest_binds_server_tenant_and_accepts_anonymous_reader(
 
     assert response.status_code == 200
     assert response.json()["status"] == "answered"
-    assert response.json()["usage"] == {"llm_calls": 2}
+    assert response.json()["usage"] == {
+        "llm_calls": 2,
+        "input_tokens": 120,
+        "output_tokens": 30,
+    }
     assert response.headers["x-request-id"]
     assert runner.commands[-1].mode is QueryMode.DEEP
     assert runner.commands[-1].scope.titles == ("Policy",)
@@ -152,11 +156,33 @@ async def test_query_validation_and_openapi_contract(
             ],
         },
     )
+    oversized_query = await client.post(
+        "/api/v1/queries",
+        json={"query": "x" * 2_001},
+    )
     openapi = (await client.get("/openapi.json")).json()
 
     assert duplicate_scope.status_code == 400
     assert duplicate_scope.json()["error"]["code"] == "VALIDATION_ERROR"
     assert oversized_history.status_code == 400
+    assert oversized_query.status_code == 422
     assert "/api/v1/queries" in openapi["paths"]
     assert "/api/v1/queries/stream" in openapi["paths"]
     assert "text/event-stream" in str(openapi["paths"]["/api/v1/queries/stream"])
+
+
+@pytest.mark.anyio
+async def test_query_budget_returns_429_before_sixth_runner_call(
+    query_api: tuple[httpx2.AsyncClient, FakeQueryRunner],
+) -> None:
+    client, runner = query_api
+
+    responses = [
+        await client.post("/api/v1/queries", json={"query": f"budget-{index}"})
+        for index in range(6)
+    ]
+
+    assert [response.status_code for response in responses] == [200, 200, 200, 200, 200, 429]
+    assert responses[-1].json()["error"]["code"] == "RATE_LIMITED"
+    assert responses[-1].headers["retry-after"] == "55"
+    assert len(runner.commands) == 5

@@ -45,6 +45,13 @@ from enterprise_rag.ports.registry import ProviderRegistry, RegistryError, Regis
 from enterprise_rag.ports.reranker import RerankCandidate, Reranker, RerankResult
 from enterprise_rag.ports.sparse import SparseEncoder
 from enterprise_rag.ports.splitter import SplitResult, Splitter
+from enterprise_rag.ports.usage import (
+    UsageAmounts,
+    UsageLimits,
+    UsageReservation,
+    UsageSnapshot,
+    UsageStore,
+)
 from enterprise_rag.ports.vector_store import (
     DenseSearchRequest,
     IndexSchema,
@@ -110,4 +117,9 @@ __all__ = [
     "CaptionStatus",
     "VisionImage",
     "VisionProvider",
+    "UsageAmounts",
+    "UsageLimits",
+    "UsageReservation",
+    "UsageSnapshot",
+    "UsageStore",
 ]

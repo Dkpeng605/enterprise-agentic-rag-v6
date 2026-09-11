@@ -40,13 +40,16 @@ class QueryCommand:
     mode: QueryMode
     scope: QueryScope
     history: tuple[ConversationTurn, ...]
+    session_id: UUID | None = None
 
     def __post_init__(self) -> None:
         for name in ("query_id", "tenant_id", "actor_id"):
             require_uuid7(getattr(self, name), name)
+        if self.session_id is not None:
+            require_uuid7(self.session_id, "session_id")
         require_non_empty(self.query, "query")
-        if len(self.query) > 4_000:
-            raise ValueError("query must not exceed 4000 characters")
+        if len(self.query) > 2_000:
+            raise ValueError("query must not exceed 2000 characters")
         if len(self.history) > 12:
             raise ValueError("query history must not exceed 12 turns")
         if sum(len(turn.content) for turn in self.history) > 12_000:

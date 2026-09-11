@@ -23,6 +23,8 @@ EXPECTED_TABLES = {
     "ingestion_jobs",
     "leaves",
     "memberships",
+    "query_budget_reservations",
+    "query_usage_windows",
     "roots",
     "tenants",
     "users",

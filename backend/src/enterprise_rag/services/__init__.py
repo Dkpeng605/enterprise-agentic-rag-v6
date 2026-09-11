@@ -11,6 +11,12 @@ from enterprise_rag.services.answer_verification import (
     VerificationIssue,
 )
 from enterprise_rag.services.auth import AnonymousSessionService, Principal, SessionGrant
+from enterprise_rag.services.cost_guard import (
+    BoundedLanguageModel,
+    BudgetedQueryRunner,
+    CostGuard,
+    QueryBudget,
+)
 from enterprise_rag.services.deep_recovery import (
     DeepRecoveryController,
     DeepRecoveryOutcome,
@@ -82,6 +88,9 @@ __all__ = [
     "AnswerOutcome",
     "AnswerStatus",
     "AnswerVerificationService",
+    "BoundedLanguageModel",
+    "BudgetedQueryRunner",
+    "CostGuard",
     "DeletionResult",
     "DeletionStep",
     "DocumentDeletionService",
@@ -115,6 +124,7 @@ __all__ = [
     "QueryGraphStage",
     "QueryGraphStatus",
     "QueryApiService",
+    "QueryBudget",
     "QueryCommand",
     "QueryExecution",
     "QueryProgress",

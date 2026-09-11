@@ -120,9 +120,24 @@ class SecuritySettings(SettingsModel):
     anonymous_api_requests_per_minute: PositiveInt = 10
     anonymous_queries_per_minute: PositiveInt = 5
     anonymous_daily_llm_calls: PositiveInt = 500
+    anonymous_daily_input_tokens: PositiveInt = 10_000_000
+    anonymous_daily_output_tokens: PositiveInt = 1_000_000
     anonymous_max_file_bytes: PositiveInt = 20_971_520
     anonymous_max_ready_documents: PositiveInt = 20
     session_minutes: PositiveInt = 480
+
+
+class CostGuardSettings(SettingsModel):
+    query_timeout_seconds: Annotated[float, Field(gt=0, le=600)] = 90.0
+    provider_timeout_seconds: Annotated[float, Field(gt=0, le=300)] = 30.0
+    provider_max_retries: Annotated[int, Field(ge=0, le=10)] = 2
+    provider_retry_backoff_seconds: Annotated[float, Field(ge=0, le=10)] = 0.25
+    standard_reserved_llm_calls: PositiveInt = 6
+    standard_reserved_input_tokens: PositiveInt = 120_000
+    standard_reserved_output_tokens: PositiveInt = 12_000
+    deep_reserved_llm_calls: PositiveInt = 18
+    deep_reserved_input_tokens: PositiveInt = 360_000
+    deep_reserved_output_tokens: PositiveInt = 36_000
 
 
 class ObservabilitySettings(SettingsModel):
@@ -158,6 +173,7 @@ class AppSettings(SettingsModel):
     ingestion: IngestionSettings = IngestionSettings()
     retrieval: RetrievalSettings = RetrievalSettings()
     deep: DeepSettings = DeepSettings()
+    cost_guard: CostGuardSettings = CostGuardSettings()
     security: SecuritySettings = SecuritySettings()
     observability: ObservabilitySettings = ObservabilitySettings()
     credentials: CredentialSettings = CredentialSettings()

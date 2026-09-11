@@ -24,3 +24,21 @@ ingestion:
 deep:
   low_threshold: 0.45
   high_threshold: 0.80
+
+cost_guard:
+  query_timeout_seconds: 90.0
+  provider_timeout_seconds: 30.0
+  provider_max_retries: 2
+  provider_retry_backoff_seconds: 0.25
+  standard_reserved_llm_calls: 6
+  standard_reserved_input_tokens: 120000
+  standard_reserved_output_tokens: 12000
+  deep_reserved_llm_calls: 18
+  deep_reserved_input_tokens: 360000
+  deep_reserved_output_tokens: 36000
+
+security:
+  anonymous_queries_per_minute: 5
+  anonymous_daily_llm_calls: 500
+  anonymous_daily_input_tokens: 10000000
+  anonymous_daily_output_tokens: 1000000

@@ -25,10 +25,11 @@ class CompletionResult:
     text: str
     input_tokens: int
     output_tokens: int
+    retry_count: int = 0
 
     def __post_init__(self) -> None:
         require_non_empty(self.text, "text")
-        if self.input_tokens < 0 or self.output_tokens < 0:
+        if min(self.input_tokens, self.output_tokens, self.retry_count) < 0:
             raise ValueError("token counts must not be negative")
 
 
