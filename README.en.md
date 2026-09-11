@@ -175,7 +175,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M4-01 dual Dense/Sparse Search: complete
 - M4-02 multi-path/multi-query RRF: complete
 - M4-03 local/HTTP/Noop Reranker with safe degradation: complete
-- Next: M4-04 Scope/Root authorization filtering and recovery
+- M4-04 Scope/Root authorization filtering and recovery: complete
+- Next: M4-05 structured QueryPlan with deterministic fallback
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -228,6 +229,8 @@ The Reranker port provides local FastEmbed CrossEncoder, HTTP, and explicit Noop
 (cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \
   tests/contract/test_reranker_providers.py -m model)
 ```
+
+The Scope/Root service resolves server-side authorization and user metadata constraints to an explicit set of currently ready PostgreSQL document IDs. Anonymous users retain full business access inside the demo tenant but cannot override the tenant in a request; restricted identities use the union of allowed Collections and Documents. Title, organization, media type, active-version UUID, and section are checked against the fact source, while contradictory explicit constraints return `QUERY_SCOPE_CONFLICT` without disclosing resource existence. Recalled Leaves are rechecked before reranking, and selected Roots are rechecked again before entering context, joining tenant, active Collection, ready Document, and indexed active Version. Stale vectors, deleting content, and unauthorized records are therefore discarded. Recovered content has a strict default 18,000-character budget, merges Leaf references per Root, and records deterministic truncation.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

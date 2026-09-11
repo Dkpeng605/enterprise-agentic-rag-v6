@@ -1,5 +1,9 @@
 """PostgreSQL persistence adapter."""
 
+from enterprise_rag.adapters.database.context import (
+    PostgreSQLContextRepository,
+    ScopeConflictError,
+)
 from enterprise_rag.adapters.database.documents import (
     DocumentRegistration,
     DocumentRegistrationError,
@@ -24,6 +28,8 @@ from enterprise_rag.adapters.database.repository import AsyncRepository
 __all__ = [
     "AsyncRepository",
     "Base",
+    "PostgreSQLContextRepository",
+    "ScopeConflictError",
     "Database",
     "DocumentRegistration",
     "DocumentRegistrationError",
