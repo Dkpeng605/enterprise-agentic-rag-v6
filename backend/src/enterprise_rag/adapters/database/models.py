@@ -94,6 +94,7 @@ class CollectionModel(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_collections_tenant_name"),
         CheckConstraint("visibility IN ('private', 'tenant', 'public')", name="visibility"),
+        CheckConstraint("status IN ('active', 'deleting')", name="status"),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
@@ -101,7 +102,10 @@ class CollectionModel(TimestampMixin, Base):
         PG_UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
     visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="tenant")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    is_seed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class DocumentModel(TimestampMixin, Base):
@@ -130,6 +134,7 @@ class DocumentModel(TimestampMixin, Base):
     )
     logical_name: Mapped[str] = mapped_column(String(300), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
+    organization: Mapped[str | None] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     active_version_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -306,6 +311,27 @@ class IngestionJobModel(TimestampMixin, Base):
     error_code: Mapped[str | None] = mapped_column(String(100))
     error_message: Mapped[str | None] = mapped_column(Text)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class AnonymousSessionModel(TimestampMixin, Base):
+    __tablename__ = "anonymous_sessions"
+    __table_args__ = (
+        CheckConstraint("length(token_hash) = 64", name="token_hash_length"),
+        CheckConstraint("length(csrf_hash) = 64", name="csrf_hash_length"),
+        Index("ix_anonymous_sessions_expires_at", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    csrf_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class IndexRevisionModel(TimestampMixin, Base):

@@ -45,6 +45,7 @@ class DocumentRegistrationRepository:
         created_by: UUID,
         logical_name: str,
         title: str,
+        organization: str | None,
         source_name: str,
         media_type: str,
         visibility: DocumentVisibility,
@@ -80,6 +81,7 @@ class DocumentRegistrationRepository:
                 collection_id=collection_id,
                 logical_name=logical_name,
                 title=title,
+                organization=organization,
                 status="pending",
                 visibility=visibility.value,
                 created_by=created_by,
@@ -94,6 +96,7 @@ class DocumentRegistrationRepository:
             )
         else:
             document.title = title
+            document.organization = organization
             document.status = "processing"
 
         version = DocumentVersionModel(
@@ -133,6 +136,7 @@ class DocumentRegistrationRepository:
         statement = select(CollectionModel.id).where(
             CollectionModel.id == collection_id,
             CollectionModel.tenant_id == tenant_id,
+            CollectionModel.status == "active",
         )
         if (await self.session.scalar(statement)) is None:
             raise DocumentRegistrationError(

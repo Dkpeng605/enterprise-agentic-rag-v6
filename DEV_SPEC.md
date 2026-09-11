@@ -1653,14 +1653,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 |---|---|---:|---|
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
-| M3 | 多格式摄取流水线 | 10 | M3-01～M3-09 完成 |
+| M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 21/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 22/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1817,8 +1817,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M3-10 文档 API
 
-- 匿名 session、集合 CRUD、上传、列表、详情、任务、删除；
-- 验收：demo tenant 全业务权限、系统边界、OpenAPI、分页和错误模型。
+- Session：`GET /api/v1/auth/me` 创建或续期服务端匿名 session，只保存带 secret 的 token/CSRF hash，Cookie 为 HttpOnly、SameSite=Lax 且公网 HTTPS 使用 Secure；每次 `auth/me` 轮换 CSRF；
+- 边界：session 强制绑定固定 demo tenant 与 `demo_operator`，忽略客户端 tenant，允许集合/文档/摄取等租户业务管理操作；系统管理 API 对匿名身份固定返回 403；跨租户存在性统一隐藏为 404；
+- 集合：提供 list/create/detail/patch/delete，名称冲突返回 409；默认创建可恢复 seed collection，永久删除 seed 固定返回 409；非空集合删除先隐藏集合并为其中文档创建幂等 delete Job；
+- 文档：`multipart/form-data` 流式上传，后端同时校验扩展名、MIME、空白字段、demo 数量和字节上限；注册成功返回 document/version/job；列表支持 collection/status/type/keyword 与稳定 cursor，详情只返回 hash 前缀、版本、Root/Leaf 数和最近任务；
+- 任务与删除：tenant-scoped job 端点不返回 lease owner；文档删除立即返回 202，重复请求复用同一个进行中任务；
+- 错误：所有响应携带 `X-Request-ID`；应用错误和 FastAPI validation 均使用统一安全错误模型，不回显上传内容、Cookie 或第三方异常；未配置基础设施时路由仍出现在 OpenAPI，调用返回稳定 503；
+- 验收：真实 PostgreSQL 与 LocalObjectStore 覆盖 session/CSRF、完整集合 CRUD、上传/分页/详情/任务/幂等删除、seed 和系统边界、跨租户 404、413/415、OpenAPI 与迁移升降级。
 
 ### M4：检索与 Agentic RAG
 
