@@ -483,6 +483,7 @@ def _query_command(body: QueryRequestModel, principal: Principal) -> QueryComman
             QueryMode(body.mode),
             scope,
             history,
+            principal.session_id,
         )
     except ValueError as error:
         raise AppError(ErrorCode.VALIDATION_ERROR, "The query request is invalid.") from error

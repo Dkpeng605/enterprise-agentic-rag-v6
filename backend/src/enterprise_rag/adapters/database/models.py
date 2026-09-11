@@ -354,3 +354,56 @@ class IndexRevisionModel(TimestampMixin, Base):
     dimension: Mapped[int] = mapped_column(Integer, nullable=False)
     config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="building")
+
+
+class QueryUsageWindowModel(TimestampMixin, Base):
+    __tablename__ = "query_usage_windows"
+    __table_args__ = (
+        CheckConstraint("window_kind IN ('minute', 'day')", name="window_kind"),
+        CheckConstraint("query_count >= 0", name="query_count_non_negative"),
+        CheckConstraint("llm_calls >= 0", name="llm_calls_non_negative"),
+        CheckConstraint("input_tokens >= 0", name="input_tokens_non_negative"),
+        CheckConstraint("output_tokens >= 0", name="output_tokens_non_negative"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
+    )
+    subject_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    window_kind: Mapped[str] = mapped_column(String(10), primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    query_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    llm_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+
+
+class QueryBudgetReservationModel(TimestampMixin, Base):
+    __tablename__ = "query_budget_reservations"
+    __table_args__ = (
+        CheckConstraint("reserved_llm_calls >= 0", name="reserved_llm_calls_non_negative"),
+        CheckConstraint("reserved_input_tokens >= 0", name="reserved_input_tokens_non_negative"),
+        CheckConstraint("reserved_output_tokens >= 0", name="reserved_output_tokens_non_negative"),
+        CheckConstraint("actual_llm_calls >= 0", name="actual_llm_calls_non_negative"),
+        CheckConstraint("actual_input_tokens >= 0", name="actual_input_tokens_non_negative"),
+        CheckConstraint("actual_output_tokens >= 0", name="actual_output_tokens_non_negative"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    query_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False, unique=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    rate_limit_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    minute_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    day_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    reserved_llm_calls: Mapped[int] = mapped_column(Integer, nullable=False)
+    reserved_input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    reserved_output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    actual_llm_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actual_input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    actual_output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    settled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

@@ -11,14 +11,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from enterprise_rag import __version__
-from enterprise_rag.adapters.database import Database
+from enterprise_rag.adapters.database import Database, PostgreSQLUsageStore
 from enterprise_rag.adapters.object_store import LocalObjectStore
+from enterprise_rag.adapters.usage import InMemoryUsageStore
 from enterprise_rag.api.routes import create_api_router
 from enterprise_rag.config import AppSettings, load_settings
 from enterprise_rag.domain.common import new_uuid7, utc_now
 from enterprise_rag.domain.errors import AppError, ErrorCode, ErrorDetail, ErrorResponse
 from enterprise_rag.ports.object_store import ObjectStore
+from enterprise_rag.ports.usage import UsageAmounts, UsageLimits, UsageStore
 from enterprise_rag.services.auth import AnonymousSessionService
+from enterprise_rag.services.cost_guard import BudgetedQueryRunner, CostGuard, QueryBudget
 from enterprise_rag.services.query_api import QueryApiService, QueryRunner
 from enterprise_rag.services.workspace import WorkspaceService
 
@@ -38,6 +41,8 @@ STATUS_BY_ERROR = {
     ErrorCode.UNSUPPORTED_MEDIA_TYPE: 415,
     ErrorCode.DOCUMENT_UNSUPPORTED_TYPE: 415,
     ErrorCode.RATE_LIMITED: 429,
+    ErrorCode.LLM_INVALID_RESPONSE: 502,
+    ErrorCode.LLM_UNAVAILABLE: 503,
     ErrorCode.SERVICE_UNAVAILABLE: 503,
 }
 
@@ -49,6 +54,7 @@ def create_app(
     object_store: ObjectStore | None = None,
     session_secret: str | None = None,
     query_runner: QueryRunner | None = None,
+    usage_store: UsageStore | None = None,
     query_heartbeat_seconds: float = 15.0,
     clock: Clock = utc_now,
 ) -> FastAPI:
@@ -93,10 +99,14 @@ def create_app(
     @application.exception_handler(AppError)
     async def app_error_handler(request: Request, error: AppError) -> JSONResponse:
         request_id = _request_id(request)
-        return JSONResponse(
+        response = JSONResponse(
             status_code=STATUS_BY_ERROR.get(error.code, 400),
             content=error.to_response(request_id).to_dict(),
         )
+        retry_after = error.details.get("retry_after_seconds")
+        if error.code is ErrorCode.RATE_LIMITED and isinstance(retry_after, int):
+            response.headers["Retry-After"] = str(retry_after)
+        return response
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(
@@ -164,7 +174,16 @@ def create_app(
             auth=auth,
             workspace=workspace,
             query_api=(
-                QueryApiService(query_runner, heartbeat_seconds=query_heartbeat_seconds)
+                QueryApiService(
+                    _budgeted_query_runner(
+                        query_runner,
+                        usage_store
+                        or (PostgreSQLUsageStore(database) if database else InMemoryUsageStore()),
+                        active_settings,
+                        clock,
+                    ),
+                    heartbeat_seconds=query_heartbeat_seconds,
+                )
                 if query_runner is not None
                 else None
             ),
@@ -189,3 +208,33 @@ def create_app(
 def _request_id(request: Request) -> UUID:
     value = getattr(request.state, "request_id", None)
     return value if isinstance(value, UUID) else new_uuid7()
+
+
+def _budgeted_query_runner(
+    runner: QueryRunner, store: UsageStore, settings: AppSettings, clock: Clock
+) -> BudgetedQueryRunner:
+    security = settings.security
+    guard = settings.cost_guard
+    cost_guard = CostGuard(
+        store,
+        limits=UsageLimits(
+            security.anonymous_queries_per_minute,
+            security.anonymous_daily_llm_calls,
+            security.anonymous_daily_input_tokens,
+            security.anonymous_daily_output_tokens,
+        ),
+        budgets=QueryBudget(
+            UsageAmounts(
+                guard.standard_reserved_llm_calls,
+                guard.standard_reserved_input_tokens,
+                guard.standard_reserved_output_tokens,
+            ),
+            UsageAmounts(
+                guard.deep_reserved_llm_calls,
+                guard.deep_reserved_input_tokens,
+                guard.deep_reserved_output_tokens,
+            ),
+        ),
+        clock=clock,
+    )
+    return BudgetedQueryRunner(runner, cost_guard, timeout_seconds=guard.query_timeout_seconds)

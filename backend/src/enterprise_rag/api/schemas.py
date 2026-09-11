@@ -153,7 +153,7 @@ class QueryHistoryTurn(ApiModel):
 
 
 class QueryRequestModel(ApiModel):
-    query: str = Field(min_length=1, max_length=4_000)
+    query: str = Field(min_length=1, max_length=2_000)
     mode: Literal["standard", "deep"] = "standard"
     scope: QueryScopeRequest = Field(default_factory=QueryScopeRequest)
     history: list[QueryHistoryTurn] = Field(default_factory=list, max_length=12)

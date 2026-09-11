@@ -674,12 +674,26 @@ deep:
   low_threshold: 0.45
   high_threshold: 0.80
 
+cost_guard:
+  query_timeout_seconds: 90.0
+  provider_timeout_seconds: 30.0
+  provider_max_retries: 2
+  provider_retry_backoff_seconds: 0.25
+  standard_reserved_llm_calls: 6
+  standard_reserved_input_tokens: 120000
+  standard_reserved_output_tokens: 12000
+  deep_reserved_llm_calls: 18
+  deep_reserved_input_tokens: 360000
+  deep_reserved_output_tokens: 36000
+
 security:
   anonymous_demo_full_access: true
   anonymous_demo_tenant_slug: demo
   anonymous_api_requests_per_minute: 10
   anonymous_queries_per_minute: 5
   anonymous_daily_llm_calls: 500
+  anonymous_daily_input_tokens: 10000000
+  anonymous_daily_output_tokens: 1000000
   anonymous_max_file_bytes: 20971520
   anonymous_max_ready_documents: 20
   session_minutes: 480
@@ -1654,13 +1668,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
-| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-09 完成 |
+| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 31/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 32/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1912,7 +1926,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 - 端点：提供 `POST /api/v1/queries` 同步响应与 `POST /api/v1/queries/stream` SSE 流；两者复用同一 `QueryRunner` 应用端口，不复制检索或回答逻辑；
 - 身份边界：匿名 `reader` 可执行查询；`tenant_id`、`actor_id` 与 UUIDv7 `query_id` 只由服务端会话和服务端生成器绑定，请求体不能覆盖租户或调用者；查询端点只读，因此不要求 CSRF；
-- 请求：`query` 去空白后非空且不超过 4,000 字符，mode 仅允许 `standard/deep`，Scope 七类字段各不超过 100 项并继续执行领域去重校验，history 仅允许 user/assistant、最多 12 轮且合计不超过 12,000 字符；所有 Schema 禁止未知字段；
+- 请求：`query` 去空白后非空且不超过 2,000 字符，mode 仅允许 `standard/deep`，Scope 七类字段各不超过 100 项并继续执行领域去重校验，history 仅允许 user/assistant、最多 12 轮且合计不超过 12,000 字符；所有 Schema 禁止未知字段；
 - 同步响应：固定返回 query ID、`answered/abstained/no_results` 状态、答案、结构化 Citation、可 JSON 序列化 diagnostics 与 usage；
 - SSE 契约：事件使用递增正整数 `id`，顺序固定为 `accepted` → 单调且不重复的 `progress` → `completed`；空闲每 15 秒发送 `heartbeat`，终止事件只能是 `completed` 或净化后的 `error`；响应声明 `text/event-stream`、`Cache-Control: no-cache` 与 `X-Accel-Buffering: no`；
 - 生命周期：客户端断开后取消正在执行的 Runner，且不再发送 completed/error；Runner 异常只暴露稳定错误码和通用消息，不泄漏供应商原文；未配置 Runner 时在创建流之前稳定返回 503；
@@ -1920,8 +1934,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-10 Cost Guard
 
-- timeout、retry、调用/token 配额；
-- 验收：超过预算时请求在调用 Provider 前被拒绝。
+- 配额维度：Query 分钟窗口按服务端匿名 session 独立计数，默认每 session 每分钟 5 次；日 LLM 调用、input token 和 output token 以固定 demo actor 聚合，形成所有匿名 session 共享的 UTC 日预算，默认分别为 500、10,000,000 和 1,000,000；客户端不能提交或覆盖任何计费身份；
+- 原子预留：`UsageStore` 端口在 Runner 启动前同时预留分钟 Query 名额与整次 Query 的最坏 LLM 额度；PostgreSQL Adapter 使用单事务条件 UPSERT，使并发请求最多只有预算内请求成功，任一窗口失败会回滚另一窗口且不调用 Runner/Provider；
+- 模式权重：Standard 默认预留 6 次 LLM 调用、120,000 input token、12,000 output token；Deep 默认预留 18 次、360,000 input token、36,000 output token，额度包含 Provider 最多两次重试的物理调用上限；所有值均由严格不可变配置控制；
+- 结算：`query_budget_reservations` 持久化 query、tenant、actor、session 计费主体、窗口和预留值；成功结果必须报告非负整数 `llm_calls/input_tokens/output_tokens`，未用额度原子退回，重复结算幂等；缺字段、类型错误、query ID 不一致或实际值超过预留时返回稳定 `LLM_INVALID_RESPONSE` 并保守扣除全部预留，绝不把计数写到上限之上；
+- 失败策略：整次 Query 默认 90 秒超时；Runner 异常、超时或断线取消时保守结算全部预留，避免无法确认的上游消耗被漏记；配额拒绝返回 429、稳定 budget/limit 详情和 `Retry-After`，不降级为无依据回答；
+- Provider Guard：`BoundedLanguageModel` 为任意 LLM 端口增加默认单次 30 秒超时与最多 2 次指数退避重试，只重试 timeout/`LLM_UNAVAILABLE`，不吞掉取消和确定性错误；`CompletionResult.retry_count` 允许 Query usage 统计真实物理重试；
+- 存储：Alembic 新增非负约束的 `query_usage_windows` 和 `query_budget_reservations`；生产组合使用 PostgreSQL，内存 Adapter 仅供隔离测试或无数据库的本地组合；
+- 验收：覆盖 429 前 Runner 零调用、并发预留不超支、session 分钟隔离与共享日额度、分钟/UTC 日换窗、成功退款、重复结算、异常用量保守扣费、Query timeout、LLM transient retry/timeout/错误净化、真实 PostgreSQL 回滚及 FastAPI `Retry-After`。
 
 ### M5：MCP 与可观测性
 

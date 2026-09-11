@@ -153,6 +153,34 @@ def test_nested_environment_can_override_numeric_setting() -> None:
     assert settings.security.anonymous_queries_per_minute == 7
 
 
+def test_cost_guard_defaults_and_nested_token_budget_override() -> None:
+    settings = load_settings(
+        environ={"ENTERPRISE_RAG__SECURITY__ANONYMOUS_DAILY_INPUT_TOKENS": "123456"}
+    )
+
+    assert settings.cost_guard.query_timeout_seconds == 90
+    assert settings.cost_guard.provider_max_retries == 2
+    assert settings.cost_guard.deep_reserved_llm_calls == 18
+    assert settings.security.anonymous_daily_input_tokens == 123_456
+
+
+@pytest.mark.parametrize(
+    "cost_guard",
+    [
+        {"query_timeout_seconds": 0},
+        {"provider_timeout_seconds": 301},
+        {"provider_max_retries": 11},
+        {"provider_retry_backoff_seconds": -1},
+        {"standard_reserved_llm_calls": 0},
+    ],
+)
+def test_cost_guard_configuration_is_bounded(cost_guard: dict[str, object]) -> None:
+    with pytest.raises(SettingsError) as raised:
+        load_settings(environ={}, overrides={"cost_guard": cost_guard})
+
+    assert raised.value.code is SettingsErrorCode.CONFIG_VALUE_INVALID
+
+
 def test_pdf_ocr_settings_are_bounded_and_require_individual_languages() -> None:
     invalid_settings: tuple[dict[str, object], ...] = (
         {"pdf_ocr_min_chars": -1},
