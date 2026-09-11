@@ -1,5 +1,15 @@
 """Application services that coordinate ports and transactional adapters."""
 
+from enterprise_rag.services.answer_verification import (
+    AnswerDraft,
+    AnswerOutcome,
+    AnswerStatus,
+    AnswerVerificationService,
+    DraftCitation,
+    DraftParagraph,
+    RepairRequest,
+    VerificationIssue,
+)
 from enterprise_rag.services.auth import AnonymousSessionService, Principal, SessionGrant
 from enterprise_rag.services.deep_recovery import (
     DeepRecoveryController,
@@ -59,6 +69,10 @@ from enterprise_rag.services.standard_graph import (
 from enterprise_rag.services.workspace import WorkspaceService
 
 __all__ = [
+    "AnswerDraft",
+    "AnswerOutcome",
+    "AnswerStatus",
+    "AnswerVerificationService",
     "DeletionResult",
     "DeletionStep",
     "DocumentDeletionService",
@@ -68,6 +82,8 @@ __all__ = [
     "DeepRecoveryRequest",
     "DualSearchResult",
     "DualSearchService",
+    "DraftCitation",
+    "DraftParagraph",
     "EnrichedImage",
     "EvidenceAssessment",
     "EvidenceDecision",
@@ -100,6 +116,7 @@ __all__ = [
     "RecoveryRoute",
     "ReciprocalRankFusion",
     "RegisterDocument",
+    "RepairRequest",
     "RerankItem",
     "RerankOutcome",
     "RerankingService",
@@ -114,5 +131,6 @@ __all__ = [
     "StandardQueryGraph",
     "StandardQueryRequest",
     "StandardQueryResult",
+    "VerificationIssue",
     "WorkspaceService",
 ]

@@ -179,7 +179,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M4-05 structured QueryPlan with deterministic fallback: complete
 - M4-06 Standard explicit state graph: complete
 - M4-07 Deep Evidence Ledger and Recovery: complete
-- Next: M4-08 Answer Verify/Repair/Abstain
+- M4-08 Answer Verify/Repair/Abstain: complete
+- Next: M4-09 Query REST/SSE API
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -240,6 +241,8 @@ The Query Planning Service treats structured Planner output as untrusted input a
 The Standard Query Graph is an explicit state machine connecting Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer. Every run returns its actual transitions. Empty RRF output, authorized Leaves, or rechecked Roots terminate as NoResults without invoking the answer model. Standard counts the Planner attempt as LLM call one and final answer generation as call two, with a runtime hard ceiling; Planner degradation adds no call. Unclassified failures terminate as Failed with a sanitized error code and no exception text exposed to clients.
 
 Deep Recovery uses an Evidence Ledger deduplicated by Leaf ID across rounds and reserves final slots for new Recovery evidence. Deterministic evidence scores answer at or above 0.80, recover below 0.45, and invoke the Evidence Assessor only in the middle band. Recovery is capped at two rounds before Abstain. Its four routes are Rewrite Hybrid, HyDE Dense-only, Exact-term Sparse-only, and Scope repair that removes only a proven bad field. The current Sparse implementation is hashing lexical, not BM25, so neither code nor documentation mislabels the exact-term route; a true BM25 Provider can replace it later.
+
+Answer Verification requires every factual paragraph to bind citations. A cited Root must come from the current authorized context, each Leaf must belong to that Root, and every quote must be a real contiguous substring of Root clean text, while all QueryPlan requirements must be covered. Structural or coverage errors get at most one Repair using exactly the same evidence and are then fully revalidated. Evidence conflicts are not hidden by rewriting and instead cause immediate Abstain. Only verified answers produce domain Citations carrying document, Root and Leaf IDs, page or section, quote, and score; every other result returns a bounded abstention with no citations or leaked provider error.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

@@ -1654,13 +1654,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
-| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-07 完成 |
+| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-08 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 29/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 30/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1899,8 +1899,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-08 Verify/Repair/Abstain
 
-- 答案验证、一次修复、拒答；
-- 验收：引用冲突、缺失 requirement、不可回答。
+- 草稿：答案由有序 `DraftParagraph`、`DraftCitation` 和 covered requirements 组成；事实段落必须显式绑定一个或多个正整数 citation ID，非事实边界说明可不带引用；
+- 引用：citation ID 不得重复，Root ID 必须属于本轮 M4-04 恢复集合，Leaf ID 必须是该 Root 的命中 Leaf 且不得重复，quote 必须是该 Root clean text 中存在的连续原文片段；未知 Root/Leaf、伪造 quote、段落引用未知 ID、重复 citation 与无引用事实均产生稳定 issue；
+- Requirement：covered requirements 必须是 QueryPlan requirements 的子集；任何未覆盖 requirement 标记 `MISSING_REQUIREMENT`，禁止用模型新增的未知 requirement 冒充覆盖；
+- 冲突：M4-07 Evidence Assessment 已发现 conflict 时直接 Abstain，不调用 Repair，因为改写答案不能修复证据事实冲突；
+- Repair：结构或覆盖问题最多调用一次 `AnswerRepairer`，请求只包含原 QueryPlan、同一批 Root、被拒草稿、issue 和 missing requirements；修复结果再次执行全部确定性校验，不能引入新 Root/Leaf/quote；Repair 异常被净化；
+- Answer：验证通过后才转换为领域 Citation，携带 document/root/Leaf IDs、source name、title、真实 page/section、原文 quote 和 Root score；输出段落按原顺序组合；
+- Abstain：无 Root、禁止 Repair、Evidence conflict、Repair 故障或一次 Repair 后仍失败均返回中文有边界拒答、空 citations、missing requirements、稳定 issues 和 repair count，不输出隐藏推理或供应商异常；
+- 验收：覆盖合法 page/section Citation、quote 错误后一次成功修复、missing requirement 一次后仍失败、Evidence conflict 直接拒答、Repair 引入新 Root 被拒，以及 Repair 异常不泄漏。
 
 #### M4-09 Query REST/SSE
 
