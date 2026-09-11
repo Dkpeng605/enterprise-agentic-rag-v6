@@ -173,7 +173,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M3-10 anonymous workspace and document API: complete
 - M3 multi-format ingestion milestone: complete
 - M4-01 dual Dense/Sparse Search: complete
-- Next: M4-02 RRF
+- M4-02 multi-path/multi-query RRF: complete
+- Next: M4-03 Reranker
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -217,6 +218,8 @@ The ingestion Pipeline creates or reuses its Job in the document-registration tr
 The anonymous workspace API uses server-side sessions to bind every request to one fixed demo tenant. Anonymous `demo_operator` sessions can manage collections and documents inside that tenant but cannot access the system administration surface; writes require a rotating CSRF token. Collection CRUD, streaming upload, document cursor pagination, details, job lookup, and idempotent asynchronous deletion all use the unified error model and request IDs. Cross-tenant identifiers always appear as 404.
 
 The dual Search Service creates Dense and Sparse query vectors separately and runs two independent retrieval paths concurrently. Tenant and authorized collection/document scope are included in both requests before the VectorStore call, where Milvus also forces `status=ready`; scope is never applied after retrieval. Raw branch scores remain separate with minimal diagnostics, ready for M4-02 fusion.
+
+RRF Fusion evaluates every query's Dense/Sparse ranked lists with `Σ 1/(k+rank)` and never adds incomparable raw scores. A Leaf is deduplicated across paths, each Root keeps at most three Leaves by default, and the global default is 30 candidates. Exact score ties use the Leaf ID for stable ordering, and diagnostics report every quota drop.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

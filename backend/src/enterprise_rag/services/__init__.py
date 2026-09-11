@@ -2,6 +2,7 @@
 
 from enterprise_rag.services.auth import AnonymousSessionService, Principal, SessionGrant
 from enterprise_rag.services.documents import DocumentRegistrationService, RegisterDocument
+from enterprise_rag.services.fusion import FusionDiagnostic, FusionResult, ReciprocalRankFusion
 from enterprise_rag.services.images import EnrichedImage, ImageEnricher, ImageEnrichmentResult
 from enterprise_rag.services.ingestion import IngestionPipeline, PipelineRunResult
 from enterprise_rag.services.lifecycle import (
@@ -36,6 +37,8 @@ __all__ = [
     "DualSearchResult",
     "DualSearchService",
     "EnrichedImage",
+    "FusionDiagnostic",
+    "FusionResult",
     "ImageEnricher",
     "ImageEnrichmentResult",
     "IngestionPipeline",
@@ -50,6 +53,7 @@ __all__ = [
     "ReconcileIssueKind",
     "ReconcileReport",
     "ReconcileService",
+    "ReciprocalRankFusion",
     "RegisterDocument",
     "SessionGrant",
     "SearchBranchResult",

@@ -1654,13 +1654,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
-| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01 完成 |
+| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-02 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 23/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 24/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1838,8 +1838,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-02 RRF
 
-- 多路/多 query 融合、去重和配额；
-- 验收：手算排名 fixture 与稳定 tie-break。
+- 公式：每个有序分路从 rank=1 开始贡献 `1/(rrf_k+rank)`，默认 `rrf_k=60`；Dense/Sparse 原始分数不参与融合计算；
+- 输入：按每个 sub-query 的 Dense、Sparse 分路分别计分，空分路仍保留诊断；同一 Leaf 跨方法/跨 query 聚合为一个候选，并记录每种方法出现过的最小 rank；
+- 完整性：单分路重复 Leaf 和同一 Leaf 映射不同 Root 均拒绝，防止重复计分或错误引用；
+- 排序：先按 fused score 降序，完全同分时按 Leaf ID 升序，结果不依赖输入分路顺序；
+- 配额：融合全局排序后先执行每 Root 最多 3 个 Leaf，再截取默认 Top 30；诊断分别记录输入数、唯一 Leaf 数、Root 配额丢弃数和 Top-K 丢弃数；
+- 验收：手算两 query/四分路 fixture 精确匹配公式，覆盖原始分数不参与、跨路去重、稳定 tie-break、Root 配额、全局 Top-K、空输入和冲突身份。
 
 #### M4-03 Reranker
 
