@@ -180,7 +180,10 @@ pnpm --dir=frontend build
 - M4-06 Standard 显式状态图：已完成
 - M4-07 Deep Evidence Ledger 与 Recovery：已完成
 - M4-08 Answer Verify/Repair/Abstain：已完成
-- 下一项：M4-09 Query REST/SSE API
+- M4-09 Query REST/SSE API：已完成
+- 下一项：M4-10 Cost Guard
+
+查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 

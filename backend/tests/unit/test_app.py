@@ -40,3 +40,14 @@ async def test_unconfigured_workspace_returns_stable_service_unavailable() -> No
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
     assert response.headers["x-request-id"] == response.json()["error"]["request_id"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/api/v1/queries", "/api/v1/queries/stream"])
+async def test_unconfigured_query_runner_returns_service_unavailable(path: str) -> None:
+    transport = httpx2.ASGITransport(app=create_app())
+    async with httpx2.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(path, json={"query": "test"})
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"

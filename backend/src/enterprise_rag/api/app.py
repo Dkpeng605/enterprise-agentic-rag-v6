@@ -19,6 +19,7 @@ from enterprise_rag.domain.common import new_uuid7, utc_now
 from enterprise_rag.domain.errors import AppError, ErrorCode, ErrorDetail, ErrorResponse
 from enterprise_rag.ports.object_store import ObjectStore
 from enterprise_rag.services.auth import AnonymousSessionService
+from enterprise_rag.services.query_api import QueryApiService, QueryRunner
 from enterprise_rag.services.workspace import WorkspaceService
 
 SERVICE_NAME: Final = "enterprise-agentic-rag-v6"
@@ -47,6 +48,8 @@ def create_app(
     database: Database | None = None,
     object_store: ObjectStore | None = None,
     session_secret: str | None = None,
+    query_runner: QueryRunner | None = None,
+    query_heartbeat_seconds: float = 15.0,
     clock: Clock = utc_now,
 ) -> FastAPI:
     """Build the ASGI application and optionally compose configured infrastructure."""
@@ -160,6 +163,11 @@ def create_app(
         create_api_router(
             auth=auth,
             workspace=workspace,
+            query_api=(
+                QueryApiService(query_runner, heartbeat_seconds=query_heartbeat_seconds)
+                if query_runner is not None
+                else None
+            ),
             tenant_slug=active_settings.security.anonymous_demo_tenant_slug,
             allowed_suffixes=active_settings.ingestion.allowed_suffixes,
             max_upload_bytes=min(

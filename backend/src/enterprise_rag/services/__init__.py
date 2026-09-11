@@ -43,6 +43,15 @@ from enterprise_rag.services.projection import (
     ProjectionResult,
     ProjectionService,
 )
+from enterprise_rag.services.query_api import (
+    QueryApiService,
+    QueryCommand,
+    QueryExecution,
+    QueryProgress,
+    QueryProgressStage,
+    QueryRunStatus,
+    QueryStreamEvent,
+)
 from enterprise_rag.services.query_planner import PlannerOutcome, QueryPlanningService
 from enterprise_rag.services.reranking import RerankingService, RerankItem, RerankOutcome
 from enterprise_rag.services.retrieval import (
@@ -105,6 +114,13 @@ __all__ = [
     "QueryPlanningService",
     "QueryGraphStage",
     "QueryGraphStatus",
+    "QueryApiService",
+    "QueryCommand",
+    "QueryExecution",
+    "QueryProgress",
+    "QueryProgressStage",
+    "QueryRunStatus",
+    "QueryStreamEvent",
     "PreparedRerankCandidates",
     "ReconcileIssue",
     "ReconcileIssueKind",
