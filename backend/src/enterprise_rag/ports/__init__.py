@@ -9,6 +9,11 @@ from enterprise_rag.ports.context import (
     StoredRootEvidence,
 )
 from enterprise_rag.ports.embedding import EmbeddingProvider
+from enterprise_rag.ports.llm import (
+    CompletionRequest,
+    CompletionResult,
+    LanguageModel,
+)
 from enterprise_rag.ports.loader import (
     BinarySource,
     IngestionContext,
@@ -58,6 +63,8 @@ __all__ = [
     "CleanResult",
     "CleanRoot",
     "ContextRepository",
+    "CompletionRequest",
+    "CompletionResult",
     "ConversationRole",
     "ConversationTurn",
     "EmbeddingProvider",
@@ -91,6 +98,7 @@ __all__ = [
     "ObjectStore",
     "LoadedImage",
     "LoadedRoot",
+    "LanguageModel",
     "Loader",
     "OcrEngine",
     "StoredObject",

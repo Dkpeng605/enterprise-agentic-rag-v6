@@ -51,6 +51,11 @@ class ScopeRootService:
         self._repository = repository
         self._max_parent_chars = max_parent_chars
 
+    async def resolve_scope(
+        self, authorization: ScopeAuthorization, requested_scope: QueryScope
+    ) -> ResolvedQueryScope:
+        return await self._repository.resolve_scope(authorization, requested_scope)
+
     async def prepare_candidates(
         self,
         authorization: ScopeAuthorization,
@@ -58,7 +63,7 @@ class ScopeRootService:
         hits: Sequence[RetrievalHit],
     ) -> PreparedRerankCandidates:
         _validate_hits(hits)
-        scope = await self._repository.resolve_scope(authorization, requested_scope)
+        scope = await self.resolve_scope(authorization, requested_scope)
         stored = await self._repository.load_leaves(scope, [hit.leaf_id for hit in hits])
         by_id = {item.leaf_id: item for item in stored}
         items = tuple(

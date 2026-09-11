@@ -35,6 +35,14 @@ from enterprise_rag.services.scope_root import (
     RootContext,
     ScopeRootService,
 )
+from enterprise_rag.services.standard_graph import (
+    QueryGraphStage,
+    QueryGraphStatus,
+    StageTransition,
+    StandardQueryGraph,
+    StandardQueryRequest,
+    StandardQueryResult,
+)
 from enterprise_rag.services.workspace import WorkspaceService
 
 __all__ = [
@@ -59,6 +67,8 @@ __all__ = [
     "ProjectionResult",
     "ProjectionService",
     "QueryPlanningService",
+    "QueryGraphStage",
+    "QueryGraphStatus",
     "PreparedRerankCandidates",
     "ReconcileIssue",
     "ReconcileIssueKind",
@@ -76,5 +86,9 @@ __all__ = [
     "SearchDiagnostic",
     "SearchMethod",
     "ScopeRootService",
+    "StageTransition",
+    "StandardQueryGraph",
+    "StandardQueryRequest",
+    "StandardQueryResult",
     "WorkspaceService",
 ]

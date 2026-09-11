@@ -177,7 +177,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M4-03 local/HTTP/Noop Reranker with safe degradation: complete
 - M4-04 Scope/Root authorization filtering and recovery: complete
 - M4-05 structured QueryPlan with deterministic fallback: complete
-- Next: M4-06 Standard explicit state graph
+- M4-06 Standard explicit state graph: complete
+- Next: M4-07 Deep Evidence Ledger and Recovery
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -234,6 +235,8 @@ The Reranker port provides local FastEmbed CrossEncoder, HTTP, and explicit Noop
 The Scope/Root service resolves server-side authorization and user metadata constraints to an explicit set of currently ready PostgreSQL document IDs. Anonymous users retain full business access inside the demo tenant but cannot override the tenant in a request; restricted identities use the union of allowed Collections and Documents. Title, organization, media type, active-version UUID, and section are checked against the fact source, while contradictory explicit constraints return `QUERY_SCOPE_CONFLICT` without disclosing resource existence. Recalled Leaves are rechecked before reranking, and selected Roots are rechecked again before entering context, joining tenant, active Collection, ready Document, and indexed active Version. Stale vectors, deleting content, and unauthorized records are therefore discarded. Recovered content has a strict default 18,000-character budget, merges Leaf references per Root, and records deterministic truncation.
 
 The Query Planning Service treats structured Planner output as untrusted input and strictly validates fields, intent, sub-query and requirement limits, UUIDs, and scope narrowing. A model cannot change Standard/Deep mode, invent Collection or Document IDs, or replace explicit caller metadata. Any malformed response or Provider failure falls back as one unit to a deterministic plan that preserves the original scope, recognizes Chinese and English comparison, procedural, and summary intent, splits multiple conditions, and uses the latest user turn to resolve pronouns. Provider exception text never enters the QueryPlan.
+
+The Standard Query Graph is an explicit state machine connecting Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer. Every run returns its actual transitions. Empty RRF output, authorized Leaves, or rechecked Roots terminate as NoResults without invoking the answer model. Standard counts the Planner attempt as LLM call one and final answer generation as call two, with a runtime hard ceiling; Planner degradation adds no call. Unclassified failures terminate as Failed with a sanitized error code and no exception text exposed to clients.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 
