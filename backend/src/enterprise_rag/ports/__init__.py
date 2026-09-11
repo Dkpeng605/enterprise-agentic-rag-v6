@@ -24,6 +24,12 @@ from enterprise_rag.ports.object_store import (
     validate_object_key,
     validate_sha256,
 )
+from enterprise_rag.ports.planner import (
+    ConversationRole,
+    ConversationTurn,
+    PlannerRequest,
+    QueryPlannerProvider,
+)
 from enterprise_rag.ports.provider import (
     Provider,
     ProviderHealth,
@@ -52,12 +58,16 @@ __all__ = [
     "CleanResult",
     "CleanRoot",
     "ContextRepository",
+    "ConversationRole",
+    "ConversationTurn",
     "EmbeddingProvider",
     "Provider",
+    "PlannerRequest",
     "ProviderHealth",
     "ProviderInfo",
     "ProviderKind",
     "ProviderRegistry",
+    "QueryPlannerProvider",
     "RegistryError",
     "RegistryErrorCode",
     "ResolvedQueryScope",

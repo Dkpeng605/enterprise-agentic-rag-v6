@@ -20,6 +20,7 @@ from enterprise_rag.services.projection import (
     ProjectionResult,
     ProjectionService,
 )
+from enterprise_rag.services.query_planner import PlannerOutcome, QueryPlanningService
 from enterprise_rag.services.reranking import RerankingService, RerankItem, RerankOutcome
 from enterprise_rag.services.retrieval import (
     DualSearchResult,
@@ -51,11 +52,13 @@ __all__ = [
     "IngestionPipeline",
     "AnonymousSessionService",
     "PipelineRunResult",
+    "PlannerOutcome",
     "Principal",
     "ProjectionError",
     "ProjectionRequest",
     "ProjectionResult",
     "ProjectionService",
+    "QueryPlanningService",
     "PreparedRerankCandidates",
     "ReconcileIssue",
     "ReconcileIssueKind",
