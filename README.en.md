@@ -48,21 +48,29 @@ Start the development PostgreSQL service and apply migrations:
 
 ```bash
 docker compose -f infra/compose/compose.dev.yml up -d postgres
-DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test \
-  uv run --project backend alembic -c backend/alembic.ini upgrade head
+export DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test
+export SESSION_SECRET=development-only-change-me-32-bytes-minimum
+uv run --project backend alembic -c backend/alembic.ini upgrade head
 ```
 
 Start the backend in the first terminal:
 
 ```bash
-uv run --project backend uvicorn enterprise_rag.main:app --reload
+ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
+  uv run --project backend uvicorn enterprise_rag.main:app --reload
 ```
 
-The development API is available at `http://127.0.0.1:8000`. The current skeleton exposes:
+The development API is available at `http://127.0.0.1:8000`. The backend exposes:
 
 - `GET /` — service name, version, configuration status, and active environment
 - `GET /docs` — interactive OpenAPI documentation
 - `GET /openapi.json` — OpenAPI schema
+- `GET /api/v1/auth/me` — create an anonymous demo session and obtain a CSRF token
+- `/api/v1/collections` — demo-tenant collection CRUD
+- `/api/v1/documents` — streaming upload, filtering, and cursor pagination
+- `/api/v1/documents/{id}` and `/api/v1/ingestion-jobs/{id}` — document and ingestion status
+
+Before a write, call `GET /api/v1/auth/me`, retain its Cookie, and send the returned `csrf_token` in the `X-CSRF-Token` header. Development HTTP cookies omit Secure; production or an HTTPS base URL always enables Secure.
 
 Start the frontend in a second terminal:
 
@@ -72,11 +80,11 @@ pnpm --dir frontend dev
 
 The Vite development server prints its local URL. The current page confirms that the Vue 3 and TypeScript application mounted successfully.
 
-PostgreSQL is required for migration and integration tests. The current HTTP skeleton does not query it yet. Model APIs, Milvus, authentication, and RAG behavior are introduced only by their acceptance PRs.
+PostgreSQL is required by migrations, anonymous sessions, collection/document APIs, and integration tests. Without a configured database, object directory, or session secret, the static OpenAPI contract remains available while business routes return a stable 503. Query APIs and complete Agentic RAG behavior arrive incrementally in M4.
 
 Milvus Lite is embedded through PyMilvus and needs no separate service. Contract tests create isolated temporary `.db` files; runtime data belongs under ignored `data/runtime/`, never in Git. A single Milvus Lite file must only be opened by one application process.
 
-The local object store also needs no separate service. Configure application code with a directory under `data/runtime/objects`; content is streamed into a private temporary file and becomes visible only after its size and SHA-256 checks pass. User filenames are metadata only and never become filesystem paths.
+The local object store also needs no separate service. Its default directory is `data/runtime/object-store`; content is streamed into a private temporary file and becomes visible only after its size and SHA-256 checks pass. User filenames are metadata only and never become filesystem paths.
 
 ## Configure the backend
 
@@ -162,7 +170,9 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M3-07 local multilingual and OpenAI-compatible Embedding Providers: complete
 - M3-08 sparse encoding and compensating projection: complete
 - M3-09 recoverable ingestion Pipeline: complete
-- Next: M3-10 document API
+- M3-10 anonymous workspace and document API: complete
+- M3 multi-format ingestion milestone: complete
+- Next: M4-01 Dense/Sparse Search
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -170,7 +180,7 @@ The VectorStore port requires an index revision on every record and search. Milv
 
 The ObjectStore port accepts an asynchronous byte stream and publishes immutable objects under canonical SHA-256 keys. The local adapter bounds optional upload size, verifies an optional caller digest, fsyncs complete content, and atomically publishes without replacing an existing object. Interrupted and rejected uploads remove their `.part` files; traversal, absolute, malformed, mismatched-prefix, and symlink-escape keys are rejected before filesystem access.
 
-Document registration streams bytes to ObjectStore before opening its PostgreSQL unit of work. The deduplication identity is `(tenant_id, collection_id, sha256)`: repeats return the original document/version, while another collection or tenant gets independent logical ownership and can safely reuse the immutable physical object. A new hash under the same logical name creates a new version. PostgreSQL transaction advisory locks serialize both content and logical-name races, with primary/unique constraints as integrity backstops. The service exists at the application layer; an HTTP upload endpoint is intentionally deferred to its API acceptance slice.
+Document registration streams bytes to ObjectStore before opening its PostgreSQL unit of work. The deduplication identity is `(tenant_id, collection_id, sha256)`: repeats return the original document/version, while another collection or tenant gets independent logical ownership and can safely reuse the immutable physical object. A new hash under the same logical name creates a new version. PostgreSQL transaction advisory locks serialize both content and logical-name races, with primary/unique constraints as integrity backstops. `POST /api/v1/documents` now exposes this capability and creates or reuses its ingestion job in the same transaction.
 
 Application errors keep their explicit details deeply immutable, but the exception object itself is not frozen because Python must attach traceback state while errors cross asynchronous transaction context managers.
 
@@ -178,7 +188,7 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
-M1 and M2 are complete, and M3 ingestion now reaches a recoverable background Pipeline. The HTTP document API and product query behavior are not implemented yet. The repository provides the tested engineering foundation plus PostgreSQL lifecycle state, concurrency-safe jobs and document registration, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation.
+M1, M2, and M3 are complete. Product query behavior is not implemented yet. The repository now provides the tested engineering foundation, the complete multi-format ingestion path, anonymous demo-tenant collection/document APIs, PostgreSQL lifecycle state, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation.
 
 The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for image enrichment. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. The Loader is wired into the background ingestion Pipeline; the HTTP upload endpoint arrives in M3-10.
 
@@ -202,6 +212,8 @@ RUN_MODEL_TESTS=1 uv run --project backend pytest -q \
 The Sparse Encoder produces Milvus sparse vectors with stable multilingual lexical hashes, log-TF weights, and L2 normalization; it is not represented as BM25. The Projection Service writes Dense/Sparse records in `processing` batches, verifies their count, activates them as `ready`, and verifies again. Repeated runs overwrite the same Leaf IDs. A partial write or verification failure removes every vector for the version with bounded delete retries.
 
 The ingestion Pipeline creates or reuses its Job in the document-registration transaction, then executes Loader → image enrichment → Cleaner → Splitter → PostgreSQL → Milvus → final commit. Each checkpoint renews the lease, advances monotonic progress, and observes cancellation. Deterministic input errors fail immediately; transient failures retry up to the configured limit. Failure and cancellation compensate PostgreSQL content and Milvus projections for that version, and a document becomes `ready` only after both stores verify successfully. The service currently runs through `run_once(owner=...)`; the long-running Worker entry point is deferred to deployment work.
+
+The anonymous workspace API uses server-side sessions to bind every request to one fixed demo tenant. Anonymous `demo_operator` sessions can manage collections and documents inside that tenant but cannot access the system administration surface; writes require a rotating CSRF token. Collection CRUD, streaming upload, document cursor pagination, details, job lookup, and idempotent asynchronous deletion all use the unified error model and request IDs. Cross-tenant identifiers always appear as 404.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

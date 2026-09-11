@@ -25,6 +25,7 @@ class RegisterDocument:
     title: str
     source_name: str
     media_type: str
+    organization: str | None = None
     visibility: DocumentVisibility = DocumentVisibility.TENANT
     parser_provider: str = "unassigned"
     parser_version: str = "unassigned"
@@ -47,6 +48,11 @@ class RegisterDocument:
             require_non_empty(value, name)
             if len(value) > limit:
                 raise ValueError(f"{name} must not exceed {limit} characters")
+        if self.organization is not None:
+            if not self.organization.strip():
+                raise ValueError("organization must not be blank")
+            if len(self.organization) > 200:
+                raise ValueError("organization must not exceed 200 characters")
         if self.expected_sha256 is not None:
             validate_sha256(self.expected_sha256)
         if self.max_bytes < 0:
@@ -89,6 +95,7 @@ class DocumentRegistrationService:
                     created_by=command.created_by,
                     logical_name=command.logical_name,
                     title=command.title,
+                    organization=command.organization,
                     source_name=command.source_name,
                     media_type=command.media_type,
                     visibility=command.visibility,

@@ -1,5 +1,6 @@
 """Application services that coordinate ports and transactional adapters."""
 
+from enterprise_rag.services.auth import AnonymousSessionService, Principal, SessionGrant
 from enterprise_rag.services.documents import DocumentRegistrationService, RegisterDocument
 from enterprise_rag.services.images import EnrichedImage, ImageEnricher, ImageEnrichmentResult
 from enterprise_rag.services.ingestion import IngestionPipeline, PipelineRunResult
@@ -18,6 +19,7 @@ from enterprise_rag.services.projection import (
     ProjectionResult,
     ProjectionService,
 )
+from enterprise_rag.services.workspace import WorkspaceService
 
 __all__ = [
     "DeletionResult",
@@ -28,7 +30,9 @@ __all__ = [
     "ImageEnricher",
     "ImageEnrichmentResult",
     "IngestionPipeline",
+    "AnonymousSessionService",
     "PipelineRunResult",
+    "Principal",
     "ProjectionError",
     "ProjectionRequest",
     "ProjectionResult",
@@ -38,4 +42,6 @@ __all__ = [
     "ReconcileReport",
     "ReconcileService",
     "RegisterDocument",
+    "SessionGrant",
+    "WorkspaceService",
 ]

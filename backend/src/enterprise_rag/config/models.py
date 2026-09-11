@@ -1,5 +1,6 @@
 """Immutable, validated settings models."""
 
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr, model_validator
@@ -32,6 +33,7 @@ class ProviderSettings(SettingsModel):
 
 
 class IngestionSettings(SettingsModel):
+    object_store_root: Path = Path("data/runtime/object-store")
     max_upload_bytes: PositiveInt = 104_857_600
     allowed_suffixes: tuple[str, ...] = (
         ".pdf",

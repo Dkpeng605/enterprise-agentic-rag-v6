@@ -8,6 +8,7 @@ providers:
   sparse_encoder: hashing_lexical
 
 ingestion:
+  object_store_root: data/runtime/object-store
   pdf_ocr_min_chars: 20
   pdf_render_scale: 2.5
   pdf_ocr_languages: [chi_sim, eng]

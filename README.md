@@ -48,21 +48,29 @@ sudo apt-get install --yes tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim
 
 ```bash
 docker compose -f infra/compose/compose.dev.yml up -d postgres
-DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test \
-  uv run --project backend alembic -c backend/alembic.ini upgrade head
+export DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test
+export SESSION_SECRET=development-only-change-me-32-bytes-minimum
+uv run --project backend alembic -c backend/alembic.ini upgrade head
 ```
 
 在第一个终端启动后端：
 
 ```bash
-uv run --project backend uvicorn enterprise_rag.main:app --reload
+ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
+  uv run --project backend uvicorn enterprise_rag.main:app --reload
 ```
 
-开发 API 位于 `http://127.0.0.1:8000`。当前骨架提供：
+开发 API 位于 `http://127.0.0.1:8000`。当前后端提供：
 
 - `GET /` — 服务名称、版本、配置状态和当前环境
 - `GET /docs` — 交互式 OpenAPI 文档
 - `GET /openapi.json` — OpenAPI Schema
+- `GET /api/v1/auth/me` — 创建匿名 demo session 并取得 CSRF token
+- `/api/v1/collections` — demo tenant 集合 CRUD
+- `/api/v1/documents` — 流式上传、筛选与 cursor 分页
+- `/api/v1/documents/{id}`、`/api/v1/ingestion-jobs/{id}` — 文档和摄取状态
+
+写请求必须先调用 `GET /api/v1/auth/me`，保留响应 Cookie，并把响应中的 `csrf_token` 放入 `X-CSRF-Token` header。开发环境的 HTTP Cookie 不设置 Secure；生产环境或 HTTPS base URL 强制设置 Secure。
 
 在第二个终端启动前端：
 
@@ -72,11 +80,11 @@ pnpm --dir frontend dev
 
 Vite 开发服务器会输出本地访问地址。当前页面用于确认 Vue 3 和 TypeScript 应用已成功挂载。
 
-数据库迁移和集成测试需要 PostgreSQL。当前 HTTP 骨架尚未访问数据库；模型 API、鉴权及完整 RAG 行为会在各自验收 PR 中逐步加入。
+数据库迁移、匿名 session、集合/文档 API 和集成测试需要 PostgreSQL；若未配置数据库、对象目录或 session secret，静态 OpenAPI 仍完整可用，但业务路由返回稳定 503。查询 API 和完整 Agentic RAG 行为在 M4 逐步加入。
 
 Milvus Lite 通过 PyMilvus 嵌入运行，无需启动独立服务。契约测试会创建隔离的临时 `.db` 文件；运行数据应放在已忽略的 `data/runtime/` 下，不得提交到 Git。同一个 Milvus Lite 文件只能由一个应用进程打开。
 
-本地对象存储同样不需要独立服务。应用代码应使用 `data/runtime/objects` 下的目录；内容先流式写入私有临时文件，仅在大小和 SHA-256 校验通过后可见。用户文件名只作为元数据，绝不作为文件系统路径。
+本地对象存储同样不需要独立服务。默认目录为 `data/runtime/object-store`；内容先流式写入私有临时文件，仅在大小和 SHA-256 校验通过后可见。用户文件名只作为元数据，绝不作为文件系统路径。
 
 ## 配置后端
 
@@ -162,7 +170,9 @@ pnpm --dir frontend build
 - M3-07 本地多语与 OpenAI-compatible Embedding Providers：已完成
 - M3-08 Sparse 编码与可补偿 Projection：已完成
 - M3-09 可恢复摄取 Pipeline：已完成
-- 下一项：M3-10 文档 API
+- M3-10 匿名工作区与文档 API：已完成
+- M3 多格式摄取流水线里程碑：已完成
+- 下一项：M4-01 Dense/Sparse Search
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
@@ -170,7 +180,7 @@ VectorStore 端口要求每条记录和每次检索都携带 index revision。Mi
 
 ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不可变对象。本地适配器支持上传大小限制、调用方摘要校验、完整内容 `fsync` 和不覆盖已有对象的原子发布。中断或被拒绝的上传会清除 `.part` 文件；路径穿越、绝对路径、格式错误、摘要前缀不匹配和符号链接逃逸都会在文件系统访问前被拒绝。
 
-文档注册先将字节流写入 ObjectStore，再开启 PostgreSQL 工作单元。去重身份为 `(tenant_id, collection_id, sha256)`：相同范围的重复内容返回已有 document/version；不同 Collection 或租户拥有独立逻辑资源，同时安全复用不可变物理对象。同一逻辑名出现新 hash 时创建新版本。PostgreSQL transaction advisory lock 会串行化内容键和逻辑名竞争，复合主键与唯一约束作为最终完整性防线。该能力目前位于应用服务层，HTTP 上传端点会在对应 API Slice 中实现。
+文档注册先将字节流写入 ObjectStore，再开启 PostgreSQL 工作单元。去重身份为 `(tenant_id, collection_id, sha256)`：相同范围的重复内容返回已有 document/version；不同 Collection 或租户拥有独立逻辑资源，同时安全复用不可变物理对象。同一逻辑名出现新 hash 时创建新版本。PostgreSQL transaction advisory lock 会串行化内容键和逻辑名竞争，复合主键与唯一约束作为最终完整性防线。该能力已由 `POST /api/v1/documents` 暴露，并在同一事务创建或复用摄取任务。
 
 应用错误的显式详情保持深度不可变；异常对象本身不使用 frozen dataclass，因为 Python 在异常穿过异步事务上下文时必须写入 traceback 状态。
 
@@ -178,7 +188,7 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 
 Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
-M1 和 M2 已完成，M3 摄取能力已完成到可恢复的后台 Pipeline；HTTP 文档 API 和产品级查询行为仍未实现。仓库目前提供经过测试的工程基座，以及 PostgreSQL 生命周期状态、并发安全任务与文档注册、Milvus Lite Projection、崩溃安全本地对象、幂等删除和跨存储 Reconcile。
+M1、M2 和 M3 已完成。产品级查询行为仍未实现。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、PostgreSQL 生命周期状态、Milvus Lite Projection、崩溃安全本地对象、幂等删除和跨存储 Reconcile。
 
 PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供图片增强阶段使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。Loader 已接入后台摄取 Pipeline；HTTP 上传接口在 M3-10 交付。
 
@@ -202,6 +212,8 @@ RUN_MODEL_TESTS=1 uv run --project backend pytest -q \
 Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化生成 Milvus 稀疏向量；它不等同于 BM25。Projection Service 将 Dense/Sparse 结果分批写为 `processing`，核对数量后激活为 `ready` 并再次核对。重复运行覆盖相同 Leaf ID；部分写入或核验失败会删除该版本全部向量，并对删除执行有界重试。
 
 摄取 Pipeline 在文档注册事务内创建或复用 Job，按 Loader → 图片增强 → Cleaner → Splitter → PostgreSQL → Milvus → 最终提交的顺序运行。每个 checkpoint 同时续租、更新单调进度并确认取消；确定性输入错误直接失败，瞬时错误按上限重试。失败或取消会补偿该版本的 PostgreSQL 内容和 Milvus 投影，只有双存储核验完成后文档才进入 `ready`。当前通过服务层 `run_once(owner=...)` 驱动；常驻 Worker 入口将在部署阶段补齐。
+
+匿名工作区 API 使用服务端 session 将所有请求强制绑定到固定 demo tenant。匿名 `demo_operator` 拥有该租户内的集合和文档管理权限，但不能进入系统管理面；写操作需要轮换的 CSRF token。集合 CRUD、流式上传、文档 cursor 分页、详情、任务查询和幂等异步删除均使用统一错误模型与 request ID，跨租户 ID 一律表现为 404。
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 
