@@ -28,6 +28,12 @@ from enterprise_rag.services.retrieval import (
     SearchDiagnostic,
     SearchMethod,
 )
+from enterprise_rag.services.scope_root import (
+    PreparedRerankCandidates,
+    RecoveredContext,
+    RootContext,
+    ScopeRootService,
+)
 from enterprise_rag.services.workspace import WorkspaceService
 
 __all__ = [
@@ -50,18 +56,22 @@ __all__ = [
     "ProjectionRequest",
     "ProjectionResult",
     "ProjectionService",
+    "PreparedRerankCandidates",
     "ReconcileIssue",
     "ReconcileIssueKind",
     "ReconcileReport",
     "ReconcileService",
+    "RecoveredContext",
     "ReciprocalRankFusion",
     "RegisterDocument",
     "RerankItem",
     "RerankOutcome",
     "RerankingService",
+    "RootContext",
     "SessionGrant",
     "SearchBranchResult",
     "SearchDiagnostic",
     "SearchMethod",
+    "ScopeRootService",
     "WorkspaceService",
 ]

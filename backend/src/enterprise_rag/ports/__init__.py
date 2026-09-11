@@ -1,6 +1,13 @@
 """Stable interfaces between application services and replaceable adapters."""
 
 from enterprise_rag.ports.cleaner import Cleaner, CleaningAudit, CleanResult, CleanRoot
+from enterprise_rag.ports.context import (
+    ContextRepository,
+    ResolvedQueryScope,
+    ScopeAuthorization,
+    StoredLeafEvidence,
+    StoredRootEvidence,
+)
 from enterprise_rag.ports.embedding import EmbeddingProvider
 from enterprise_rag.ports.loader import (
     BinarySource,
@@ -44,6 +51,7 @@ __all__ = [
     "CleaningAudit",
     "CleanResult",
     "CleanRoot",
+    "ContextRepository",
     "EmbeddingProvider",
     "Provider",
     "ProviderHealth",
@@ -52,9 +60,11 @@ __all__ = [
     "ProviderRegistry",
     "RegistryError",
     "RegistryErrorCode",
+    "ResolvedQueryScope",
     "RerankCandidate",
     "Reranker",
     "RerankResult",
+    "ScopeAuthorization",
     "SplitResult",
     "Splitter",
     "SparseEncoder",
@@ -74,6 +84,8 @@ __all__ = [
     "Loader",
     "OcrEngine",
     "StoredObject",
+    "StoredLeafEvidence",
+    "StoredRootEvidence",
     "object_key_for_sha256",
     "validate_object_key",
     "validate_sha256",

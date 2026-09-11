@@ -1654,13 +1654,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
-| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-03 完成 |
+| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-04 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 25/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 26/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1857,8 +1857,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-04 Scope/Root
 
-- metadata filter、权限 filter、Root 恢复；
-- 验收：显式冲突和无权限结果不能进入上下文。
+- 授权输入：`ScopeAuthorization` 明确携带 tenant、`full_tenant_access` 和已授权 collection/document ID；匿名 `demo_operator` 使用 full tenant access，但该值由服务端 session 注入，禁止客户端自行声明；非全租户权限按授权 collection 与单独授权 document 的并集计算；
+- 解析：`QueryScope` 的 collection/document 使用 UUID，title/organization/media type 使用不区分大小写的精确匹配，version 固定解释为 active version UUID，section 对 Root `source_locator.section` 做不区分大小写的精确匹配；同字段多值为 OR，不同字段为 AND；
+- 显式冲突：带过滤条件的 Scope 没有已授权且 ready 的文档、指定文档/集合只有部分可用、document 与 collection/metadata/section 组合不相容时，返回净化后的 `QUERY_SCOPE_CONFLICT`，不披露哪一跨租户或无权限 ID 实际存在；无显式 Scope 的空知识库是合法空结果；
+- 事实源：Scope 首先解析为 PostgreSQL 当前明确的 document ID 集合，不使用“空 ID 列表代表全部”的歧义约定；解析联表强制 tenant、active collection、ready document、active version 与 indexed version；
+- 二次校验：召回后的每个 Leaf 在进入 Reranker 前重新联表核验上述状态、授权 document 集合、Root/Leaf tenant/document/version 一致性和 section；缺失、身份错配、旧版本、删除中、跨租户及未授权候选只计为 rejected，不进入重排；
+- Root 恢复：只接受 `selected=true` 的重排结果，按结果顺序对 Root 去重，同一 Root 合并有序 Leaf ID，score 取该 Root 最佳 rerank score（无重排时用 fused score）；再次从 PostgreSQL 联表核验后读取 clean text、来源、title、organization、media type 和 locator；
+- 预算：恢复结果严格不超过默认 18,000 字符；按 Root 排名顺序填充，最后一个 Root 可确定性截断并标记 `truncated`，其余超预算或状态失效 Root 计入 rejected；
+- 验收：单元测试覆盖候选顺序、缺失/错配 Leaf、Root 合并、同 Root 最佳分数、稳定截断与未 selected 拒绝；真实 PostgreSQL 覆盖 metadata 全组合、collection 权限、跨 tenant/删除中文档排除、显式冲突、Root 元数据，以及 Scope 解析后文档转 deleting 时的二次拦截。
 
 #### M4-05 QueryPlan
 

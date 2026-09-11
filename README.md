@@ -175,7 +175,8 @@ pnpm --dir=frontend build
 - M4-01 Dense/Sparse 双路 Search：已完成
 - M4-02 多路/多 query RRF：已完成
 - M4-03 本地/HTTP/Noop Reranker 与安全降级：已完成
-- 下一项：M4-04 Scope/Root 权限过滤与恢复
+- M4-04 Scope/Root 权限过滤与恢复：已完成
+- 下一项：M4-05 结构化 QueryPlan 与确定性降级
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
@@ -228,6 +229,8 @@ Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种�
 (cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \
   tests/contract/test_reranker_providers.py -m model)
 ```
+
+Scope/Root 服务把服务端授权边界与用户的 metadata 条件解析为 PostgreSQL 中当前明确的 ready document ID 集合。匿名用户仍拥有 demo tenant 全部业务权限，但不能通过请求覆盖 tenant；受限身份按获准 Collection/Document 取并集。title、organization、media type、active version UUID 和 section 均在事实源中校验，显式矛盾返回不泄露资源存在性的 `QUERY_SCOPE_CONFLICT`。召回 Leaf 在进入 Reranker 前、selected Root 在进入上下文前都会再次联表检查 tenant、active collection、ready document 和 indexed active version，因此旧向量、删除中或未授权内容会被丢弃。恢复内容默认严格限制为 18,000 字符，同 Root 合并 Leaf 引用并记录确定性截断。
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 
