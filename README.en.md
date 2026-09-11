@@ -75,7 +75,7 @@ Before a write, call `GET /api/v1/auth/me`, retain its Cookie, and send the retu
 Start the frontend in a second terminal:
 
 ```bash
-pnpm --dir frontend dev
+pnpm --dir=frontend dev
 ```
 
 The Vite development server prints its local URL. The current page confirms that the Vue 3 and TypeScript application mounted successfully.
@@ -128,9 +128,9 @@ uv build --project backend
 Frontend:
 
 ```bash
-pnpm --dir frontend test
-pnpm --dir frontend typecheck
-pnpm --dir frontend build
+pnpm --dir=frontend test
+pnpm --dir=frontend typecheck
+pnpm --dir=frontend build
 ```
 
 The same commands run on every GitHub pull request. Both `backend-quality` and `frontend-quality` must pass before merge.
@@ -174,7 +174,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M3 multi-format ingestion milestone: complete
 - M4-01 dual Dense/Sparse Search: complete
 - M4-02 multi-path/multi-query RRF: complete
-- Next: M4-03 Reranker
+- M4-03 local/HTTP/Noop Reranker with safe degradation: complete
+- Next: M4-04 Scope/Root authorization filtering and recovery
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -207,8 +208,8 @@ Image enrichment writes the original image extracted by a Loader to the content-
 The Embedding port has local multilingual and OpenAI-compatible implementations. The local default is FastEmbed ONNX `paraphrase-multilingual-MiniLM-L12-v2` (384 dimensions, mean pooling), which downloads approximately 0.22GB on first use. The remote adapter applies item/token batch limits plus bounded retries for timeouts, rate limits, and 5xx responses. Both validate count, order, dimension, and finite values and return L2-normalized vectors. Run the real-model check explicitly with:
 
 ```bash
-RUN_MODEL_TESTS=1 uv run --project backend pytest -q \
-  backend/tests/contract/test_embedding_providers.py -m model
+(cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \
+  tests/contract/test_embedding_providers.py -m model)
 ```
 
 The Sparse Encoder produces Milvus sparse vectors with stable multilingual lexical hashes, log-TF weights, and L2 normalization; it is not represented as BM25. The Projection Service writes Dense/Sparse records in `processing` batches, verifies their count, activates them as `ready`, and verifies again. Repeated runs overwrite the same Leaf IDs. A partial write or verification failure removes every vector for the version with bounded delete retries.
@@ -220,6 +221,13 @@ The anonymous workspace API uses server-side sessions to bind every request to o
 The dual Search Service creates Dense and Sparse query vectors separately and runs two independent retrieval paths concurrently. Tenant and authorized collection/document scope are included in both requests before the VectorStore call, where Milvus also forces `status=ready`; scope is never applied after retrieval. Raw branch scores remain separate with minimal diagnostics, ready for M4-02 fusion.
 
 RRF Fusion evaluates every query's Dense/Sparse ranked lists with `Σ 1/(k+rank)` and never adds incomparable raw scores. A Leaf is deduplicated across paths, each Root keeps at most three Leaves by default, and the global default is 30 candidates. Exact score ties use the Leaf ID for stable ordering, and diagnostics report every quota drop.
+
+The Reranker port provides local FastEmbed CrossEncoder, HTTP, and explicit Noop implementations. The default `local_cross_encoder` uses the approximately 0.08GB `Xenova/ms-marco-MiniLM-L-6-v2`; that default model is claimed only as English-capable. Chinese or multilingual deployments must explicitly select a suitable model, while the 2GB production server should use a remote Reranker. The service reranks the first 20 RRF candidates and selects eight by default with strict candidate-ID alignment. Timeouts, malformed responses, duplicate or unknown IDs, and non-finite scores produce sanitized diagnostics and a stable RRF fallback. Run the real local model check with:
+
+```bash
+(cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \
+  tests/contract/test_reranker_providers.py -m model)
+```
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

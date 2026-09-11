@@ -23,7 +23,7 @@ class ApplicationSettings(SettingsModel):
 class ProviderSettings(SettingsModel):
     llm: str = "openai_compatible"
     embedding: str = "local_multilingual_minilm"
-    reranker: str = "local_mmarco"
+    reranker: str = "local_cross_encoder"
     vector_store: str = "milvus_lite"
     splitter: str = "structure_aware"
     evaluator: str = "deterministic"

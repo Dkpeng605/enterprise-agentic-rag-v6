@@ -37,7 +37,7 @@ ENV_ALIASES: dict[str, tuple[str, ...]] = {
 KNOWN_PROVIDERS: dict[str, frozenset[str]] = {
     "llm": frozenset({"mock", "openai_compatible"}),
     "embedding": frozenset({"local_multilingual_minilm", "openai_compatible"}),
-    "reranker": frozenset({"local_mmarco", "openai_compatible"}),
+    "reranker": frozenset({"local_cross_encoder", "openai_compatible", "none"}),
     "vector_store": frozenset({"milvus_lite"}),
     "splitter": frozenset({"structure_aware"}),
     "evaluator": frozenset({"deterministic"}),
@@ -154,6 +154,10 @@ def _validate_production_secrets(settings: AppSettings) -> None:
                 missing.append(env_name)
     if settings.providers.embedding == "openai_compatible":
         for env_name in ("EMBEDDING_API_KEY", "EMBEDDING_BASE_URL", "EMBEDDING_MODEL"):
+            if is_missing(getattr(credentials, ENV_ALIASES[env_name][-1])):
+                missing.append(env_name)
+    if settings.providers.reranker == "openai_compatible":
+        for env_name in ("RERANK_API_KEY", "RERANK_BASE_URL", "RERANK_MODEL"):
             if is_missing(getattr(credentials, ENV_ALIASES[env_name][-1])):
                 missing.append(env_name)
     if missing:

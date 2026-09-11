@@ -20,6 +20,7 @@ from enterprise_rag.services.projection import (
     ProjectionResult,
     ProjectionService,
 )
+from enterprise_rag.services.reranking import RerankingService, RerankItem, RerankOutcome
 from enterprise_rag.services.retrieval import (
     DualSearchResult,
     DualSearchService,
@@ -55,6 +56,9 @@ __all__ = [
     "ReconcileService",
     "ReciprocalRankFusion",
     "RegisterDocument",
+    "RerankItem",
+    "RerankOutcome",
+    "RerankingService",
     "SessionGrant",
     "SearchBranchResult",
     "SearchDiagnostic",

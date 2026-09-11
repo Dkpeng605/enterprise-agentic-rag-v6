@@ -75,7 +75,7 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 在第二个终端启动前端：
 
 ```bash
-pnpm --dir frontend dev
+pnpm --dir=frontend dev
 ```
 
 Vite 开发服务器会输出本地访问地址。当前页面用于确认 Vue 3 和 TypeScript 应用已成功挂载。
@@ -128,9 +128,9 @@ uv build --project backend
 前端：
 
 ```bash
-pnpm --dir frontend test
-pnpm --dir frontend typecheck
-pnpm --dir frontend build
+pnpm --dir=frontend test
+pnpm --dir=frontend typecheck
+pnpm --dir=frontend build
 ```
 
 每个 GitHub Pull Request 都会执行相同命令。合并前必须通过 `backend-quality` 和 `frontend-quality` 两项检查。
@@ -174,7 +174,8 @@ pnpm --dir frontend build
 - M3 多格式摄取流水线里程碑：已完成
 - M4-01 Dense/Sparse 双路 Search：已完成
 - M4-02 多路/多 query RRF：已完成
-- 下一项：M4-03 Reranker
+- M4-03 本地/HTTP/Noop Reranker 与安全降级：已完成
+- 下一项：M4-04 Scope/Root 权限过滤与恢复
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
@@ -207,8 +208,8 @@ PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr
 Embedding 端口提供本地多语和 OpenAI-compatible 两种实现。本地默认使用 FastEmbed ONNX 的 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling），首次调用会下载约 0.22GB 模型；远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
 
 ```bash
-RUN_MODEL_TESTS=1 uv run --project backend pytest -q \
-  backend/tests/contract/test_embedding_providers.py -m model
+(cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \
+  tests/contract/test_embedding_providers.py -m model)
 ```
 
 Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化生成 Milvus 稀疏向量；它不等同于 BM25。Projection Service 将 Dense/Sparse 结果分批写为 `processing`，核对数量后激活为 `ready` 并再次核对。重复运行覆盖相同 Leaf ID；部分写入或核验失败会删除该版本全部向量，并对删除执行有界重试。
@@ -220,6 +221,13 @@ Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化�
 双路 Search Service 对每个 query 分别生成 Dense 与 Sparse 向量，并并行调用两条独立检索路径。tenant 与授权 collection/document scope 在调用 VectorStore 前写入两路请求，Milvus 再强制追加 `status=ready`；任何 scope 都不能在召回后补过滤。两路原始分数保持独立并附带最小诊断，融合由 M4-02 负责。
 
 RRF Fusion 按每个 query 的 Dense/Sparse 排名列表计算 `Σ 1/(k+rank)`，不直接混加不可比较的原始分数。同一 Leaf 跨分路去重，同一 Root 默认最多保留 3 个 Leaf，全局默认保留 30 个；完全同分使用 Leaf ID 稳定排序，并报告各类配额丢弃数量。
+
+Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种实现。默认 `local_cross_encoder` 使用约 0.08GB 的 `Xenova/ms-marco-MiniLM-L-6-v2`，该默认模型只按英文能力声明；中文或多语场景必须显式选择对应模型，2GB 生产服务器应使用远程 Reranker。服务默认重排前 20 个 RRF 候选并选择 8 个，严格按候选 ID 对齐；超时、坏响应、重复/未知 ID 和非有限分数都会净化诊断并降级为稳定的 RRF 选择。真实本地模型可单独验证：
+
+```bash
+(cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \
+  tests/contract/test_reranker_providers.py -m model)
+```
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 
