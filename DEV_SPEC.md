@@ -1654,13 +1654,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
-| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 未开始 |
+| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 22/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 23/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1829,8 +1829,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-01 Dense/Sparse Search
 
-- 两路独立检索和诊断；
-- 验收：Scope 前过滤、Top-K、空结果。
+- 编码：同一 sub-query 并行调用 Embedding `embed_query` 与 Sparse `encode_query`，禁止误用文档批量编码接口；
+- 检索：Dense 与 Sparse 使用独立 VectorStore 请求并并行执行，原始命中和分数保持分路，不在本阶段相加；
+- Scope：`tenant_id` 必填，授权后的 collection/document IDs 在发起 Milvus 搜索前写入两路请求；VectorStore 继续强制 `status=ready`，禁止检索后再做安全过滤；
+- 边界：Dense/Sparse Top-K 分别配置且固定为 1～50；拒绝单路重复 Leaf、返回数超过 Top-K 和非法 VectorHit ID；空结果仍返回两个显式成功分支；
+- 诊断：每路记录 method、requested Top-K、returned count 和 scope filter 数量，不记录原始 query vector；
+- 验收：Spy Provider/VectorStore 覆盖双路独立调用、Scope pushdown、不同 Top-K、空结果、重复/超量结果与调用前边界拒绝；Milvus tenant/status/collection/document filter 由已有真实 Milvus Lite 契约继续覆盖。
 
 #### M4-02 RRF
 

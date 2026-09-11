@@ -19,6 +19,13 @@ from enterprise_rag.services.projection import (
     ProjectionResult,
     ProjectionService,
 )
+from enterprise_rag.services.retrieval import (
+    DualSearchResult,
+    DualSearchService,
+    SearchBranchResult,
+    SearchDiagnostic,
+    SearchMethod,
+)
 from enterprise_rag.services.workspace import WorkspaceService
 
 __all__ = [
@@ -26,6 +33,8 @@ __all__ = [
     "DeletionStep",
     "DocumentDeletionService",
     "DocumentRegistrationService",
+    "DualSearchResult",
+    "DualSearchService",
     "EnrichedImage",
     "ImageEnricher",
     "ImageEnrichmentResult",
@@ -43,5 +52,8 @@ __all__ = [
     "ReconcileService",
     "RegisterDocument",
     "SessionGrant",
+    "SearchBranchResult",
+    "SearchDiagnostic",
+    "SearchMethod",
     "WorkspaceService",
 ]
