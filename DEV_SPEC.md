@@ -929,7 +929,7 @@ EvidenceAssessment:
 |---|---|---|
 | 同义表达/召回不足 | Query Rewrite Hybrid | 改写后 Dense+Sparse |
 | 概念描述性问题 | HyDE Dense-only | 生成假设答案，仅用于 Dense 查询 |
-| 型号、编号、精确术语 | BM25-only | 保留原始关键词 |
+| 型号、编号、精确术语 | Sparse-only | 保留原始关键词；当前 hashing lexical 不冒充 BM25，可替换为 BM25 Provider |
 | Scope 冲突或过窄 | Scope repair | 只放宽被证明错误的 Scope |
 
 Recovery 结果与现有 Evidence Ledger 按 Leaf ID 去重。每轮至少为 Recovery 候选预留两个最终名额，避免被首轮大量候选完全挤出。
@@ -1654,13 +1654,13 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M1 | 规格、Monorepo、CI、配置和领域基座 | 6 | 完成 |
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
-| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-06 完成 |
+| M4 | Hybrid Retrieval 与 Agentic RAG | 10 | M4-01～M4-07 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 未开始 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 28/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 29/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1888,8 +1888,14 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-07 Deep
 
-- Evidence Ledger、双阈值、Recovery；
-- 验收：四种 Recovery、两轮上限和跨轮去重。
+- Evidence：每项以稳定 Leaf/Root ID、0～1 归一化 confidence、覆盖 requirements、round number 和 Recovery route 记录；首轮 route 必须为空，Recovery 轮必须带与 action 一致的 provenance；
+- Ledger：按 Leaf ID 跨首轮和所有 Recovery 轮去重，重复候选不覆盖首轮来源且计入 duplicate count；最终 Top-K 可配置为 Recovery 候选预留默认 2 个名额，避免首轮高分完全挤掉新增证据；
+- 评分：确定性分数为 `0.7 * requirement coverage + 0.3 * max evidence confidence`；`score >= 0.80` 直接 Answer，`score < 0.45` 直接 Recover，中间区间才调用 Evidence Assessor；Assessor 的 score、covered/missing requirement 必须与当前输入一致且不得引入未知 requirement；
+- 路由：普通同义/召回不足走 Query Rewrite Hybrid；描述性概念走 HyDE Dense-only；型号、编号、精确术语走 Sparse-only 并保留原关键词；已证明 Scope 错误时走 Scope repair，只移除 `repairable_scope_fields` 明确列出的第一个条件；
+- 诚实边界：当前 Sparse Provider 是 hashing lexical，不是 BM25，因此本实现不使用 `BM25-only` 名称；`RetrievalMode.SPARSE_ONLY` 可在未来由真正 BM25 Provider 实现，不影响 Recovery 控制器；
+- 轮次：默认最多 2 轮；每轮 action 必须指向 missing requirement，执行结果的 round/route 必须匹配；达到上限仍为 Recover 时强制转为 Abstain，并给出简短边界原因，不继续隐式循环；
+- 输出：包含最终 decision/assessment、去重 Evidence Ledger、全部 action、Recovery 轮数、重复数和 Assessor 调用数；不保存隐藏推理；
+- 验收：覆盖四种 route 及其 retrieval mode、Scope 仅定向放宽、精确词保留、跨轮重复 Leaf、Recovery 最终名额、低分两轮后 Abstain、高分不调用 Assessor、灰区只调用 Assessor 一次。
 
 #### M4-08 Verify/Repair/Abstain
 
