@@ -219,7 +219,8 @@ pnpm --dir=frontend build
 - M6-01 Evaluator Contracts：已完成
 - M6-02 Golden Set：已完成
 - M6-03 Eval Runner：已完成
-- 下一项：M6-04 LLM Judge
+- M6-04 LLM Judge：已完成
+- 下一项：M6-05 CI Quality Gate
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -247,6 +248,16 @@ uv run enterprise-rag-eval \
   --manifest ../evals/golden/v1/manifest.yaml \
   --report ../artifacts/evals/local-smoke.json \
   --commit-sha "$(git rev-parse HEAD)"
+```
+
+LLM Judge 是默认关闭的可选 Adapter，单独计算 faithfulness/relevancy，不覆盖确定性指标。启用时其最坏调用会进入 Eval Runner 预算；缺少凭证时状态为 unavailable、不会注册 Judge，零成本 deterministic eval 仍可完整运行。Judge 只接受严格的两字段 JSON 分数，异常输出会使该评测失败而不是被伪装成低分。开发配置示例：
+
+```yaml
+evaluation:
+  max_cases: 30
+  max_llm_calls: 30
+  llm_judge_enabled: true
+  llm_judge_max_output_tokens: 128
 ```
 
 本地可直接访问 `http://127.0.0.1:8000/metrics`。生产环境必须配置 `METRICS_TOKEN`，抓取时发送：

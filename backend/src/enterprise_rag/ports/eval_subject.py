@@ -33,6 +33,7 @@ class EvaluationSubjectResult:
     observation: EvaluationObservation
     usage: EvaluationUsage
     cacheable: bool = True
+    answer: str | None = None
 
 
 @runtime_checkable

@@ -66,10 +66,17 @@ class CaseEvaluation:
     metrics: MetricSet
     usage: EvaluationUsage
     from_cache: bool
+    judge_metrics: Mapping[str, float] | None = None
 
     def __post_init__(self) -> None:
         require_non_empty(self.case_id, "case_id")
         require_non_empty(self.request_hash, "request_hash")
+        if self.judge_metrics is not None:
+            object.__setattr__(
+                self,
+                "judge_metrics",
+                MappingProxyType(dict(self.judge_metrics)),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,9 +88,11 @@ class EvaluationReport:
     config_snapshot: Mapping[str, JsonValue]
     subject_snapshot: Mapping[str, JsonValue]
     evaluator_snapshot: Mapping[str, JsonValue]
+    judge_snapshot: Mapping[str, JsonValue] | None
     estimated_llm_calls: int
     cases: tuple[CaseEvaluation, ...]
     aggregate_metrics: Mapping[str, float | None]
+    aggregate_judge_metrics: Mapping[str, float | None]
     usage: EvaluationUsage
 
     def __post_init__(self) -> None:
@@ -94,5 +103,12 @@ class EvaluationReport:
             "subject_snapshot",
             "evaluator_snapshot",
             "aggregate_metrics",
+            "aggregate_judge_metrics",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
+        if self.judge_snapshot is not None:
+            object.__setattr__(
+                self,
+                "judge_snapshot",
+                MappingProxyType(dict(self.judge_snapshot)),
+            )

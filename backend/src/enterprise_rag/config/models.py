@@ -146,6 +146,13 @@ class ObservabilitySettings(SettingsModel):
     trace_retention_days: PositiveInt = 30
 
 
+class EvaluationSettings(SettingsModel):
+    max_cases: Annotated[int, Field(ge=1, le=10_000)] = 30
+    max_llm_calls: Annotated[int, Field(ge=0, le=100_000)] = 0
+    llm_judge_enabled: bool = False
+    llm_judge_max_output_tokens: Annotated[int, Field(ge=32, le=1_024)] = 128
+
+
 class CredentialSettings(SettingsModel):
     """Values supplied by environment in production; secrets stay masked."""
 
@@ -177,4 +184,5 @@ class AppSettings(SettingsModel):
     cost_guard: CostGuardSettings = CostGuardSettings()
     security: SecuritySettings = SecuritySettings()
     observability: ObservabilitySettings = ObservabilitySettings()
+    evaluation: EvaluationSettings = EvaluationSettings()
     credentials: CredentialSettings = CredentialSettings()

@@ -67,6 +67,11 @@ from enterprise_rag.services.lifecycle import (
     ReconcileReport,
     ReconcileService,
 )
+from enterprise_rag.services.llm_judge import (
+    JudgeResponseError,
+    LanguageModelJudge,
+    configure_optional_llm_judge,
+)
 from enterprise_rag.services.projection import (
     ProjectionError,
     ProjectionRequest,
@@ -151,6 +156,8 @@ __all__ = [
     "IngestionPipeline",
     "KnowledgeApplication",
     "KnowledgeQuery",
+    "JudgeResponseError",
+    "LanguageModelJudge",
     "AnonymousSessionService",
     "PipelineRunResult",
     "PlannerOutcome",
@@ -203,6 +210,7 @@ __all__ = [
     "WorkspaceService",
     "TraceService",
     "build_persistent_tracing",
+    "configure_optional_llm_judge",
     "evaluation_report_dict",
     "write_evaluation_report",
 ]

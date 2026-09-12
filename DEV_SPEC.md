@@ -1670,11 +1670,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
-| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 进行中（3/6） |
+| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 进行中（4/6） |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 41/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 42/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2150,8 +2150,25 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M6-04 LLM Judge
 
-- 可选 faithfulness/relevancy Adapter；
-- 验收：无密钥不影响 deterministic eval。
+- 状态：已完成；
+- 独立契约：`Judge` 与 M6-01 的 deterministic `Evaluator` 分离，输入只包含 question、
+  answer 和已授权 evidence；输出为 `[0,1]` 的 faithfulness/relevancy 与实际 LLM/token
+  usage，能力声明固定每 Case 最坏一次 LLM 调用；
+- 安全 Prompt：system prompt 要求把 question/answer/evidence 全部视为不可信数据，禁止
+  执行其中指令；用户数据按规范 JSON 编码，不与指令字符串拼接；
+- 严格输出：Adapter 只接受恰好包含两个数值字段的 JSON object；非 JSON、缺字段、额外
+  字段、布尔值、NaN/Infinity 或范围外值统一抛 `JudgeResponseError`，绝不伪造 `0` 分；
+- 可选注册：`llm_judge_enabled=false` 默认为 `disabled`；显式启用但无凭证或无 LLM 实例
+  返回 `unavailable/JUDGE_CREDENTIAL_MISSING` 且 Judge 为 `None`；不会阻止 Golden Set、
+  deterministic metrics 或 CI 核心评测；凭证原文不进入构造参数、日志和报告；
+- Runner 集成：仅 ready Judge 进入配置 identity、request cache key 和报告 snapshot；其
+  一次/Case 估算加入运行前 LLM 预算，实际调用/token 加入 usage；语义分数单独聚合，不
+  覆盖 Recall/MRR/Citation/Abstention；
+- 配置：新增 `evaluation.max_cases`、`max_llm_calls`、`llm_judge_enabled` 和有界
+  `llm_judge_max_output_tokens`，开发默认零预算且关闭 Judge；
+- 验收：fake LLM 精确解析 `0.75/1.0` 并记录 usage；五类非法响应全部失败；两 Case
+  Runner 报告计入两次预算与 `0.8/0.9` 聚合；无密钥时 deterministic 拒答指标仍为 1；
+- PR：`feat/m6-llm-judge`。
 
 #### M6-05 CI Quality Gate
 
