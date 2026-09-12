@@ -71,7 +71,7 @@ export const apiClient = createClient<paths>({
 })
 apiClient.use(sessionMiddleware)
 
-function toApiError(error: unknown, response: Response): ApiError {
+export function apiErrorFromResponse(error: unknown, response: Response): ApiError {
   const payload = (error ?? {}) as ErrorPayload
   const detail = payload.error
   const retryAfter = Number(response.headers.get('Retry-After'))
@@ -94,16 +94,16 @@ export interface AuthApi {
 export const authApi: AuthApi = {
   async me() {
     const result = await apiClient.GET('/api/v1/auth/me')
-    if (result.error) throw toApiError(result.error, result.response)
+    if (result.error) throw apiErrorFromResponse(result.error, result.response)
     return result.data
   },
   async login(input) {
     const result = await apiClient.POST('/api/v1/auth/login', { body: input })
-    if (result.error) throw toApiError(result.error, result.response)
+    if (result.error) throw apiErrorFromResponse(result.error, result.response)
     return result.data
   },
   async logout() {
     const result = await apiClient.POST('/api/v1/auth/logout')
-    if (result.error) throw toApiError(result.error, result.response)
+    if (result.error) throw apiErrorFromResponse(result.error, result.response)
   },
 }

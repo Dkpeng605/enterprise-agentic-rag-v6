@@ -233,9 +233,16 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M6-06 Public Benchmark Adapter: complete
 - M6 evaluation loop and public Benchmark Adapter milestone: complete
 - M7-01 Shell/Auth: complete
-- Next: M7-02 Public Chat
+- M7-02 Public Chat: complete
+- Next: M7-03 Overview
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
+
+The `/chat` public page now consumes that SSE contract with Standard/Deep selection, Collection scope,
+public stage status, expandable citations, explicit cancellation, 429 `Retry-After`, and bounded abstention.
+A disconnect retains the Query ID and never starts an infinite reconnect loop; internal diagnostics and hidden
+reasoning stay out of the public UI. The default backend still has no production QueryRunner composition, so
+the page reports service unavailability instead of manufacturing a fixture answer.
 
 The Cost Guard atomically reserves a per-minute query slot and worst-case call/token capacity with PostgreSQL conditional upserts before QueryRunner can enter Provider logic. Minute limits are isolated per anonymous session, UTC daily capacity is shared by all anonymous sessions, and Standard/Deep use different weights. Successful calls refund unused capacity from trustworthy usage; failures or unverifiable usage conservatively consume the reservation, and 429 responses include `Retry-After`. The LLM decorator adds configurable per-attempt timeout, bounded transient-only retries, and a retry count. Apply the new tables first with the `alembic upgrade head` command above.
 

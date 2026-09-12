@@ -1671,10 +1671,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 完成 |
-| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 1/8 完成 |
+| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 2/8 完成 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 45/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 46/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2251,8 +2251,28 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-02 Public Chat
 
-- SSE、模式、引用、限流反馈；
-- 验收：成功、断线、429、拒答浏览器流程。
+- 状态：已完成；
+- API 边界：`queryApi` 继续复用 M7-01 的 OpenAPI Client，组件不直接 `fetch`；SSE reader
+  使用 `ReadableStream`/增量 `TextDecoder`，支持任意 chunk 边界、CRLF、comment、多行 data
+  与尾帧，严格校验正整数 sequence、已知 event 和 terminal payload，畸形事件不猜测；
+- 交互：问题输入限制 2,000 字符并显示计数；Standard/Deep 明确说明速度/证据恢复取舍；可
+  勾选多个 Collection，未勾选时由服务端限定为当前 tenant 全部可见集合；最多提交最近 12
+  条历史，tenant/actor/query ID 均不在客户端请求体中；
+- 流状态：accepted 保存 query ID，progress 只展示公开阶段描述，heartbeat 不伪装答案，
+  completed 才发布经过服务端验证的答案与 trace ID；用户可用 AbortController 主动停止，
+  中断后保留已接收内容和 query ID，不自动重连，重试始终创建新 run；
+- 答案与引用：answered 展示核验状态与可展开引用（标题、页码/章节、quote、source、Root
+  前缀）；abstained/no_results 显示有边界拒答且不生成引用；公共页不显示 diagnostics 或隐藏
+  推理；
+- 错误：HTTP 429 显示 `Retry-After` 秒数，SSE `RATE_LIMITED` 显示全局额度边界；网络/5xx
+  展示已净化 request ID，其他 stream error 显示 query ID，均不无限重试；Collection 加载
+  失败时允许按服务端安全默认范围继续；
+- 视觉：桌面首屏输入框在 720p 可见，对话内容内部滚动；390×844 移动端将控制面压缩为
+  双栏且输入框完整可见；会话初始化期间使用独立 bootstrap 标签，避免误显示管理员状态；
+- 验收：Vitest 覆盖跨网络分块的 SSE、非法事件、Deep 成功与引用、无引用拒答、429 倒计时、
+  主动中断且仅调用一次；真实 FastAPI 会话/Collection 和桌面、移动浏览器渲染通过。默认
+  `enterprise_rag.main:app` 尚无生产 QueryRunner，因此不把本地 503 冒充成功答案；
+- PR：`feat/m7-public-chat`。
 
 #### M7-03 Overview
 

@@ -237,9 +237,15 @@ pnpm --dir=frontend build
 - M6-06 Public Benchmark Adapter：已完成
 - M6 评测闭环与公开 Benchmark Adapter 里程碑：已完成
 - M7-01 Shell/Auth：已完成
-- 下一项：M7-02 Public Chat
+- M7-02 Public Chat：已完成
+- 下一项：M7-03 Overview
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
+
+`/chat` 公共问答页已接入该 SSE 契约，支持 Standard/Deep、Collection 范围、公开阶段状态、
+可展开引用、主动停止、429 `Retry-After` 和有边界拒答。断线会保留 Query ID，不会自动无限
+重连；公共页面不展示内部 diagnostics 或隐藏推理。当前默认后端仍未组合生产 QueryRunner，
+因此页面会诚实展示服务不可用，而不会用 fixture 生成假答案。
 
 Cost Guard 在 QueryRunner 进入任何 Provider 逻辑前，通过 PostgreSQL 条件 UPSERT 原子预留分钟 Query 名额和最坏调用/token 额度。分钟限额按匿名 session 隔离，UTC 日额度由所有匿名 session 共享；Standard/Deep 使用不同权重。成功后按可信 usage 退回未使用额度，异常或无法验证的 usage 保守扣除预留，429 同时返回 `Retry-After`。LLM 装饰器提供可配置单次超时、仅瞬时错误的有界重试和 retry count。新增数据库表需要先执行 README 上方的 `alembic upgrade head`。
 
