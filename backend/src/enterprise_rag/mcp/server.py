@@ -6,11 +6,20 @@ from typing import Annotated, Literal, Protocol
 from uuid import UUID
 
 from mcp.server import MCPServer
+from mcp.server.auth.provider import TokenVerifier
+from mcp.server.auth.settings import AuthSettings
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field
 
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import QueryMode, QueryScope
+from enterprise_rag.mcp.access import (
+    ANSWER_VERIFY_SCOPE,
+    KNOWLEDGE_READ_SCOPE,
+    QUERY_EXECUTE_SCOPE,
+    AccessResolver,
+    McpAccess,
+)
 from enterprise_rag.services.auth import Principal
 from enterprise_rag.services.knowledge import KnowledgeQuery, McpApplicationService
 
@@ -26,12 +35,19 @@ class McpCatalog(Protocol):
         strategy: str,
         top_k: int,
         filters: Mapping[str, object],
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]: ...
 
-    async def list_collections(self, principal: Principal) -> Sequence[Mapping[str, object]]: ...
+    async def list_collections(
+        self, principal: Principal, *, collection_ids: tuple[UUID, ...] | None
+    ) -> Sequence[Mapping[str, object]]: ...
 
     async def get_document_summary(
-        self, principal: Principal, document_id: UUID
+        self,
+        principal: Principal,
+        document_id: UUID,
+        *,
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]: ...
 
     async def list_document_sections(
@@ -41,6 +57,7 @@ class McpCatalog(Protocol):
         *,
         cursor: str | None,
         limit: int,
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]: ...
 
     async def verify_answer(
@@ -50,21 +67,34 @@ class McpCatalog(Protocol):
         answer: str,
         citations: Sequence[Mapping[str, object]],
         question: str | None,
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]: ...
 
     async def get_collection_resource(
-        self, principal: Principal, collection_id: UUID
+        self,
+        principal: Principal,
+        collection_id: UUID,
+        *,
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]: ...
 
     async def get_section_resource(
-        self, principal: Principal, document_id: UUID, root_id: str
+        self,
+        principal: Principal,
+        document_id: UUID,
+        root_id: str,
+        *,
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]: ...
 
 
 def build_mcp_server(
     application: McpApplicationService,
     catalog: McpCatalog,
-    principal: Principal,
+    principal: Principal | AccessResolver,
+    *,
+    auth: AuthSettings | None = None,
+    token_verifier: TokenVerifier | None = None,
 ) -> MCPServer[None]:
     server: MCPServer[None] = MCPServer(
         "enterprise-agentic-rag-v6",
@@ -72,7 +102,14 @@ def build_mcp_server(
         instructions=(
             "Use read-only knowledge tools. Results are restricted to the authenticated tenant."
         ),
+        auth=auth,
+        token_verifier=token_verifier,
     )
+
+    def access(required_scope: str) -> McpAccess:
+        current = principal() if callable(principal) else McpAccess.trusted_process(principal)
+        current.require(required_scope)
+        return current
 
     @server.tool(annotations=READ_ONLY)
     async def query_knowledge_base(
@@ -83,9 +120,11 @@ def build_mcp_server(
         """Answer a question from authorized knowledge with citations."""
 
         try:
-            scope = QueryScope(collection_ids=tuple(_uuids(collection_ids or ())))
+            current = access(QUERY_EXECUTE_SCOPE)
+            allowed_collections = current.constrain_collections(_uuids(collection_ids or ()))
+            scope = QueryScope(collection_ids=allowed_collections)
             execution = await application.query_knowledge_base(
-                principal,
+                current.principal,
                 KnowledgeQuery(question.strip(), QueryMode(mode), scope),
             )
             payload = execution.to_dict()
@@ -103,13 +142,15 @@ def build_mcp_server(
         """Search authorized documents without generating an answer."""
 
         try:
+            current = access(KNOWLEDGE_READ_SCOPE)
             payload = dict(
                 await catalog.search_documents(
-                    principal,
+                    current.principal,
                     query=query.strip(),
                     strategy=strategy,
                     top_k=top_k,
                     filters=filters or {},
+                    collection_ids=current.collection_ids,
                 )
             )
             return _result(f"Found {len(_items(payload))} authorized results.", payload)
@@ -121,7 +162,15 @@ def build_mcp_server(
         """List collections visible to the authenticated tenant."""
 
         try:
-            payload = {"items": [dict(item) for item in await catalog.list_collections(principal)]}
+            current = access(KNOWLEDGE_READ_SCOPE)
+            payload = {
+                "items": [
+                    dict(item)
+                    for item in await catalog.list_collections(
+                        current.principal, collection_ids=current.collection_ids
+                    )
+                ]
+            }
             return _result(f"Found {len(payload['items'])} collections.", payload)
         except Exception as error:
             return _error(error)
@@ -131,7 +180,14 @@ def build_mcp_server(
         """Read an authorized document's bounded metadata summary."""
 
         try:
-            payload = dict(await catalog.get_document_summary(principal, UUID(document_id)))
+            current = access(KNOWLEDGE_READ_SCOPE)
+            payload = dict(
+                await catalog.get_document_summary(
+                    current.principal,
+                    UUID(document_id),
+                    collection_ids=current.collection_ids,
+                )
+            )
             return _result(f"Document: {payload.get('title', 'authorized document')}", payload)
         except Exception as error:
             return _error(error)
@@ -145,9 +201,14 @@ def build_mcp_server(
         """List bounded section summaries for an authorized document."""
 
         try:
+            current = access(KNOWLEDGE_READ_SCOPE)
             payload = dict(
                 await catalog.list_document_sections(
-                    principal, UUID(document_id), cursor=cursor, limit=limit
+                    current.principal,
+                    UUID(document_id),
+                    cursor=cursor,
+                    limit=limit,
+                    collection_ids=current.collection_ids,
                 )
             )
             return _result(f"Found {len(_items(payload))} sections.", payload)
@@ -163,12 +224,14 @@ def build_mcp_server(
         """Verify submitted citations against authorized evidence without storing input."""
 
         try:
+            current = access(ANSWER_VERIFY_SCOPE)
             payload = dict(
                 await catalog.verify_answer(
-                    principal,
+                    current.principal,
                     answer=answer,
                     citations=citations or (),
                     question=question,
+                    collection_ids=current.collection_ids,
                 )
             )
             return _result("Answer verification completed.", payload)
@@ -179,20 +242,42 @@ def build_mcp_server(
     async def collections_resource() -> str:
         """Authorized collection directory."""
 
-        items = [dict(item) for item in await catalog.list_collections(principal)]
+        current = access(KNOWLEDGE_READ_SCOPE)
+        items = [
+            dict(item)
+            for item in await catalog.list_collections(
+                current.principal, collection_ids=current.collection_ids
+            )
+        ]
         return _json({"items": items})
 
     @server.resource("rag://collections/{collection_id}", mime_type="application/json")
     async def collection_resource(collection_id: str) -> str:
         """Authorized collection metadata."""
 
-        return _json(await catalog.get_collection_resource(principal, UUID(collection_id)))
+        current = access(KNOWLEDGE_READ_SCOPE)
+        requested = UUID(collection_id)
+        current.constrain_collections((requested,))
+        return _json(
+            await catalog.get_collection_resource(
+                current.principal,
+                requested,
+                collection_ids=current.collection_ids,
+            )
+        )
 
     @server.resource("rag://documents/{document_id}", mime_type="application/json")
     async def document_resource(document_id: str) -> str:
         """Authorized document metadata."""
 
-        return _json(await catalog.get_document_summary(principal, UUID(document_id)))
+        current = access(KNOWLEDGE_READ_SCOPE)
+        return _json(
+            await catalog.get_document_summary(
+                current.principal,
+                UUID(document_id),
+                collection_ids=current.collection_ids,
+            )
+        )
 
     @server.resource(
         "rag://documents/{document_id}/sections/{root_id}", mime_type="application/json"
@@ -200,8 +285,14 @@ def build_mcp_server(
     async def section_resource(document_id: str, root_id: str) -> str:
         """One authorized, length-bounded Root section."""
 
+        current = access(KNOWLEDGE_READ_SCOPE)
         return _json(
-            await catalog.get_section_resource(principal, UUID(document_id), root_id)
+            await catalog.get_section_resource(
+                current.principal,
+                UUID(document_id),
+                root_id,
+                collection_ids=current.collection_ids,
+            )
         )
 
     return server

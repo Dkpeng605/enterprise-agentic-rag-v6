@@ -48,6 +48,7 @@ class FixtureCatalog:
         strategy: str,
         top_k: int,
         filters: Mapping[str, object],
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]:
         return {
             "items": [{"document_id": str(DOCUMENT_ID), "title": "Fixture Guide"}],
@@ -55,13 +56,19 @@ class FixtureCatalog:
             "tenant_id": str(principal.tenant_id),
         }
 
-    async def list_collections(self, principal: Principal) -> Sequence[Mapping[str, object]]:
+    async def list_collections(
+        self, principal: Principal, *, collection_ids: tuple[UUID, ...] | None
+    ) -> Sequence[Mapping[str, object]]:
         # The SDK must divert accidental application output away from protocol stdout.
         print("fixture-catalog-log")
         return ({"id": str(COLLECTION_ID), "name": "Fixture Collection"},)
 
     async def get_document_summary(
-        self, principal: Principal, document_id: UUID
+        self,
+        principal: Principal,
+        document_id: UUID,
+        *,
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]:
         return {
             "id": str(document_id),
@@ -76,6 +83,7 @@ class FixtureCatalog:
         *,
         cursor: str | None,
         limit: int,
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]:
         return {
             "items": [{"root_id": "root_fixture", "heading": "Overview"}],
@@ -89,16 +97,26 @@ class FixtureCatalog:
         answer: str,
         citations: Sequence[Mapping[str, object]],
         question: str | None,
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]:
         return {"valid": True, "issues": []}
 
     async def get_collection_resource(
-        self, principal: Principal, collection_id: UUID
+        self,
+        principal: Principal,
+        collection_id: UUID,
+        *,
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]:
         return {"id": str(collection_id), "name": "Fixture Collection"}
 
     async def get_section_resource(
-        self, principal: Principal, document_id: UUID, root_id: str
+        self,
+        principal: Principal,
+        document_id: UUID,
+        root_id: str,
+        *,
+        collection_ids: tuple[UUID, ...] | None,
     ) -> Mapping[str, object]:
         return {
             "document_id": str(document_id),

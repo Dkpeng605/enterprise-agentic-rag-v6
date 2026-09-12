@@ -334,6 +334,31 @@ class AnonymousSessionModel(TimestampMixin, Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class ApiTokenModel(TimestampMixin, Base):
+    __tablename__ = "api_tokens"
+    __table_args__ = (
+        CheckConstraint("length(token_hash) = 64", name="token_hash_length"),
+        CheckConstraint("length(token_prefix) BETWEEN 8 AND 16", name="token_prefix_length"),
+        Index("ix_api_tokens_token_prefix", "token_prefix"),
+        Index("ix_api_tokens_tenant_expires", "tenant_id", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    token_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    scopes: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    collection_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class IndexRevisionModel(TimestampMixin, Base):
     __tablename__ = "index_revisions"
     __table_args__ = (

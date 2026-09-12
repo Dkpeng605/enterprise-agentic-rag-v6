@@ -22,6 +22,7 @@ from enterprise_rag.ports.loader import (
     Loader,
     OcrEngine,
 )
+from enterprise_rag.ports.mcp_auth import McpTokenGrant, McpTokenStore
 from enterprise_rag.ports.object_store import (
     ObjectStore,
     StoredObject,
@@ -107,6 +108,8 @@ __all__ = [
     "LoadedRoot",
     "LanguageModel",
     "Loader",
+    "McpTokenGrant",
+    "McpTokenStore",
     "OcrEngine",
     "StoredObject",
     "StoredLeafEvidence",

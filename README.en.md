@@ -80,6 +80,16 @@ ENTERPRISE_RAG_MCP_STDIO_FACTORY=your_package.bootstrap:build_mcp_server \
 
 The factory must be a no-argument function returning `MCPServer`. No default production Provider composition exists yet, so the entry point does not present test data as a working service; `backend/tests/fixtures/mcp_stdio_server.py` is only a real-SDK subprocess contract fixture. stdout is reserved for stdio JSON-RPC and application logs must use stderr.
 
+A production composition creates the Streamable HTTP server with `build_http_mcp_app(...)`; its fixed endpoint is `/mcp`:
+
+```bash
+export MCP_TOKEN_PEPPER='replace-with-at-least-32-random-bytes'
+uv run --project backend alembic -c backend/alembic.ini upgrade head
+uv run --project backend uvicorn your_package.bootstrap:mcp_app
+```
+
+The public `public_base_url` must use HTTPS; only a local test composition may opt into `allow_insecure_http=True`. Clients send `Authorization: Bearer <token>`. Tokens are stored only as peppered HMACs and bind a tenant, actor, tool scopes, and a collection allowlist. Anonymous demo users cannot issue or administer tokens. The system-admin issuance and revocation UI arrives in M9-03, so a trusted deployment/bootstrap process must populate `api_tokens` for now; the repository ships no default token.
+
 Before a write, call `GET /api/v1/auth/me`, retain its Cookie, and send the returned `csrf_token` in the `X-CSRF-Token` header. Development HTTP cookies omit Secure; production or an HTTPS base URL always enables Secure.
 
 Start the frontend in a second terminal:
@@ -195,13 +205,16 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M4 Hybrid Retrieval and Agentic RAG milestone: complete
 - M5-01 MCP Application Layer: complete
 - M5-02 stdio MCP: complete
-- Next: M5-03 HTTP MCP
+- M5-03 HTTP MCP: complete
+- Next: M5-04 Trace/Logging
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
 The Cost Guard atomically reserves a per-minute query slot and worst-case call/token capacity with PostgreSQL conditional upserts before QueryRunner can enter Provider logic. Minute limits are isolated per anonymous session, UTC daily capacity is shared by all anonymous sessions, and Standard/Deep use different weights. Successful calls refund unused capacity from trustworthy usage; failures or unverifiable usage conservatively consume the reservation, and 429 responses include `Retry-After`. The LLM decorator adds configurable per-attempt timeout, bounded transient-only retries, and a retry count. Apply the new tables first with the `alembic upgrade head` command above.
 
 `KnowledgeApplication` is now the only query use-case boundary for HTTP, MCP, and the later CLI. The official MCP SDK v2 stdio adapter exposes six read-only tools plus collection/document/section resources, with every identity bound by the server process. Tools return both human-readable and structured content while sanitizing errors. The entry point reserves stdout for JSON-RPC, and a real SDK-client subprocess test covers list/call/read plus buffered-output isolation.
+
+The Streamable HTTP adapter requires bearer authentication at `/mcp` and checks its connection scope before protocol dispatch. Raw tokens never reach the database; immutable authentication claims establish request identity, and tool scopes plus collection allowlists can only narrow access. Public composition rejects HTTP and validates Host/Origin. Token administration remains a later system-admin milestone and is not part of anonymous demo business permissions.
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
