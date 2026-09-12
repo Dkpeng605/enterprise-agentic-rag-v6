@@ -66,6 +66,8 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `GET /docs` — interactive OpenAPI documentation
 - `GET /openapi.json` — OpenAPI schema
 - `GET /api/v1/auth/me` — create an anonymous demo session and obtain a CSRF token
+- `POST /api/v1/auth/login` and `POST /api/v1/auth/logout` — Argon2id administrator login and CSRF-protected session revocation
+- `GET /api/v1/system/status` — server-enforced system administrator boundary; anonymous identities always receive 403
 - `/api/v1/collections` — demo-tenant collection CRUD
 - `/api/v1/documents` — streaming upload, filtering, and cursor pagination
 - `/api/v1/documents/{id}` and `/api/v1/ingestion-jobs/{id}` — document and ingestion status
@@ -104,7 +106,13 @@ Start the frontend in a second terminal:
 pnpm --dir=frontend dev
 ```
 
-The Vite development server prints its local URL. The current page confirms that the Vue 3 and TypeScript application mounted successfully.
+Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, and system route guards. Anonymous visitors may use `/workspace/*` without login, while `/admin/*` still requires a system administrator. Regenerate the committed OpenAPI types with:
+
+```bash
+pnpm --dir=frontend generate:api
+```
+
+The first administrator login uses `ADMIN_BOOTSTRAP_EMAIL` and `ADMIN_BOOTSTRAP_PASSWORD`. A bootstrap account is created in PostgreSQL only when no system administrator exists, and its password is stored with Argon2id. Remove the bootstrap password from the environment after creation. For development, export both variables before starting the backend.
 
 PostgreSQL is required by migrations, anonymous sessions, collection/document APIs, query budgets, and integration tests. Without a configured database, object directory, or session secret, the static OpenAPI contract remains available while business routes return a stable 503. M4 now provides composable QueryRunner, synchronous/SSE, retrieval, and Agentic RAG contracts and services. The current `enterprise_rag.main:app` does not yet inject a concrete QueryRunner, so query endpoints return a stable 503 until later milestones compose production Providers and process entry points.
 
@@ -155,6 +163,7 @@ Frontend:
 
 ```bash
 pnpm --dir=frontend test
+pnpm --dir=frontend check:api
 pnpm --dir=frontend typecheck
 pnpm --dir=frontend build
 ```
@@ -223,7 +232,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M6-05 CI Quality Gate: complete
 - M6-06 Public Benchmark Adapter: complete
 - M6 evaluation loop and public Benchmark Adapter milestone: complete
-- Next: M7-01 Shell/Auth
+- M7-01 Shell/Auth: complete
+- Next: M7-02 Public Chat
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -312,7 +322,7 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
-M1 through M5 are complete. The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, synchronous/SSE query contracts, a PostgreSQL Cost Guard, lifecycle state, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation. A concrete production QueryRunner/Provider composition entry point is not wired yet, so the default entry point does not pretend to be a usable complete query product.
+M1 through M6 are complete and the M7 frontend milestone is in progress. The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, and the Vue3/TypeScript shell with dual identity sessions. A concrete production QueryRunner/Provider composition entry point is not wired yet, so the default entry point does not pretend to be a usable complete query product.
 
 The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for image enrichment. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. The Loader is wired into the background ingestion Pipeline; the HTTP upload endpoint arrives in M3-10.
 
@@ -337,7 +347,7 @@ The Sparse Encoder produces Milvus sparse vectors with stable multilingual lexic
 
 The ingestion Pipeline creates or reuses its Job in the document-registration transaction, then executes Loader → image enrichment → Cleaner → Splitter → PostgreSQL → Milvus → final commit. Each checkpoint renews the lease, advances monotonic progress, and observes cancellation. Deterministic input errors fail immediately; transient failures retry up to the configured limit. Failure and cancellation compensate PostgreSQL content and Milvus projections for that version, and a document becomes `ready` only after both stores verify successfully. The service currently runs through `run_once(owner=...)`; the long-running Worker entry point is deferred to deployment work.
 
-The anonymous workspace API uses server-side sessions to bind every request to one fixed demo tenant. Anonymous `demo_operator` sessions can manage collections and documents inside that tenant but cannot access the system administration surface; writes require a rotating CSRF token. Collection CRUD, streaming upload, document cursor pagination, details, job lookup, and idempotent asynchronous deletion all use the unified error model and request IDs. Cross-tenant identifiers always appear as 404.
+The anonymous workspace API uses server-side sessions to bind every request to one fixed demo tenant. Anonymous `demo_operator` sessions can manage collections and documents inside that tenant but cannot access the system administration surface; writes require a rotating CSRF token. Administrators use separate database sessions, Argon2id passwords, and system roles; frontend guards improve UX while the backend still authorizes every system request. Collection CRUD, streaming upload, document cursor pagination, details, job lookup, and idempotent asynchronous deletion all use the unified error model and request IDs. Cross-tenant identifiers always appear as 404.
 
 The dual Search Service creates Dense and Sparse query vectors separately and runs two independent retrieval paths concurrently. Tenant and authorized collection/document scope are included in both requests before the VectorStore call, where Milvus also forces `status=ready`; scope is never applied after retrieval. Raw branch scores remain separate with minimal diagnostics, ready for M4-02 fusion.
 

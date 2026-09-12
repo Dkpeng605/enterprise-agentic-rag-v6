@@ -13,8 +13,10 @@ from sqlalchemy import select, text
 from enterprise_rag.adapters.database import Database
 from enterprise_rag.adapters.database.models import (
     AnonymousSessionModel,
+    AuthenticatedSessionModel,
     CollectionModel,
     TenantModel,
+    UserModel,
 )
 from enterprise_rag.adapters.object_store import LocalObjectStore
 from enterprise_rag.api import create_app
@@ -26,6 +28,8 @@ DATABASE_URL = os.environ.get(
     "postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test",
 )
 SESSION_SECRET = "integration-only-session-secret-with-more-than-32-bytes"
+ADMIN_EMAIL = "admin@example.test"
+ADMIN_PASSWORD = "integration-admin-password"
 NOW = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 OTHER_TENANT_ID = UUID("01900000-0000-7000-8000-00000000e001")
 OTHER_COLLECTION_ID = UUID("01900000-0000-7000-8000-00000000e002")
@@ -51,6 +55,10 @@ async def api(tmp_path: Path) -> AsyncIterator[httpx2.AsyncClient]:
                 "anonymous_max_ready_documents": 20,
             },
             "ingestion": {"max_upload_bytes": 1_024},
+            "credentials": {
+                "admin_bootstrap_email": ADMIN_EMAIL,
+                "admin_bootstrap_password": ADMIN_PASSWORD,
+            },
         }
     )
     application = create_app(
@@ -79,6 +87,65 @@ async def start_session(client: httpx2.AsyncClient) -> tuple[str, str]:
 
 def csrf_headers(token: str) -> dict[str, str]:
     return {"X-CSRF-Token": token}
+
+
+@pytest.mark.anyio
+async def test_admin_login_uses_argon2_session_csrf_and_system_authorization(
+    api: httpx2.AsyncClient,
+) -> None:
+    unknown = await api.post(
+        "/api/v1/auth/login",
+        json={"email": "missing@example.test", "password": "wrong"},
+    )
+    wrong = await api.post(
+        "/api/v1/auth/login",
+        json={"email": ADMIN_EMAIL, "password": "wrong"},
+    )
+    assert unknown.status_code == wrong.status_code == 401
+    assert unknown.json()["error"]["message"] == wrong.json()["error"]["message"]
+
+    login = await api.post(
+        "/api/v1/auth/login",
+        json={"email": ADMIN_EMAIL.upper(), "password": ADMIN_PASSWORD},
+    )
+    assert login.status_code == 200
+    profile = login.json()
+    assert profile["actor_type"] == "user"
+    assert profile["role"] == "super_admin"
+    assert profile["email"] == ADMIN_EMAIL
+    assert "system:read" in profile["permissions"]
+    assert "HttpOnly" in login.headers["set-cookie"]
+    assert "Secure" in login.headers["set-cookie"]
+
+    database = Database(DATABASE_URL)
+    try:
+        async with database.session() as session:
+            user = await session.scalar(select(UserModel).where(UserModel.email == ADMIN_EMAIL))
+            stored = await session.scalar(select(AuthenticatedSessionModel))
+        assert user is not None and user.password_hash.startswith("$argon2id$")
+        assert stored is not None
+        assert stored.token_hash != api.cookies.get("rag_session")
+        assert stored.csrf_hash != profile["csrf_token"]
+    finally:
+        await database.dispose()
+
+    system = await api.get("/api/v1/system/status")
+    assert system.status_code == 200
+    assert system.json() == {"status": "available", "role": "super_admin"}
+
+    refreshed = await api.get("/api/v1/auth/me")
+    assert refreshed.status_code == 200
+    assert refreshed.json()["actor_type"] == "user"
+    assert refreshed.json()["csrf_token"] != profile["csrf_token"]
+
+    missing_csrf = await api.post("/api/v1/auth/logout")
+    assert missing_csrf.status_code == 403
+    logout = await api.post(
+        "/api/v1/auth/logout",
+        headers=csrf_headers(refreshed.json()["csrf_token"]),
+    )
+    assert logout.status_code == 204
+    assert (await api.get("/api/v1/system/status")).status_code == 401
 
 
 @pytest.mark.anyio

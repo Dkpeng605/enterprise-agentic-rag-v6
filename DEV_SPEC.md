@@ -1671,10 +1671,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 完成 |
-| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
+| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 1/8 完成 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 44/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 45/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2224,8 +2224,30 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-01 Shell/Auth
 
-- 设计令牌、布局、路由、生成 Client、匿名 session 和管理员登录；
-- 验收：匿名 workspace、系统 route guard、401、CSRF。
+- 状态：已完成；
+- 视觉基线：以 CSS custom properties 固化 ink/mint/lime/paper 色板、间距、边框与阴影，交付
+  桌面固定侧栏、sticky 顶栏、移动端抽屉和 760/1050px 响应式断点；首页明确展示 EDD、可
+  插拔 Provider、可验证引用和匿名 Demo 能力，不使用图片素材伪装产品数据；
+- 路由：Vue Router 定义公开、workspace、system 三类 meta 边界，完整注册 15.2 节全部路径；
+  匿名 session 可进入工作区，system 路由必须是 `super_admin/system_admin`，否则携带安全的
+  本站 redirect 跳转登录；404 收敛到首页，路由完成后同步中文页面标题；
+- 状态：Pinia Auth Store 统一持有 profile、CSRF、初始化/错误状态和最近 request ID；首次
+  进入公开首页或工作区自动调用 `auth/me`，直接打开登录页不创建不必要的匿名 session；
+  protected API 返回 401 时清空 Store 并返回登录页；
+- 生成 Client：FastAPI OpenAPI 由可重复脚本导出并提交，`openapi-typescript` 生成 strict TS
+  Schema，`openapi-fetch` 是唯一 HTTP 边界；middleware 为写请求附加最新 CSRF、固定
+  `credentials=include`、记录 `X-Request-ID` 并统一处理 401/网络错误。Vue 组件不直接调用
+  `fetch`；Vite 开发代理保持浏览器同源 Cookie 语义；
+- 管理员后端：新增独立 `authenticated_sessions` 表和 `users.system_role`，原始 session/CSRF
+  只在 Cookie/响应中出现，数据库只保存带部署 secret 的 HMAC；首次管理员按配置惰性且加
+  advisory lock 创建，密码使用 Argon2id，错误邮箱与错误密码返回相同 401；登录、`auth/me`、
+  CSRF 登出和 `/system/status` 均由 FastAPI 再次鉴权；匿名身份访问系统 API 固定 403；
+- 性能：Element Plus 保留为 UI 基线但不做全量注册，首屏生产 JS 约 112.78 kB（gzip
+  43.80 kB），无 500 kB chunk 警告；
+- 验收：PostgreSQL 集成测试覆盖 bootstrap、Argon2id、登录失败等价、hash-at-rest、Cookie、
+  CSRF 轮换/撤销与匿名/管理员系统边界；Vitest 覆盖匿名 workspace、system guard、登录回跳、
+  protected 401 和 CSRF middleware；桌面 1280×720 与移动 390×844 真实浏览器联调通过；
+- PR：`feat/m7-shell-auth`。
 
 #### M7-02 Public Chat
 

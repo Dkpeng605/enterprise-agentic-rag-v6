@@ -59,12 +59,17 @@ class UserModel(TimestampMixin, Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint("status IN ('active', 'disabled')", name="status"),
+        CheckConstraint(
+            "system_role IS NULL OR system_role IN ('super_admin', 'system_admin', 'auditor')",
+            name="system_role",
+        ),
         Index("uq_users_email_lower", func.lower(text("email")), unique=True),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    system_role: Mapped[str | None] = mapped_column(String(30))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
 
 
@@ -319,6 +324,27 @@ class AnonymousSessionModel(TimestampMixin, Base):
         CheckConstraint("length(token_hash) = 64", name="token_hash_length"),
         CheckConstraint("length(csrf_hash) = 64", name="csrf_hash_length"),
         Index("ix_anonymous_sessions_expires_at", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    csrf_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AuthenticatedSessionModel(TimestampMixin, Base):
+    __tablename__ = "authenticated_sessions"
+    __table_args__ = (
+        CheckConstraint("length(token_hash) = 64", name="token_hash_length"),
+        CheckConstraint("length(csrf_hash) = 64", name="csrf_hash_length"),
+        Index("ix_authenticated_sessions_expires_at", "expires_at"),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
