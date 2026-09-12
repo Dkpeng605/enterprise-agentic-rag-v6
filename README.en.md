@@ -184,11 +184,14 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M4-09 Query REST/SSE API: complete
 - M4-10 PostgreSQL Cost Guard and Provider timeout/retry: complete
 - M4 Hybrid Retrieval and Agentic RAG milestone: complete
-- Next: M5-01 MCP Application Layer
+- M5-01 MCP Application Layer: complete
+- Next: M5-02 stdio MCP
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
 The Cost Guard atomically reserves a per-minute query slot and worst-case call/token capacity with PostgreSQL conditional upserts before QueryRunner can enter Provider logic. Minute limits are isolated per anonymous session, UTC daily capacity is shared by all anonymous sessions, and Standard/Deep use different weights. Successful calls refund unused capacity from trustworthy usage; failures or unverifiable usage conservatively consume the reservation, and 429 responses include `Retry-After`. The LLM decorator adds configurable per-attempt timeout, bounded transient-only retries, and a retry count. Apply the new tables first with the `alembic upgrade head` command above.
+
+`KnowledgeApplication` is now the only query use-case boundary for HTTP, MCP, and the later CLI. It centralizes server-side identity binding, query IDs, synchronous execution, and SSE streaming. HTTP routes no longer construct QueryCommand themselves, while a transport-neutral MCP facade delegates to the exact same service and produces an equivalent QueryExecution for the same input. The actual stdio protocol process arrives in M5-02.
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 

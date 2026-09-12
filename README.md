@@ -184,11 +184,14 @@ pnpm --dir=frontend build
 - M4-09 Query REST/SSE API：已完成
 - M4-10 PostgreSQL Cost Guard 与 Provider timeout/retry：已完成
 - M4 Hybrid Retrieval 与 Agentic RAG 里程碑：已完成
-- 下一项：M5-01 MCP Application Layer
+- M5-01 MCP Application Layer：已完成
+- 下一项：M5-02 stdio MCP
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
 Cost Guard 在 QueryRunner 进入任何 Provider 逻辑前，通过 PostgreSQL 条件 UPSERT 原子预留分钟 Query 名额和最坏调用/token 额度。分钟限额按匿名 session 隔离，UTC 日额度由所有匿名 session 共享；Standard/Deep 使用不同权重。成功后按可信 usage 退回未使用额度，异常或无法验证的 usage 保守扣除预留，429 同时返回 `Retry-After`。LLM 装饰器提供可配置单次超时、仅瞬时错误的有界重试和 retry count。新增数据库表需要先执行 README 上方的 `alembic upgrade head`。
+
+`KnowledgeApplication` 现已成为 HTTP、MCP 与后续 CLI 的唯一查询用例入口，统一负责服务端身份绑定、Query ID、同步执行和 SSE 流。HTTP 路由不再自行构造 QueryCommand；无传输依赖的 MCP facade 委托同一服务，同输入会得到等价 QueryExecution。真正的 stdio 协议进程将在 M5-02 接入。
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 

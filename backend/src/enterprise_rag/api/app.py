@@ -22,6 +22,7 @@ from enterprise_rag.ports.object_store import ObjectStore
 from enterprise_rag.ports.usage import UsageAmounts, UsageLimits, UsageStore
 from enterprise_rag.services.auth import AnonymousSessionService
 from enterprise_rag.services.cost_guard import BudgetedQueryRunner, CostGuard, QueryBudget
+from enterprise_rag.services.knowledge import KnowledgeApplication
 from enterprise_rag.services.query_api import QueryApiService, QueryRunner
 from enterprise_rag.services.workspace import WorkspaceService
 
@@ -173,16 +174,22 @@ def create_app(
         create_api_router(
             auth=auth,
             workspace=workspace,
-            query_api=(
-                QueryApiService(
-                    _budgeted_query_runner(
-                        query_runner,
-                        usage_store
-                        or (PostgreSQLUsageStore(database) if database else InMemoryUsageStore()),
-                        active_settings,
-                        clock,
-                    ),
-                    heartbeat_seconds=query_heartbeat_seconds,
+            knowledge=(
+                KnowledgeApplication(
+                    QueryApiService(
+                        _budgeted_query_runner(
+                            query_runner,
+                            usage_store
+                            or (
+                                PostgreSQLUsageStore(database)
+                                if database
+                                else InMemoryUsageStore()
+                            ),
+                            active_settings,
+                            clock,
+                        ),
+                        heartbeat_seconds=query_heartbeat_seconds,
+                    )
                 )
                 if query_runner is not None
                 else None
