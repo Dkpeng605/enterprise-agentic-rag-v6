@@ -220,7 +220,8 @@ pnpm --dir=frontend build
 - M6-02 Golden Set：已完成
 - M6-03 Eval Runner：已完成
 - M6-04 LLM Judge：已完成
-- 下一项：M6-05 CI Quality Gate
+- M6-05 CI Quality Gate：已完成
+- 下一项：M6-06 Public Benchmark Adapter
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -258,6 +259,17 @@ evaluation:
   max_llm_calls: 30
   llm_judge_enabled: true
   llm_judge_max_output_tokens: 128
+```
+
+Required CI 中的零成本质量门禁会用真实 `HashingSparseEncoder` 跑完 30 条 Golden Case，并同时检查绝对阈值与相对基线最大 0.02 回归。它属于 required `backend-quality`，失败会阻止 main 合并。可在本地执行同一命令：
+
+```bash
+cd backend
+uv run enterprise-rag-quality-gate \
+  --manifest ../evals/golden/v1/manifest.yaml \
+  --policy ../evals/quality-gate-v1.yaml \
+  --report ../artifacts/evals/ci-smoke.json \
+  --commit-sha "$(git rev-parse HEAD)"
 ```
 
 本地可直接访问 `http://127.0.0.1:8000/metrics`。生产环境必须配置 `METRICS_TOKEN`，抓取时发送：

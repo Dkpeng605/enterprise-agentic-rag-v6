@@ -1670,11 +1670,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
-| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 进行中（4/6） |
+| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 进行中（5/6） |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 42/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 43/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2172,8 +2172,25 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M6-05 CI Quality Gate
 
-- 检索相关 PR 触发 smoke eval；
-- 验收：降低指标的测试分支不能合并。
+- 状态：已完成；
+- 非 Oracle Subject：`SparseGoldenSubject` 使用生产同款 `HashingSparseEncoder` 编码提交的
+  Golden corpus 与每条 query，先按 Case allowed collection 收窄候选，再按稀疏向量点积和
+  Root ID 稳定排序，形成真实 top-10 Root 与去重 Document 排名；
+- 生成验收边界：CI smoke 不调用 LLM。可回答 Case 只从 top-5 已检索 Root 形成逐字引用，
+  因此未召回 Gold Root 会真实降低 Citation Coverage；不可回答 Case 使用 fixture 标签验证
+  deterministic abstention 计分。报告明确标记 sparse provider/version，不冒充在线生成评测；
+- 版本化 Policy：`evals/quality-gate-v1.yaml` 固定 baseline revision、指标集合、绝对下限和
+  最大回归 `0.02`；Policy strict parser 禁止未知字段、缺失指标和范围外分数；
+- Gate 语义：Document Recall@5 ≥ 0.80、MRR@10 ≥ 0.60、Citation Coverage/Validity 与
+  Abstention Accuracy = 1.00；任一指标为 `null`、低于绝对阈值或相对 baseline 下降超过
+  0.02 都返回稳定失败码并使 CLI 非零退出；
+- Required CI：`backend-quality` 在单测后始终执行 30 Case 零成本 Gate（覆盖“检索相关 PR
+  必跑”的要求并避免 paths-filter 漏判）；报告写入 ignored artifact。GitHub main 保护已核验为
+  strict，`backend-quality`/`frontend-quality` 均 required，因此 Gate 失败无法合并；
+- 验收：提交基线得到 Document/Root Recall 1.0、MRR `0.9615384615384616`、Citation
+  Coverage/Validity 1.0、Abstention 1.0；测试把 MRR 降到 0.93 后精确产生
+  `mrr_at_10:REGRESSION_EXCEEDED`；
+- PR：`feat/m6-ci-quality-gate`。
 
 #### M6-06 Public Benchmark Adapter
 
