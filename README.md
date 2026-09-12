@@ -221,7 +221,9 @@ pnpm --dir=frontend build
 - M6-03 Eval Runner：已完成
 - M6-04 LLM Judge：已完成
 - M6-05 CI Quality Gate：已完成
-- 下一项：M6-06 Public Benchmark Adapter
+- M6-06 Public Benchmark Adapter：已完成
+- M6 评测闭环与公开 Benchmark Adapter 里程碑：已完成
+- 下一项：M7-01 Shell/Auth
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -271,6 +273,24 @@ uv run enterprise-rag-quality-gate \
   --report ../artifacts/evals/ci-smoke.json \
   --commit-sha "$(git rev-parse HEAD)"
 ```
+
+MultiDoc2Dial Adapter 与产品 Domain/摄取链路隔离。官方下载会校验 HTTPS host、8MB 上限和固定 SHA-256；归档及输出只进入 Git 忽略的 `artifacts/`。先运行 sample 验证环境，确认数据集使用条款后再运行 full：
+
+```bash
+cd backend
+uv run enterprise-rag-benchmark download \
+  --output ../artifacts/benchmarks/multidoc2dial.zip
+
+uv run enterprise-rag-benchmark convert \
+  --archive ../artifacts/benchmarks/multidoc2dial.zip \
+  --mode sample --max-cases 100 \
+  --commit-sha "$(git rev-parse HEAD)" \
+  --checkpoint ../artifacts/benchmarks/sample.checkpoint.json \
+  --output ../artifacts/benchmarks/sample.json \
+  --report ../artifacts/benchmarks/sample-report.json
+```
+
+全量转换将 `--mode sample --max-cases 100` 替换为 `--mode full`，并使用独立的 checkpoint/output/report 路径。只有 full 报告会标记 `is_full_dataset=true`；转换报告本身不含模型或索引结果，因此不能作为产品 Benchmark 成绩。
 
 本地可直接访问 `http://127.0.0.1:8000/metrics`。生产环境必须配置 `METRICS_TOKEN`，抓取时发送：
 

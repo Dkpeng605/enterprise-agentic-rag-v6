@@ -1,0 +1,39 @@
+{
+  "dial_data": {
+    "dmv": [
+      {
+        "dial_id": "synthetic-dialogue-1",
+        "turns": [
+          {
+            "turn_id": 1,
+            "role": "user",
+            "da": "query_condition",
+            "references": [],
+            "utterance": "How do I renew?"
+          },
+          {
+            "turn_id": 2,
+            "role": "agent",
+            "da": "respond_solution",
+            "references": [{"label": "solution", "id_sp": "1", "doc_id": "doc-a"}],
+            "utterance": "Renew online before the due date."
+          },
+          {
+            "turn_id": 3,
+            "role": "user",
+            "da": "query_condition",
+            "references": [],
+            "utterance": "What about an address change?"
+          },
+          {
+            "turn_id": 4,
+            "role": "agent",
+            "da": "respond_solution",
+            "references": [{"label": "solution", "id_sp": "2", "doc_id": "doc-b"}],
+            "utterance": "Report it within ten days."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "doc_data": {
+    "dmv": {
+      "doc-a": {
+        "doc_id": "doc-a",
+        "title": "Synthetic Registration Guide",
+        "domain": "dmv",
+        "doc_text": "Renew online before the due date.",
+        "spans": {
+          "1": {"id_sp": "1", "text_sp": "Renew online"}
+        }
+      },
+      "doc-b": {
+        "doc_id": "doc-b",
+        "title": "Synthetic Address Guide",
+        "domain": "dmv",
+        "doc_text": "Report an address change within ten days.",
+        "spans": {
+          "2": {"id_sp": "2", "text_sp": "within ten days"}
+        }
+      }
+    }
+  }
+}
