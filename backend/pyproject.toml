@@ -28,6 +28,7 @@ dependencies = [
 ]
 
 [project.scripts]
+enterprise-rag-eval = "enterprise_rag.cli.eval:main"
 enterprise-rag-mcp-stdio = "enterprise_rag.mcp.stdio:main"
 
 [dependency-groups]

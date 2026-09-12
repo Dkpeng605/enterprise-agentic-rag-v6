@@ -218,7 +218,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M5 MCP and end-to-end observability milestone: complete
 - M6-01 Evaluator Contracts: complete
 - M6-02 Golden Set: complete
-- Next: M6-03 Eval Runner
+- M6-03 Eval Runner: complete
+- Next: M6-04 LLM Judge
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -237,6 +238,16 @@ Prometheus metrics use an application-local Registry and cover HTTP, Query, Retr
 The evaluation domain now provides immutable Case, runtime-observation, metric-result, and replaceable Evaluator contracts that are independent of transport, persistence, and retrieval implementations. The built-in deterministic evaluator calculates Document/Root Recall@5, Root MRR@10, citation coverage, strict source-text citation validity, and abstention accuracy, with stable `null`/`0` semantics for missing gold, uncited answers, and correct abstentions. Evaluators also declare supported metrics and estimated LLM cost so the later Runner can enforce its budget before execution.
 
 The first Golden Set lives in `evals/golden/v1`: 30 rewritten Cases are split evenly between Chinese and English and exactly cover keyword, paraphrase, comparison, metadata-scope, table, OCR, and unanswerable categories. A versioned manifest, JSON Schema, and strict loader validate unknown fields, schema revision, duplicate or dangling IDs, collection scope, verbatim expected facts, and category/language counts so evaluation-input drift cannot pass silently.
+
+The Eval Runner estimates worst-case LLM calls from the selected Case count and component capability declarations before execution, rejecting an over-budget run with zero Provider calls. Configuration, dataset revision, commit, and Subject/Evaluator versions form stable hashes, and only complete successful results are cached by request hash. This zero-cost command produces a Runner-mechanics acceptance report. Its output is explicitly labeled `golden-fixture-oracle` and must not be presented as product retrieval accuracy:
+
+```bash
+cd backend
+uv run enterprise-rag-eval \
+  --manifest ../evals/golden/v1/manifest.yaml \
+  --report ../artifacts/evals/local-smoke.json \
+  --commit-sha "$(git rev-parse HEAD)"
+```
 
 Local development may scrape `http://127.0.0.1:8000/metrics` directly. Production must configure `METRICS_TOKEN` and send it when scraping:
 
