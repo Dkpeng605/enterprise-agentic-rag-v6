@@ -37,6 +37,9 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check generated API client
+        run: pnpm --dir=frontend check:api
+
       - name: Test frontend
         run: pnpm --dir=frontend test
 

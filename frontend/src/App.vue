@@ -1,10 +1,7 @@
-<script setup lang="ts">
-import ProjectStatus from './components/ProjectStatus.vue'
-</script>
-
 <template>
-  <main class="shell">
-    <ProjectStatus />
-  </main>
+  <AppShell />
 </template>
 
+<script setup lang="ts">
+import AppShell from './components/AppShell.vue'
+</script>

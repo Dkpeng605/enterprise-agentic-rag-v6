@@ -35,6 +35,7 @@ from enterprise_rag.api.schemas import (
     DocumentResponse,
     ErrorResponseModel,
     JobResponse,
+    LoginRequest,
     QueryRequestModel,
     QueryResponseModel,
     TenantModel,
@@ -62,14 +63,6 @@ from enterprise_rag.services.workspace import (
 )
 
 Clock = Callable[[], datetime]
-BUSINESS_PERMISSIONS = [
-    "collections:manage",
-    "documents:manage",
-    "ingestion:read",
-    "query:execute",
-    "traces:read",
-    "evaluations:run",
-]
 MEDIA_TYPES_BY_SUFFIX = {
     ".pdf": frozenset({"application/pdf"}),
     ".docx": frozenset(
@@ -109,7 +102,6 @@ def create_api_router(
     auth: AnonymousSessionService | None,
     workspace: WorkspaceService | None,
     knowledge: KnowledgeApplication | None,
-    tenant_slug: str,
     allowed_suffixes: tuple[str, ...],
     max_upload_bytes: int,
     session_minutes: int,
@@ -168,12 +160,35 @@ def create_api_router(
             path="/",
         )
         return AuthMeResponse(
-            actor_type="anonymous",
-            role="demo_operator",
-            tenant=TenantModel(id=grant.principal.tenant_id, slug=tenant_slug),
-            permissions=BUSINESS_PERMISSIONS,
+            actor_type=cast(Literal["anonymous", "user"], grant.principal.actor_type),
+            role=grant.principal.role,
+            tenant=TenantModel(id=grant.principal.tenant_id, slug=grant.tenant_slug),
+            permissions=list(grant.permissions),
             csrf_token=grant.csrf_token,
             expires_at=grant.expires_at,
+            email=grant.email,
+        )
+
+    @router.post("/auth/login", response_model=AuthMeResponse, tags=["auth"])
+    async def login(body: LoginRequest, response: Response) -> AuthMeResponse:
+        grant = await _auth().login(body.email, body.password, now=clock())
+        response.set_cookie(
+            SESSION_COOKIE,
+            grant.token,
+            max_age=session_minutes * 60,
+            httponly=True,
+            secure=cookie_secure,
+            samesite="lax",
+            path="/",
+        )
+        return AuthMeResponse(
+            actor_type="user",
+            role=grant.principal.role,
+            tenant=TenantModel(id=grant.principal.tenant_id, slug=grant.tenant_slug),
+            permissions=list(grant.permissions),
+            csrf_token=grant.csrf_token,
+            expires_at=grant.expires_at,
+            email=grant.email,
         )
 
     @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"])
@@ -519,12 +534,16 @@ def create_api_router(
     @router.get("/system/status", tags=["system"])
     async def system_status(
         principal: Annotated[Principal, Depends(reader)],
-    ) -> None:
-        del principal
-        raise AppError(
-            ErrorCode.FORBIDDEN,
-            "Anonymous sessions cannot access the system administration API.",
-        )
+    ) -> dict[str, str]:
+        if principal.actor_type != "user" or principal.role not in {
+            "super_admin",
+            "system_admin",
+        }:
+            raise AppError(
+                ErrorCode.FORBIDDEN,
+                "The current identity cannot access the system administration API.",
+            )
+        return {"status": "available", "role": principal.role}
 
     return router
 

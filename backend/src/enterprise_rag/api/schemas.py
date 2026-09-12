@@ -30,12 +30,18 @@ class TenantModel(ApiModel):
 
 
 class AuthMeResponse(ApiModel):
-    actor_type: Literal["anonymous"]
-    role: Literal["demo_operator"]
+    actor_type: Literal["anonymous", "user"]
+    role: str
     tenant: TenantModel
     permissions: list[str]
     csrf_token: str
     expires_at: datetime
+    email: str | None = None
+
+
+class LoginRequest(ApiModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=1_024)
 
 
 class CollectionCreate(ApiModel):

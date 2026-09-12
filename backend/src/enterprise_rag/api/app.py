@@ -289,6 +289,12 @@ def create_app(
             tenant_slug=active_settings.security.anonymous_demo_tenant_slug,
             session_minutes=active_settings.security.session_minutes,
             enabled=active_settings.security.anonymous_demo_full_access,
+            admin_email=active_settings.credentials.admin_bootstrap_email,
+            admin_password=(
+                active_settings.credentials.admin_bootstrap_password.get_secret_value()
+                if active_settings.credentials.admin_bootstrap_password is not None
+                else None
+            ),
         )
         workspace = WorkspaceService(
             database,
@@ -329,7 +335,6 @@ def create_app(
                 else None
             ),
             traces=active_trace_service,
-            tenant_slug=active_settings.security.anonymous_demo_tenant_slug,
             allowed_suffixes=active_settings.ingestion.allowed_suffixes,
             max_upload_bytes=min(
                 active_settings.ingestion.max_upload_bytes,

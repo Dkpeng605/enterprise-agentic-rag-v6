@@ -66,6 +66,8 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `GET /docs` — 交互式 OpenAPI 文档
 - `GET /openapi.json` — OpenAPI Schema
 - `GET /api/v1/auth/me` — 创建匿名 demo session 并取得 CSRF token
+- `POST /api/v1/auth/login`、`POST /api/v1/auth/logout` — Argon2id 管理员登录与 CSRF 会话撤销
+- `GET /api/v1/system/status` — 服务端验证系统管理员边界；匿名身份固定返回 403
 - `/api/v1/collections` — demo tenant 集合 CRUD
 - `/api/v1/documents` — 流式上传、筛选与 cursor 分页
 - `/api/v1/documents/{id}`、`/api/v1/ingestion-jobs/{id}` — 文档和摄取状态
@@ -104,7 +106,17 @@ uv run --project backend uvicorn your_package.bootstrap:mcp_app
 pnpm --dir=frontend dev
 ```
 
-Vite 开发服务器会输出本地访问地址。当前页面用于确认 Vue 3 和 TypeScript 应用已成功挂载。
+Vite 会把 `/api` 与 `/health` 同源代理到 `127.0.0.1:8000`。当前前端包含响应式 Shell、
+完整路由表、匿名 session、管理员登录与 system route guard。匿名用户无需登录即可进入
+`/workspace/*`；`/admin/*` 仍需系统管理员身份。若需要重新生成锁定的 OpenAPI 类型：
+
+```bash
+pnpm --dir=frontend generate:api
+```
+
+管理员首次登录使用 `ADMIN_BOOTSTRAP_EMAIL` 和 `ADMIN_BOOTSTRAP_PASSWORD`。只有尚未存在系统
+管理员时才会在 PostgreSQL 中创建 bootstrap 账号，密码以 Argon2id 保存；创建后可从环境中
+移除 bootstrap password。开发环境可先在启动后端前导出这两个变量。
 
 数据库迁移、匿名 session、集合/文档 API、查询预算和集成测试需要 PostgreSQL；若未配置数据库、对象目录或 session secret，静态 OpenAPI 仍完整可用，但业务路由返回稳定 503。M4 已完成 QueryRunner、同步/SSE、检索和 Agentic RAG 的可组合契约与服务；当前 `enterprise_rag.main:app` 尚未注入具体 QueryRunner，所以查询端点会稳定返回 503，生产 Provider 组合与进程入口会在后续里程碑接入。
 
@@ -155,6 +167,7 @@ uv build --project backend
 
 ```bash
 pnpm --dir=frontend test
+pnpm --dir=frontend check:api
 pnpm --dir=frontend typecheck
 pnpm --dir=frontend build
 ```
@@ -223,7 +236,8 @@ pnpm --dir=frontend build
 - M6-05 CI Quality Gate：已完成
 - M6-06 Public Benchmark Adapter：已完成
 - M6 评测闭环与公开 Benchmark Adapter 里程碑：已完成
-- 下一项：M7-01 Shell/Auth
+- M7-01 Shell/Auth：已完成
+- 下一项：M7-02 Public Chat
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -312,7 +326,7 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 
 Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
-M1～M5 已完成。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、同步/SSE 查询契约、PostgreSQL Cost Guard、生命周期状态、Milvus Lite Projection、崩溃安全本地对象、幂等删除和跨存储 Reconcile。具体生产 QueryRunner 与 Provider 的组合入口尚未接入，因此当前默认启动入口不会伪装成可用的完整查询产品。
+M1～M6 已完成，M7 前端里程碑正在开发。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、EDD 评测闭环、公开 Benchmark Adapter，以及 Vue3/TypeScript Shell 与双身份会话。具体生产 QueryRunner 与 Provider 的组合入口尚未接入，因此当前默认启动入口不会伪装成可用的完整查询产品。
 
 PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供图片增强阶段使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。Loader 已接入后台摄取 Pipeline；HTTP 上传接口在 M3-10 交付。
 
@@ -337,7 +351,7 @@ Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化�
 
 摄取 Pipeline 在文档注册事务内创建或复用 Job，按 Loader → 图片增强 → Cleaner → Splitter → PostgreSQL → Milvus → 最终提交的顺序运行。每个 checkpoint 同时续租、更新单调进度并确认取消；确定性输入错误直接失败，瞬时错误按上限重试。失败或取消会补偿该版本的 PostgreSQL 内容和 Milvus 投影，只有双存储核验完成后文档才进入 `ready`。当前通过服务层 `run_once(owner=...)` 驱动；常驻 Worker 入口将在部署阶段补齐。
 
-匿名工作区 API 使用服务端 session 将所有请求强制绑定到固定 demo tenant。匿名 `demo_operator` 拥有该租户内的集合和文档管理权限，但不能进入系统管理面；写操作需要轮换的 CSRF token。集合 CRUD、流式上传、文档 cursor 分页、详情、任务查询和幂等异步删除均使用统一错误模型与 request ID，跨租户 ID 一律表现为 404。
+匿名工作区 API 使用服务端 session 将所有请求强制绑定到固定 demo tenant。匿名 `demo_operator` 拥有该租户内的集合和文档管理权限，但不能进入系统管理面；写操作需要轮换的 CSRF token。管理员使用独立数据库 session、Argon2id 密码与系统角色，前端路由守卫只改善体验，后端仍会对每个系统请求鉴权。集合 CRUD、流式上传、文档 cursor 分页、详情、任务查询和幂等异步删除均使用统一错误模型与 request ID，跨租户 ID 一律表现为 404。
 
 双路 Search Service 对每个 query 分别生成 Dense 与 Sparse 向量，并并行调用两条独立检索路径。tenant 与授权 collection/document scope 在调用 VectorStore 前写入两路请求，Milvus 再强制追加 `status=ready`；任何 scope 都不能在召回后补过滤。两路原始分数保持独立并附带最小诊断，融合由 M4-02 负责。
 

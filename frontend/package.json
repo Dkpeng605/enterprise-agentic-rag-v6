@@ -9,17 +9,24 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "check:api": "openapi-typescript openapi.json -o src/api/schema.d.ts && git diff --exit-code -- openapi.json src/api/schema.d.ts",
+    "generate:api": "uv run --project ../backend python ../backend/scripts/export_openapi.py --output openapi.json && openapi-typescript openapi.json -o src/api/schema.d.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "vue-tsc -b"
   },
   "dependencies": {
-    "vue": "3.5.42"
+    "element-plus": "2.14.5",
+    "openapi-fetch": "0.17.0",
+    "pinia": "4.0.3",
+    "vue": "3.5.42",
+    "vue-router": "5.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "2.5.0",
     "jsdom": "30.0.1",
+    "openapi-typescript": "7.13.0",
     "typescript": "5.9.3",
     "vite": "8.2.2",
     "vitest": "5.0.0",
