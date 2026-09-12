@@ -219,3 +219,34 @@ class TraceDetailResponse(ApiModel):
     usage: dict[str, object]
     attributes: dict[str, object]
     spans: list[TraceSpanResponse]
+
+
+class LivenessResponse(ApiModel):
+    status: Literal["live"]
+    service: str
+    version: str
+
+
+class HealthCheckResponse(ApiModel):
+    name: str
+    kind: str
+    required: bool
+    status: Literal["healthy", "degraded", "unavailable"]
+    latency_ms: float
+    code: str | None
+
+
+class ProviderDiagnosticResponse(ApiModel):
+    kind: str
+    name: str
+    version: str
+    capabilities: list[str]
+    is_remote: bool
+    health: str
+
+
+class HealthReportResponse(ApiModel):
+    status: Literal["healthy", "degraded", "unavailable"]
+    ready: bool
+    checks: list[HealthCheckResponse]
+    providers: list[ProviderDiagnosticResponse]

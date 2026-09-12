@@ -4,6 +4,7 @@ import logging
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
+from time import perf_counter
 from uuid import UUID
 
 from opentelemetry.trace import TracerProvider
@@ -11,7 +12,13 @@ from opentelemetry.trace import TracerProvider
 from enterprise_rag.domain.common import new_uuid7, require_non_empty, require_uuid7, utc_now
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import QueryMode, QueryScope
-from enterprise_rag.observability import bind_context, current_context, start_span
+from enterprise_rag.observability import (
+    ApplicationMetrics,
+    bind_context,
+    bind_metrics,
+    current_context,
+    start_span,
+)
 from enterprise_rag.ports.planner import ConversationTurn
 from enterprise_rag.ports.traces import TraceCompletion, TraceRecorder
 from enterprise_rag.services.auth import Principal
@@ -51,12 +58,14 @@ class KnowledgeApplication:
         query_id_factory: QueryIdFactory = new_uuid7,
         tracer_provider: TracerProvider | None = None,
         trace_recorder: TraceRecorder | None = None,
+        metrics: ApplicationMetrics | None = None,
         clock: Clock = utc_now,
     ) -> None:
         self._query_api = query_api
         self._query_id_factory = query_id_factory
         self._tracer_provider = tracer_provider
         self._trace_recorder = trace_recorder
+        self._metrics = metrics
         self._clock = clock
 
     def command(self, principal: Principal, request: KnowledgeQuery) -> QueryCommand:
@@ -80,12 +89,13 @@ class KnowledgeApplication:
         command = self.command(principal, request)
         request_id = _context_uuid(current_context().request_id)
         started_at = self._clock()
+        started_monotonic = perf_counter()
         trace_id: str | None = None
         status = "error"
         usage: Mapping[str, object] = {}
         attributes: Mapping[str, object] = {}
         try:
-            with bind_context(
+            with bind_metrics(self._metrics), bind_context(
                 tenant_id=command.tenant_id,
                 actor_id=command.actor_id,
                 query_id=command.query_id,
@@ -108,16 +118,24 @@ class KnowledgeApplication:
                     extra={"event_code": "QUERY_COMPLETED", "outcome": status},
                 )
         finally:
-            await self._record_trace(
-                trace_id=trace_id,
-                principal=principal,
-                command=command,
-                request_id=request_id,
-                status=status,
-                started_at=started_at,
-                usage=usage,
-                attributes=attributes,
-            )
+            try:
+                await self._record_trace(
+                    trace_id=trace_id,
+                    principal=principal,
+                    command=command,
+                    request_id=request_id,
+                    status=status,
+                    started_at=started_at,
+                    usage=usage,
+                    attributes=attributes,
+                )
+            finally:
+                if self._metrics is not None:
+                    self._metrics.observe_query(
+                        mode=command.mode.value,
+                        status=status,
+                        duration_seconds=perf_counter() - started_monotonic,
+                    )
         return result
 
     def stream(
@@ -139,12 +157,13 @@ class KnowledgeApplication:
     ) -> AsyncIterator[QueryStreamEvent]:
         request_id = _context_uuid(current_context().request_id)
         started_at = self._clock()
+        started_monotonic = perf_counter()
         trace_id: str | None = None
         trace_status = "cancelled"
         usage: Mapping[str, object] = {}
         attributes: Mapping[str, object] = {}
         try:
-            with bind_context(
+            with bind_metrics(self._metrics), bind_context(
                 tenant_id=command.tenant_id,
                 actor_id=command.actor_id,
                 query_id=command.query_id,
@@ -175,16 +194,24 @@ class KnowledgeApplication:
                         )
                     yield output_event
         finally:
-            await self._record_trace(
-                trace_id=trace_id,
-                principal=principal,
-                command=command,
-                request_id=request_id,
-                status=trace_status,
-                started_at=started_at,
-                usage=usage,
-                attributes=attributes,
-            )
+            try:
+                await self._record_trace(
+                    trace_id=trace_id,
+                    principal=principal,
+                    command=command,
+                    request_id=request_id,
+                    status=trace_status,
+                    started_at=started_at,
+                    usage=usage,
+                    attributes=attributes,
+                )
+            finally:
+                if self._metrics is not None:
+                    self._metrics.observe_query(
+                        mode=command.mode.value,
+                        status=trace_status,
+                        duration_seconds=perf_counter() - started_monotonic,
+                    )
 
     async def _record_trace(
         self,

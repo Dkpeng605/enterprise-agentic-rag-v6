@@ -10,7 +10,7 @@ from uuid import UUID
 from enterprise_rag.domain.common import require_non_empty
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import QueryMode, QueryPlan, QueryScope, RetrievalHit
-from enterprise_rag.observability import start_span, trace_async
+from enterprise_rag.observability import current_metrics, start_span, trace_async
 from enterprise_rag.ports.context import ResolvedQueryScope, ScopeAuthorization
 from enterprise_rag.ports.llm import CompletionRequest, LanguageModel
 from enterprise_rag.ports.planner import ConversationTurn, PlannerRequest
@@ -185,6 +185,8 @@ class StandardQueryGraph:
             with start_span("rag.rrf_fusion") as stage_span:
                 fused = self._fusion.fuse(tuple(searched))
                 stage_span.set_attribute("rag.candidate_count", len(fused.hits))
+                if (metrics := current_metrics()) is not None:
+                    metrics.observe_candidates(stage="fused", count=len(fused.hits))
                 for rank, hit in enumerate(fused.hits, start=1):
                     attributes: dict[str, str | int | float] = {
                         "rag.rank": rank,
@@ -228,6 +230,8 @@ class StandardQueryGraph:
             with start_span("rag.rerank") as stage_span:
                 reranked = await self._reranking.rerank(plan.rewritten_query, items)
                 stage_span.set_attribute("rag.degraded", reranked.degraded)
+                if (metrics := current_metrics()) is not None:
+                    metrics.observe_candidates(stage="reranked", count=len(reranked.hits))
                 for rank, hit in enumerate(reranked.hits, start=1):
                     attributes = {
                         "rag.rank": rank,

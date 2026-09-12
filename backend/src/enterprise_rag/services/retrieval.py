@@ -8,7 +8,7 @@ from uuid import UUID
 
 from enterprise_rag.domain.common import require_non_empty, require_uuid7
 from enterprise_rag.domain.retrieval import QueryScope
-from enterprise_rag.observability import start_span, trace_async
+from enterprise_rag.observability import current_metrics, start_span, trace_async
 from enterprise_rag.ports.embedding import EmbeddingProvider
 from enterprise_rag.ports.sparse import SparseEncoder
 from enterprise_rag.ports.vector_store import (
@@ -152,6 +152,8 @@ class DualSearchService:
                         "rag.score": hit.score,
                     },
                 )
+            if (metrics := current_metrics()) is not None:
+                metrics.observe_candidates(stage="dense", count=len(hits))
             return hits
 
     async def _search_sparse(
@@ -181,6 +183,8 @@ class DualSearchService:
                         "rag.score": hit.score,
                     },
                 )
+            if (metrics := current_metrics()) is not None:
+                metrics.observe_candidates(stage="sparse", count=len(hits))
             return hits
 
     @staticmethod

@@ -72,6 +72,8 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `POST /api/v1/queries`、`POST /api/v1/queries/stream` — 同步与 SSE 查询契约；未注入 QueryRunner 的当前启动入口会返回 503
 - `GET /api/v1/traces`、`/api/v1/traces/query`、`/api/v1/traces/ingestion` — 租户内 Trace 筛选与 cursor 分页
 - `GET /api/v1/traces/{trace_id}` — 阶段耗时、候选排名、分数和降级详情
+- `GET /health/live`、`GET /health/ready`、`GET /health/doctor` — 存活、就绪和已净化 Provider 诊断
+- `GET /metrics` — Prometheus text exposition；生产环境必须使用独立 Bearer token
 
 stdio MCP Server 使用官方 Python SDK v2，提供 6 个只读知识 Tool 与 4 类租户隔离的 Resource。先在你自己的组合模块中构造 `MCPServer`，再显式配置 factory 启动：
 
@@ -132,7 +134,7 @@ cp .env.example .env
 uv run --project backend uvicorn enterprise_rag.main:app --reload --env-file .env
 ```
 
-支持 `DATABASE_URL`、`SESSION_SECRET`、`LLM_API_KEY` 等扁平部署变量。普通配置也可使用嵌套名称覆盖，例如 `ENTERPRISE_RAG__DEEP__LOW_THRESHOLD=0.50`。
+支持 `DATABASE_URL`、`SESSION_SECRET`、`METRICS_TOKEN`、`LLM_API_KEY` 等扁平部署变量。普通配置也可使用嵌套名称覆盖，例如 `ENTERPRISE_RAG__DEEP__LOW_THRESHOLD=0.50`。
 
 生产环境缺少必要密钥、阈值非法、YAML 格式错误或配置了未知 Provider 时，应用会在提供服务前拒绝启动。密钥使用遮蔽类型，校验错误详情中不会包含密钥值。
 
@@ -212,7 +214,9 @@ pnpm --dir=frontend build
 - M5-03 HTTP MCP：已完成
 - M5-04 Trace/Logging：已完成
 - M5-05 Trace Persistence：已完成
-- 下一项：M5-06 Metrics/Health
+- M5-06 Metrics/Health：已完成
+- M5 MCP 与全链路可观测性里程碑：已完成
+- 下一项：M6-01 Evaluator Contracts
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -225,6 +229,14 @@ Streamable HTTP Adapter 在 `/mcp` 强制 Bearer Token，并在协议分发前�
 可观测性基线使用 task-local correlation context、JSON Lines 日志和 OpenTelemetry spans。HTTP 上游 trace context 会向 Query 与 RAG 阶段传播，异步并发不会串 tenant/query/job；Standard 与 Ingestion 的主要阶段均有独立子 span。遥测采用字段 allow-list，敏感属性会被拒绝，异常消息不会自动写入 span。
 
 Trace 现在以 `trace_runs`/`trace_spans` 按 tenant 持久化，同步 Query、SSE Query 和 Ingestion 在根 span 结束后以幂等 upsert 落库。Dense/Sparse、RRF 和 Rerank 候选以有界 event 保存，可重建 Leaf/Root 排名与分数变化；降级摘要只由稳定 `*_degraded` 字段派生。匿名用户可读取 demo tenant 全部 Trace，跨租户 trace ID 统一返回 404。新环境或旧环境更新后都需先执行上方 `alembic upgrade head`。
+
+Prometheus 指标使用应用内独立 Registry，覆盖 HTTP、Query、Retrieval/Recovery、Provider/Token、Ingestion、Milvus、Evaluation 和 Rate Limit。HTTP label 只记录路由模板，不使用原始 path 或 tenant/user/document/query ID。`live` 不依赖外部服务；`ready` 的 required 配置、PostgreSQL 或 Provider 失败时返回 503；`doctor` 只返回稳定状态码和公开 Provider 元数据。
+
+本地可直接访问 `http://127.0.0.1:8000/metrics`。生产环境必须配置 `METRICS_TOKEN`，抓取时发送：
+
+```bash
+curl -H "Authorization: Bearer $METRICS_TOKEN" https://your-host.example/metrics
+```
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
@@ -240,7 +252,7 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 
 Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
-M1、M2、M3 和 M4 已完成。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、同步/SSE 查询契约、PostgreSQL Cost Guard、生命周期状态、Milvus Lite Projection、崩溃安全本地对象、幂等删除和跨存储 Reconcile。具体生产 QueryRunner 与 Provider 的组合入口尚未接入，因此当前默认启动入口不会伪装成可用的完整查询产品。
+M1～M5 已完成。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、同步/SSE 查询契约、PostgreSQL Cost Guard、生命周期状态、Milvus Lite Projection、崩溃安全本地对象、幂等删除和跨存储 Reconcile。具体生产 QueryRunner 与 Provider 的组合入口尚未接入，因此当前默认启动入口不会伪装成可用的完整查询产品。
 
 PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供图片增强阶段使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。Loader 已接入后台摄取 Pipeline；HTTP 上传接口在 M3-10 交付。
 

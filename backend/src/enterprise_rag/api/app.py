@@ -1,5 +1,6 @@
 """FastAPI composition root, request boundary, and workspace routes."""
 
+import hmac
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -24,14 +25,22 @@ from enterprise_rag.adapters.database import (
 from enterprise_rag.adapters.object_store import LocalObjectStore
 from enterprise_rag.adapters.usage import InMemoryUsageStore
 from enterprise_rag.api.routes import create_api_router
+from enterprise_rag.api.schemas import HealthReportResponse, LivenessResponse
 from enterprise_rag.config import AppSettings, load_settings
 from enterprise_rag.domain.common import new_uuid7, utc_now
 from enterprise_rag.domain.errors import AppError, ErrorCode, ErrorDetail, ErrorResponse
-from enterprise_rag.observability import bind_context, start_span
+from enterprise_rag.observability import (
+    ApplicationMetrics,
+    bind_context,
+    bind_metrics,
+    start_span,
+)
 from enterprise_rag.ports.object_store import ObjectStore
+from enterprise_rag.ports.registry import ProviderRegistry
 from enterprise_rag.ports.usage import UsageAmounts, UsageLimits, UsageStore
 from enterprise_rag.services.auth import AnonymousSessionService
 from enterprise_rag.services.cost_guard import BudgetedQueryRunner, CostGuard, QueryBudget
+from enterprise_rag.services.health import HealthService
 from enterprise_rag.services.knowledge import KnowledgeApplication
 from enterprise_rag.services.query_api import QueryApiService, QueryRunner
 from enterprise_rag.services.traces import TraceService, build_persistent_tracing
@@ -71,6 +80,9 @@ def create_app(
     query_heartbeat_seconds: float = 15.0,
     tracer_provider: TracerProvider | None = None,
     trace_service: TraceService | None = None,
+    metrics: ApplicationMetrics | None = None,
+    health_service: HealthService | None = None,
+    provider_registry: ProviderRegistry | None = None,
     clock: Clock = utc_now,
 ) -> FastAPI:
     """Build the ASGI application and optionally compose configured infrastructure."""
@@ -88,6 +100,18 @@ def create_app(
         database is not None and object_store is not None and selected_secret is not None
     )
     active_tracer_provider = tracer_provider
+    active_metrics = metrics or ApplicationMetrics()
+    active_health = health_service or HealthService(
+        database=database,
+        providers=provider_registry,
+        configuration_ready=workspace_ready
+        and (active_settings.app.environment != "production" or query_runner is not None),
+    )
+    metrics_token = (
+        active_settings.credentials.metrics_token.get_secret_value()
+        if active_settings.credentials.metrics_token is not None
+        else None
+    )
     active_trace_service = trace_service
     trace_recorder = trace_service
     owned_tracer_provider: SdkTracerProvider | None = None
@@ -121,7 +145,8 @@ def create_app(
         request_id = new_uuid7()
         request.state.request_id = request_id
         started = perf_counter()
-        with bind_context(request_id=request_id), start_span(
+        response_status = 500
+        with bind_context(request_id=request_id), bind_metrics(active_metrics), start_span(
             "http.request",
             attributes={
                 "http.request.method": request.method,
@@ -130,19 +155,30 @@ def create_app(
             tracer_provider=active_tracer_provider,
             context=propagate.extract(request.headers),
         ) as span:
-            response = await call_next(request)
-            span.set_attribute("http.response.status_code", response.status_code)
-            span.set_attribute("app.outcome", "error" if response.status_code >= 400 else "ok")
-            if response.status_code >= 500:
-                span.set_status(Status(StatusCode.ERROR))
-            LOGGER.info(
-                "http.request.completed",
-                extra={
-                    "event_code": "HTTP_REQUEST_COMPLETED",
-                    "outcome": "error" if response.status_code >= 400 else "ok",
-                    "duration_ms": round((perf_counter() - started) * 1000, 3),
-                },
-            )
+            try:
+                response = await call_next(request)
+                response_status = response.status_code
+                span.set_attribute("http.response.status_code", response.status_code)
+                span.set_attribute(
+                    "app.outcome", "error" if response.status_code >= 400 else "ok"
+                )
+                if response.status_code >= 500:
+                    span.set_status(Status(StatusCode.ERROR))
+                LOGGER.info(
+                    "http.request.completed",
+                    extra={
+                        "event_code": "HTTP_REQUEST_COMPLETED",
+                        "outcome": "error" if response.status_code >= 400 else "ok",
+                        "duration_ms": round((perf_counter() - started) * 1000, 3),
+                    },
+                )
+            finally:
+                active_metrics.observe_http(
+                    method=request.method,
+                    route=_route_template(request),
+                    status=response_status,
+                    duration_seconds=perf_counter() - started,
+                )
         response.headers["X-Request-ID"] = str(request_id)
         return response
 
@@ -199,6 +235,51 @@ def create_app(
             "environment": active_settings.app.environment,
         }
 
+    @application.get(
+        "/health/live",
+        response_model=LivenessResponse,
+        tags=["health"],
+    )
+    async def health_live() -> LivenessResponse:
+        return LivenessResponse(status="live", service=SERVICE_NAME, version=__version__)
+
+    @application.get(
+        "/health/ready",
+        response_model=HealthReportResponse,
+        tags=["health"],
+    )
+    async def health_ready() -> JSONResponse:
+        report = await active_health.report()
+        return JSONResponse(
+            status_code=200 if report.ready else 503,
+            content=report.to_dict(),
+        )
+
+    @application.get(
+        "/health/doctor",
+        response_model=HealthReportResponse,
+        tags=["health"],
+    )
+    async def health_doctor() -> HealthReportResponse:
+        report = await active_health.report(include_providers=True)
+        return HealthReportResponse.model_validate(report.to_dict())
+
+    @application.get("/metrics", include_in_schema=False)
+    async def prometheus_metrics(request: Request) -> Response:
+        if not _metrics_authorized(
+            request,
+            token=metrics_token,
+            production=active_settings.app.environment == "production",
+        ):
+            return Response(
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return Response(
+            content=active_metrics.render(),
+            headers={"Content-Type": "text/plain; version=0.0.4; charset=utf-8"},
+        )
+
     auth: AnonymousSessionService | None = None
     workspace: WorkspaceService | None = None
     if database is not None and object_store is not None and selected_secret is not None:
@@ -241,6 +322,7 @@ def create_app(
                     ),
                     tracer_provider=active_tracer_provider,
                     trace_recorder=trace_recorder,
+                    metrics=active_metrics,
                     clock=clock,
                 )
                 if query_runner is not None
@@ -268,6 +350,25 @@ def create_app(
 def _request_id(request: Request) -> UUID:
     value = getattr(request.state, "request_id", None)
     return value if isinstance(value, UUID) else new_uuid7()
+
+
+def _route_template(request: Request) -> str:
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    return path if isinstance(path, str) and path.startswith("/") else "unmatched"
+
+
+def _metrics_authorized(
+    request: Request, *, token: str | None, production: bool
+) -> bool:
+    if token is None:
+        return not production
+    scheme, separator, credential = request.headers.get("authorization", "").partition(" ")
+    return (
+        separator == " "
+        and scheme.casefold() == "bearer"
+        and hmac.compare_digest(credential, token)
+    )
 
 
 def _budgeted_query_runner(
