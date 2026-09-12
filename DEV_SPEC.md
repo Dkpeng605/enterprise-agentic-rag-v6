@@ -1670,11 +1670,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
-| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 进行中（1/6） |
+| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 进行中（2/6） |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 39/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 40/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2107,8 +2107,23 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M6-02 Golden Set
 
-- 约 30 条中英双语 Case 和新 fixture；
-- 验收：schema、引用 ID、分类覆盖检查。
+- 状态：已完成；
+- 版本入口：`evals/golden/v1/manifest.yaml` 固定 `schema_version`、数据 revision、
+  Case/corpus 本地文件名，以及分类与语言的精确数量；Loader 拒绝路径穿越和跨目录引用；
+- 数据规模：30 条人工改写 Case，中文 15 条、英文 15 条；按规格精确覆盖关键词/编号 6、
+  语义改写 6、多事实/多文档比较 5、metadata scope 4、表格 3、OCR 2、不可回答 4；
+- Corpus：12 份重新编写的演示文档、21 个可引用 Root，覆盖政策、HR、财务、运维、
+  安全、产品、区域和扫描件集合；Fixture 不包含 v5 产物、真实组织信息或外部版权正文；
+- Schema：提交 Draft 2020-12 `schema-v1.json`，同时由 Pydantic strict model 在运行时
+  禁止未知字段、错误类型和非法 mode；领域对象保持不可变；
+- 引用完整性：全局拒绝重复 Case/Document/Root ID；可回答 Case 必须同时提供 Document、
+  Root 和事实，Root 必须属于声明的 Document，Document 必须位于 allowed collection，
+  每个 expected fact 必须逐字存在于所选 Root；不可回答 Case 的 Gold 引用必须为空；
+- 漂移保护：manifest 的类别与语言计数必须和实际 Case 精确一致，新增、删除或错分 Case
+  都会使 CI 失败；所有 manifest 关联文件必须使用同一 schema version；
+- 验收：提交集加载为 30 Case/12 Document/21 Root，类别与 15/15 语言覆盖精确一致；
+  负向测试覆盖未知字段、悬空 Root 和 manifest 覆盖漂移；
+- PR：`feat/m6-golden-set`。
 
 #### M6-03 Eval Runner
 

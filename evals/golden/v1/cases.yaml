@@ -1,0 +1,368 @@
+schema_version: "1.0"
+cases:
+  - id: golden_keyword_001
+    language: zh
+    category: keyword
+    question: "SEC-1042 是什么？"
+    mode: standard
+    allowed_collections: [demo-policy]
+    expected_document_ids: [doc_access]
+    expected_root_ids: [root_access_ticket]
+    expected_facts: ["紧急访问申请使用编号 SEC-1042。"]
+    must_abstain: false
+    max_recovery_rounds: 0
+    tags: [exact_id]
+  - id: golden_keyword_002
+    language: zh
+    category: keyword
+    question: "P1 事件确认时限是多少？"
+    mode: standard
+    allowed_collections: [demo-policy]
+    expected_document_ids: [doc_incident]
+    expected_root_ids: [root_incident_timeline]
+    expected_facts: ["P1 事件须在 15 分钟内确认"]
+    must_abstain: false
+    max_recovery_rounds: 0
+    tags: [exact_term]
+  - id: golden_keyword_003
+    language: zh
+    category: keyword
+    question: "RPO 是多少？"
+    mode: standard
+    allowed_collections: [demo-operations]
+    expected_document_ids: [doc_recovery]
+    expected_root_ids: [root_recovery_targets]
+    expected_facts: ["RPO 为 15 分钟"]
+    must_abstain: false
+    max_recovery_rounds: 0
+    tags: [acronym]
+  - id: golden_keyword_004
+    language: en
+    category: keyword
+    question: "What channel is named #incident-bridge?"
+    mode: standard
+    allowed_collections: [demo-policy]
+    expected_document_ids: [doc_incident]
+    expected_root_ids: [root_incident_channel]
+    expected_facts: ["Responders coordinate in the #incident-bridge channel."]
+    must_abstain: false
+    max_recovery_rounds: 0
+    tags: [exact_id]
+  - id: golden_keyword_005
+    language: en
+    category: keyword
+    question: "Which TLS version is required for vendors?"
+    mode: standard
+    allowed_collections: [demo-security]
+    expected_document_ids: [doc_vendor]
+    expected_root_ids: [root_vendor_encryption]
+    expected_facts: ["Vendor data in transit must use TLS 1.3."]
+    must_abstain: false
+    max_recovery_rounds: 0
+    tags: [exact_term]
+  - id: golden_keyword_006
+    language: en
+    category: keyword
+    question: "What is the Enterprise availability target?"
+    mode: standard
+    allowed_collections: [demo-product]
+    expected_document_ids: [doc_product]
+    expected_root_ids: [root_product_availability]
+    expected_facts: ["The Enterprise monthly availability target is 99.9%."]
+    must_abstain: false
+    max_recovery_rounds: 0
+    tags: [percentage]
+
+  - id: golden_paraphrase_001
+    language: zh
+    category: paraphrase
+    question: "管理员登录时是否需要第二种身份验证手段？"
+    mode: standard
+    allowed_collections: [demo-policy]
+    expected_document_ids: [doc_access]
+    expected_root_ids: [root_access_mfa]
+    expected_facts: ["管理员必须启用多因素认证。"]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [semantic]
+  - id: golden_paraphrase_002
+    language: zh
+    category: paraphrase
+    question: "过期资料最迟多久会被清除？"
+    mode: standard
+    allowed_collections: [demo-policy]
+    expected_document_ids: [doc_retention]
+    expected_root_ids: [root_retention_deletion]
+    expected_facts: ["超过保留期的数据在七日内安全删除。"]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [semantic]
+  - id: golden_paraphrase_003
+    language: zh
+    category: paraphrase
+    question: "长假应何时走完直属主管审批？"
+    mode: standard
+    allowed_collections: [demo-hr]
+    expected_document_ids: [doc_leave]
+    expected_root_ids: [root_leave_process]
+    expected_facts: ["三天以上休假需至少提前两周由直属经理批准。"]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [semantic]
+  - id: golden_paraphrase_004
+    language: en
+    category: paraphrase
+    question: "How often do we rehearse recovery from a major outage?"
+    mode: standard
+    allowed_collections: [demo-operations]
+    expected_document_ids: [doc_recovery]
+    expected_root_ids: [root_recovery_test]
+    expected_facts: ["Disaster recovery exercises run quarterly."]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [semantic]
+  - id: golden_paraphrase_005
+    language: en
+    category: paraphrase
+    question: "When is proof of purchase needed for reimbursement?"
+    mode: standard
+    allowed_collections: [demo-finance]
+    expected_document_ids: [doc_expense]
+    expected_root_ids: [root_expense_receipts]
+    expected_facts: ["Receipts are required for any single expense above CNY 100."]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [semantic]
+  - id: golden_paraphrase_006
+    language: en
+    category: paraphrase
+    question: "How frequently must a risky supplier be reassessed?"
+    mode: standard
+    allowed_collections: [demo-security]
+    expected_document_ids: [doc_vendor]
+    expected_root_ids: [root_vendor_review]
+    expected_facts: ["High-risk vendors are reviewed every 12 months."]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [semantic]
+
+  - id: golden_comparison_001
+    language: zh
+    category: comparison
+    question: "比较审计日志 A 与安全日志 B 的保留期限。"
+    mode: deep
+    allowed_collections: [demo-policy]
+    expected_document_ids: [doc_retention]
+    expected_root_ids: [root_retention_schedule]
+    expected_facts: ["审计日志 A 保留 30 天。", "安全日志 B 保留 90 天。"]
+    must_abstain: false
+    max_recovery_rounds: 2
+    tags: [multi_fact]
+  - id: golden_comparison_002
+    language: zh
+    category: comparison
+    question: "比较 RTO 与 RPO 的目标。"
+    mode: deep
+    allowed_collections: [demo-operations]
+    expected_document_ids: [doc_recovery]
+    expected_root_ids: [root_recovery_targets]
+    expected_facts: ["RTO 为 4 小时", "RPO 为 15 分钟"]
+    must_abstain: false
+    max_recovery_rounds: 2
+    tags: [multi_fact]
+  - id: golden_comparison_003
+    language: zh
+    category: comparison
+    question: "比较中国区和欧盟区客户数据的保留天数。"
+    mode: deep
+    allowed_collections: [regional-policy]
+    expected_document_ids: [doc_cn_region, doc_eu_region]
+    expected_root_ids: [root_cn_region_retention, root_eu_region_retention]
+    expected_facts: ["中国区客户数据保留 180 天", "EU customer data to be retained for 365 days"]
+    must_abstain: false
+    max_recovery_rounds: 2
+    tags: [multi_doc, cross_language]
+  - id: golden_comparison_004
+    language: en
+    category: comparison
+    question: "Compare Basic and Enterprise support response times."
+    mode: deep
+    allowed_collections: [demo-product]
+    expected_document_ids: [doc_product]
+    expected_root_ids: [root_product_tiers]
+    expected_facts: ["Basic support responds within 2 business days", "Enterprise support responds within 4 hours"]
+    must_abstain: false
+    max_recovery_rounds: 2
+    tags: [multi_fact]
+  - id: golden_comparison_005
+    language: en
+    category: comparison
+    question: "Compare incident acknowledgement and escalation deadlines."
+    mode: deep
+    allowed_collections: [demo-policy]
+    expected_document_ids: [doc_incident]
+    expected_root_ids: [root_incident_timeline]
+    expected_facts: ["acknowledged within 15 minutes", "escalated within 30 minutes"]
+    must_abstain: false
+    max_recovery_rounds: 2
+    tags: [multi_fact]
+
+  - id: golden_scope_001
+    language: zh
+    category: metadata_scope
+    question: "仅按 CN-2025，中国区保留期限是多少？"
+    mode: standard
+    allowed_collections: [regional-policy]
+    expected_document_ids: [doc_cn_region]
+    expected_root_ids: [root_cn_region_retention]
+    expected_facts: ["CN-2025 规定中国区客户数据保留 180 天。"]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [version, region]
+  - id: golden_scope_002
+    language: zh
+    category: metadata_scope
+    question: "只查询 demo-hr 集合，长假审批规则是什么？"
+    mode: standard
+    allowed_collections: [demo-hr]
+    expected_document_ids: [doc_leave]
+    expected_root_ids: [root_leave_process]
+    expected_facts: ["三天以上休假需至少提前两周由直属经理批准。"]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [collection]
+  - id: golden_scope_003
+    language: en
+    category: metadata_scope
+    question: "Under EU-2025 only, what is the retention period?"
+    mode: standard
+    allowed_collections: [regional-policy]
+    expected_document_ids: [doc_eu_region]
+    expected_root_ids: [root_eu_region_retention]
+    expected_facts: ["EU-2025 requires EU customer data to be retained for 365 days."]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [version, region]
+  - id: golden_scope_004
+    language: en
+    category: metadata_scope
+    question: "In the demo-security collection, what transport encryption is required?"
+    mode: standard
+    allowed_collections: [demo-security]
+    expected_document_ids: [doc_vendor]
+    expected_root_ids: [root_vendor_encryption]
+    expected_facts: ["Vendor data in transit must use TLS 1.3."]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [collection]
+
+  - id: golden_table_001
+    language: zh
+    category: table
+    question: "差旅表中的酒店和餐费限额分别是多少？"
+    mode: deep
+    allowed_collections: [demo-finance]
+    expected_document_ids: [doc_expense]
+    expected_root_ids: [root_expense_table]
+    expected_facts: ["酒店每晚 800 元", "餐费每天 200 元"]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [structured_data]
+  - id: golden_table_002
+    language: en
+    category: table
+    question: "What cabin class does the travel limits table allow domestically?"
+    mode: standard
+    allowed_collections: [demo-finance]
+    expected_document_ids: [doc_expense]
+    expected_root_ids: [root_expense_table]
+    expected_facts: ["domestic flights economy class only"]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [structured_data]
+  - id: golden_table_003
+    language: en
+    category: table
+    question: "List both hotel and meal caps from the limits table."
+    mode: deep
+    allowed_collections: [demo-finance]
+    expected_document_ids: [doc_expense]
+    expected_root_ids: [root_expense_table]
+    expected_facts: ["hotel CNY 800 per night", "meals CNY 200 per day"]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [structured_data, multi_fact]
+
+  - id: golden_ocr_001
+    language: zh
+    category: ocr
+    question: "扫描件规定访客证何时归还？"
+    mode: standard
+    allowed_collections: [demo-scans]
+    expected_document_ids: [doc_ocr_badge]
+    expected_root_ids: [root_ocr_badge_return]
+    expected_facts: ["访客证必须在离场前归还前台。"]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [scanned]
+  - id: golden_ocr_002
+    language: en
+    category: ocr
+    question: "What PPE does the scanned Zone C notice require?"
+    mode: standard
+    allowed_collections: [demo-scans]
+    expected_document_ids: [doc_ocr_warehouse]
+    expected_root_ids: [root_ocr_warehouse_ppe]
+    expected_facts: ["Safety helmets and reflective vests are mandatory in Zone C."]
+    must_abstain: false
+    max_recovery_rounds: 1
+    tags: [scanned]
+
+  - id: golden_unanswerable_001
+    language: zh
+    category: unanswerable
+    question: "公司的股票期权归属周期是多少？"
+    mode: standard
+    allowed_collections: [demo-hr]
+    expected_document_ids: []
+    expected_root_ids: []
+    expected_facts: []
+    must_abstain: true
+    max_recovery_rounds: 1
+    tags: [missing_evidence]
+  - id: golden_unanswerable_002
+    language: zh
+    category: unanswerable
+    question: "访客停车费每小时多少元？"
+    mode: deep
+    allowed_collections: [demo-scans]
+    expected_document_ids: []
+    expected_root_ids: []
+    expected_facts: []
+    must_abstain: true
+    max_recovery_rounds: 2
+    tags: [missing_evidence]
+  - id: golden_unanswerable_003
+    language: en
+    category: unanswerable
+    question: "What is the parental leave allowance?"
+    mode: standard
+    allowed_collections: [demo-hr]
+    expected_document_ids: []
+    expected_root_ids: []
+    expected_facts: []
+    must_abstain: true
+    max_recovery_rounds: 1
+    tags: [missing_evidence]
+  - id: golden_unanswerable_004
+    language: en
+    category: unanswerable
+    question: "Which insurer covers warehouse accidents?"
+    mode: deep
+    allowed_collections: [demo-scans]
+    expected_document_ids: []
+    expected_root_ids: []
+    expected_facts: []
+    must_abstain: true
+    max_recovery_rounds: 2
+    tags: [missing_evidence]

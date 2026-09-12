@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://enterprise-rag.example/schemas/golden-cases-v1.json",
+  "title": "Enterprise RAG Golden Case File v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "cases"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1},
+    "uniqueStrings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/nonEmptyString"},
+      "uniqueItems": true
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "language",
+        "category",
+        "question",
+        "mode",
+        "allowed_collections",
+        "expected_document_ids",
+        "expected_root_ids",
+        "expected_facts",
+        "must_abstain",
+        "max_recovery_rounds",
+        "tags"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonEmptyString"},
+        "language": {"enum": ["zh", "en"]},
+        "category": {
+          "enum": [
+            "keyword",
+            "paraphrase",
+            "comparison",
+            "metadata_scope",
+            "table",
+            "ocr",
+            "unanswerable"
+          ]
+        },
+        "question": {"$ref": "#/$defs/nonEmptyString"},
+        "mode": {"enum": ["standard", "deep"]},
+        "allowed_collections": {"$ref": "#/$defs/uniqueStrings"},
+        "expected_document_ids": {"$ref": "#/$defs/uniqueStrings"},
+        "expected_root_ids": {"$ref": "#/$defs/uniqueStrings"},
+        "expected_facts": {"$ref": "#/$defs/uniqueStrings"},
+        "must_abstain": {"type": "boolean"},
+        "max_recovery_rounds": {"type": "integer", "minimum": 0, "maximum": 10},
+        "tags": {"$ref": "#/$defs/uniqueStrings"}
+      }
+    }
+  }
+}

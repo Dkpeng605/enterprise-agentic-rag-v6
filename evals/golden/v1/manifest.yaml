@@ -1,0 +1,15 @@
+schema_version: "1.0"
+revision: "enterprise-demo-golden-2026-09-09"
+cases_file: cases.yaml
+corpus_file: corpus.yaml
+category_counts:
+  keyword: 6
+  paraphrase: 6
+  comparison: 5
+  metadata_scope: 4
+  table: 3
+  ocr: 2
+  unanswerable: 4
+language_counts:
+  zh: 15
+  en: 15

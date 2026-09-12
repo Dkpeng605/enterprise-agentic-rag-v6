@@ -18,6 +18,7 @@ from enterprise_rag.domain.evaluation import (
     EvaluationObservation,
     MetricSet,
 )
+from enterprise_rag.domain.golden_set import GoldenDocument, GoldenRoot, GoldenSet
 from enterprise_rag.domain.jobs import TERMINAL_JOB_STATUSES, JobSnapshot, JobStatus
 from enterprise_rag.domain.retrieval import (
     Citation,
@@ -42,6 +43,9 @@ __all__ = [
     "EvaluationCase",
     "EvaluationCitation",
     "EvaluationObservation",
+    "GoldenDocument",
+    "GoldenRoot",
+    "GoldenSet",
     "LeafChunk",
     "MetricSet",
     "JobSnapshot",
