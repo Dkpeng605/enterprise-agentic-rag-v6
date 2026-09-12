@@ -28,6 +28,14 @@ const systemNavigation = [
 const identityLabel = computed(() =>
   auth.isSystemAdmin ? auth.profile?.email : `${auth.profile?.tenant.slug ?? 'demo'} · 匿名演示`,
 )
+const sessionKind = computed(() => {
+  if (!auth.profile) return '正在建立会话'
+  return auth.isAnonymous ? '匿名全功能' : '管理员'
+})
+const consoleKind = computed(() => {
+  if (!auth.profile) return 'SESSION BOOTSTRAP'
+  return auth.isAnonymous ? 'DEMO TENANT' : 'SYSTEM CONSOLE'
+})
 </script>
 
 <template>
@@ -63,11 +71,11 @@ const identityLabel = computed(() =>
     <main class="main-stage">
       <header class="topbar">
         <div>
-          <span class="topbar__eyebrow">{{ auth.isAnonymous ? 'DEMO TENANT' : 'SYSTEM CONSOLE' }}</span>
+          <span class="topbar__eyebrow">{{ consoleKind }}</span>
           <strong>{{ route.meta.title }}</strong>
         </div>
         <div class="topbar__actions">
-          <span class="session-badge"><i></i>{{ auth.isAnonymous ? '匿名全功能' : '管理员' }}</span>
+          <span class="session-badge"><i></i>{{ sessionKind }}</span>
           <RouterLink v-if="!auth.isSystemAdmin" class="text-action" to="/login">管理员登录</RouterLink>
           <button v-else class="text-action" type="button" @click="auth.logout">退出</button>
         </div>

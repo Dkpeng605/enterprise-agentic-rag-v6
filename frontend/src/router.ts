@@ -9,6 +9,7 @@ import {
 
 import { useAuthStore } from './stores/auth'
 import HomeView from './views/HomeView.vue'
+import ChatView from './views/ChatView.vue'
 import LoginView from './views/LoginView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
 
@@ -24,8 +25,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/chat',
     name: 'chat',
-    component: PlaceholderView,
-    props: { eyebrow: 'PUBLIC RAG', title: '知识问答', description: '公开问答将在 M7-02 接入 SSE、引用与限流反馈。' },
+    component: ChatView,
     meta: { access: 'workspace', title: '知识问答' },
   },
   {
