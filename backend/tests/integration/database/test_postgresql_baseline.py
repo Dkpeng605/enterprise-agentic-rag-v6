@@ -14,6 +14,7 @@ from enterprise_rag.adapters.database.models import Base, TenantModel
 
 BACKEND_ROOT = Path(__file__).parents[3]
 EXPECTED_TABLES = {
+    "api_tokens",
     "anonymous_sessions",
     "collections",
     "document_content_claims",

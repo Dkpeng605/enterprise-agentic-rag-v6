@@ -742,7 +742,7 @@ observability:
 | trace_spans | id, trace_id, parent_span_id, name, timing, attributes | trace+start index |
 | eval_datasets | id, tenant_id, name, version, checksum | tenant+name+version unique |
 | eval_runs | id, dataset_id, config_snapshot, status, metrics | created_at index |
-| api_tokens | id, tenant_id, token_hash, scopes, expires_at | token prefix index |
+| api_tokens | id, tenant_id, actor_id, token_prefix, token_hash, scopes, collection_ids, expires_at, revoked_at | token prefix 与 tenant/expiry index |
 | rate_limits | bucket_key, window_start, count | composite primary key |
 | audit_events | id, tenant_id, actor_id, action, target, payload | tenant+created index |
 
@@ -1669,12 +1669,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
-| M5 | MCP 与全链路可观测性 | 6 | M5-01～M5-02 完成 |
+| M5 | MCP 与全链路可观测性 | 6 | M5-01～M5-03 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 34/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 35/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1976,8 +1976,27 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M5-03 HTTP MCP
 
-- Streamable HTTP 与 Bearer Token；
-- 验收：认证、scope、协议错误和长请求。
+- 传输：`build_http_mcp_app` 使用官方 SDK v2 Streamable HTTP，固定公网路径 `/mcp`，采用
+  stateless HTTP、1 MiB 请求体上限、100 session 上限和 300 秒 idle 上限；DNS rebinding 防护只接受
+  `public_base_url` 的 Host/Origin，公网组合拒绝明文 HTTP，本地契约测试必须显式打开 insecure 开关；
+- Bearer Token：SDK Authentication/AuthContext middleware 在 MCP 协议分发前验证
+  `Authorization: Bearer`；全局连接要求 `mcp:access`，未携带、未知、过期或已撤销 token 返回 401，缺少
+  连接 scope 返回 403 和协议兼容的 `WWW-Authenticate`，不把内部异常写入响应；
+- 凭证存储：新增 `api_tokens`，保存 token UUIDv7、tenant、actor、名称、可公开前缀、scopes、collection
+  UUID 非空 allowlist、过期和撤销时间；数据库只索引 HMAC-SHA256(`MCP_TOKEN_PEPPER`, raw token)，绝不保存或回传
+  raw token。Token 管理/签发仍属于 M9-03 系统管理员能力，匿名用户不能签发；
+- 请求身份：Verifier 返回的 `AccessToken.token` 是 token ID 而非原始凭证，claims 只包含 token/tenant/actor/
+  collection IDs；`ContextVar` 请求解析器为每个 Tool/Resource 构造 `Principal(actor_type=mcp_token)`，长请求和
+  并发请求不能共享可变全局 Principal；
+- Tool scopes：查询要求 `query:execute`，搜索/目录/文档/Resource 要求 `knowledge:read`，答案核验要求
+  `answer:verify`；缺少 scope 的 Tool 返回 `isError=true` 与稳定 `FORBIDDEN`，Tool 输入无法扩大 token 权限；
+- Collection scopes：空查询范围被强制替换成 token 的 collection allowlist，显式范围必须是 allowlist 子集；
+  `McpCatalog` 每个方法都收到不可省略的 collection 限定，collection Resource 还在调用 Catalog 前检查 ID；
+- 持久化校验：PostgreSQL Adapter 只接受 active tenant、active actor、未撤销且未过期的精确 hash；损坏的
+  scopes/collection JSON fail closed。Alembic migration 可从旧 head 升级、完整降级并与 ORM metadata 一致；
+- 验收：以 `httpx2.ASGITransport` 驱动官方 `Client`/`streamable_http_client`，覆盖 401、403、JSON-RPC
+  parse error、只读 token 的 Tool 拒绝、collection 越权拒绝、受限范围注入和跨 await 的长请求；真实
+  PostgreSQL 测试覆盖正确 hash、错误 hash、过期、撤销及 raw token 不落库。
 
 #### M5-04 Trace/Logging
 
