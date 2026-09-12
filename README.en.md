@@ -221,7 +221,9 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M6-03 Eval Runner: complete
 - M6-04 LLM Judge: complete
 - M6-05 CI Quality Gate: complete
-- Next: M6-06 Public Benchmark Adapter
+- M6-06 Public Benchmark Adapter: complete
+- M6 evaluation loop and public Benchmark Adapter milestone: complete
+- Next: M7-01 Shell/Auth
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -271,6 +273,24 @@ uv run enterprise-rag-quality-gate \
   --report ../artifacts/evals/ci-smoke.json \
   --commit-sha "$(git rev-parse HEAD)"
 ```
+
+The MultiDoc2Dial Adapter is isolated from the product Domain and ingestion path. The official download checks its HTTPS host, 8 MB bound, and pinned SHA-256; archives and outputs stay under the Git-ignored `artifacts/` directory. Run a sample first, review the dataset terms, and only then run full conversion:
+
+```bash
+cd backend
+uv run enterprise-rag-benchmark download \
+  --output ../artifacts/benchmarks/multidoc2dial.zip
+
+uv run enterprise-rag-benchmark convert \
+  --archive ../artifacts/benchmarks/multidoc2dial.zip \
+  --mode sample --max-cases 100 \
+  --commit-sha "$(git rev-parse HEAD)" \
+  --checkpoint ../artifacts/benchmarks/sample.checkpoint.json \
+  --output ../artifacts/benchmarks/sample.json \
+  --report ../artifacts/benchmarks/sample-report.json
+```
+
+For full conversion, replace `--mode sample --max-cases 100` with `--mode full` and use separate checkpoint/output/report paths. Only a complete full run sets `is_full_dataset=true`. Conversion reports contain no model or index results and therefore are not product Benchmark scores.
 
 Local development may scrape `http://127.0.0.1:8000/metrics` directly. Production must configure `METRICS_TOKEN` and send it when scraping:
 

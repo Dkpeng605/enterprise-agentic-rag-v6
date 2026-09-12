@@ -1,0 +1,12 @@
+dataset: MultiDoc2Dial
+revision: multidoc2dial-v1.0-2022-05-01
+official_url: https://doc2dial.github.io/multidoc2dial/file/multidoc2dial.zip
+sha256: f0c034c249663d7b3cb08b19cf2cc2c3d101372485be982621d4711931a1ce00
+content_length_bytes: 6868509
+max_download_bytes: 8000000
+split: validation
+official_schema: https://doc2dial.github.io/multidoc2dial/data_readme.html
+paper: https://aclanthology.org/2021.emnlp-main.498/
+notes:
+  - The source archive is downloaded on demand and is never committed.
+  - Review the dataset terms and citation requirements before redistribution or publication.

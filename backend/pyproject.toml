@@ -28,6 +28,7 @@ dependencies = [
 ]
 
 [project.scripts]
+enterprise-rag-benchmark = "enterprise_rag.cli.benchmark:main"
 enterprise-rag-eval = "enterprise_rag.cli.eval:main"
 enterprise-rag-quality-gate = "enterprise_rag.cli.quality_gate:main"
 enterprise-rag-mcp-stdio = "enterprise_rag.mcp.stdio:main"

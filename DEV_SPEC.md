@@ -1670,11 +1670,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
-| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 进行中（5/6） |
+| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 完成 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 43/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 44/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2194,8 +2194,31 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M6-06 Public Benchmark Adapter
 
-- MultiDoc2Dial 数据转换、sample/full 运行、断点和报告；
-- 验收：小样本离线 fixture 可跑，报告不会把 sample 标成 full。
+- 状态：已完成；
+- 来源核验：首个 Adapter 对齐 [MultiDoc2Dial 官方字段说明](https://doc2dial.github.io/multidoc2dial/data_readme.html)
+  与 [EMNLP 2021 论文](https://aclanthology.org/2021.emnlp-main.498/)；版本 manifest
+  固定官方 HTTPS URL、2022-05-01 revision、6,868,509 bytes、SHA-256
+  `f0c034c249663d7b3cb08b19cf2cc2c3d101372485be982621d4711931a1ce00` 和 validation split；
+- 安全下载：只允许 `doc2dial.github.io`/`huggingface.co` HTTPS 来源，流式限制最大字节数，
+  完整 SHA-256 匹配后才原子发布；HTTP、未知 host、超限、状态错误与 checksum 不匹配都不
+  留 `.part` 文件，也不覆盖已验证归档；
+- 隔离转换：所有 dataset-specific 类型与 parser 位于 `enterprise_rag.benchmarks`，不进入
+  通用 Domain、摄取或 Query API；文档按 domain/doc_id 转换，Case 由 user turn 与其后带
+  grounding references 的 agent turn 组成，保存 history、answer、gold document/span IDs；
+- 完整性：拒绝 domain 不匹配、重复 Document/Case ID、未知文档引用、非法 role/turn/type、
+  缺失 archive member 和本地 checksum 不匹配；官方 archive 只按需下载到 ignored artifact，
+  不提交或重新分发；发布结果前仍须核对数据集条款和引用要求；
+- Sample/Full：sample 强制正数 `max_cases`，即使 limit 覆盖全部也永远输出
+  `mode=sample/is_full_dataset=false`；full 禁止 `max_cases`，且仅处理全部可用 Case 后标记
+  `is_full_dataset=true`；
+- 断点：checkpoint fingerprint 绑定 dataset revision、source checksum、mode、max cases 与
+  commit SHA；每 Case 成功后原子保存，续跑跳过已完成 ID，其他运行的 checkpoint 拒绝复用；
+- 报告：保存 dataset/revision/source checksum、sample/full、总数/处理数/续跑数、commit
+  SHA 和转换输出 checksum；未包含模型与索引的转换报告不得被描述为产品 Benchmark 成绩；
+- 验收：两文档/两 Case 的离线合成 fixture 验证转换、sample 非 full、一次中断后只处理剩余
+  Case、full 禁止 limit、下载大小/checksum；真实官方 validation 归档成功转换 5 Case sample，
+  报告为 `5/4427` 且 `is_full_dataset=false`；
+- PR：`feat/m6-multidoc2dial-adapter`。
 
 ### M7：Vue3 前端
 
