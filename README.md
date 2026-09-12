@@ -71,6 +71,15 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `/api/v1/documents/{id}`、`/api/v1/ingestion-jobs/{id}` — 文档和摄取状态
 - `POST /api/v1/queries`、`POST /api/v1/queries/stream` — 同步与 SSE 查询契约；未注入 QueryRunner 的当前启动入口会返回 503
 
+stdio MCP Server 使用官方 Python SDK v2，提供 6 个只读知识 Tool 与 4 类租户隔离的 Resource。先在你自己的组合模块中构造 `MCPServer`，再显式配置 factory 启动：
+
+```bash
+ENTERPRISE_RAG_MCP_STDIO_FACTORY=your_package.bootstrap:build_mcp_server \
+  uv run --project backend enterprise-rag-mcp-stdio
+```
+
+factory 必须是无参数函数并返回 `MCPServer`。当前仓库尚未提供默认生产 Provider 组合，因此不会使用测试数据伪装可用服务；`backend/tests/fixtures/mcp_stdio_server.py` 仅用于真实 SDK 子进程契约测试。stdio 的 stdout 专供 JSON-RPC，业务日志必须写 stderr。
+
 写请求必须先调用 `GET /api/v1/auth/me`，保留响应 Cookie，并把响应中的 `csrf_token` 放入 `X-CSRF-Token` header。开发环境的 HTTP Cookie 不设置 Secure；生产环境或 HTTPS base URL 强制设置 Secure。
 
 在第二个终端启动前端：
@@ -185,13 +194,14 @@ pnpm --dir=frontend build
 - M4-10 PostgreSQL Cost Guard 与 Provider timeout/retry：已完成
 - M4 Hybrid Retrieval 与 Agentic RAG 里程碑：已完成
 - M5-01 MCP Application Layer：已完成
-- 下一项：M5-02 stdio MCP
+- M5-02 stdio MCP：已完成
+- 下一项：M5-03 HTTP MCP
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
 Cost Guard 在 QueryRunner 进入任何 Provider 逻辑前，通过 PostgreSQL 条件 UPSERT 原子预留分钟 Query 名额和最坏调用/token 额度。分钟限额按匿名 session 隔离，UTC 日额度由所有匿名 session 共享；Standard/Deep 使用不同权重。成功后按可信 usage 退回未使用额度，异常或无法验证的 usage 保守扣除预留，429 同时返回 `Retry-After`。LLM 装饰器提供可配置单次超时、仅瞬时错误的有界重试和 retry count。新增数据库表需要先执行 README 上方的 `alembic upgrade head`。
 
-`KnowledgeApplication` 现已成为 HTTP、MCP 与后续 CLI 的唯一查询用例入口，统一负责服务端身份绑定、Query ID、同步执行和 SSE 流。HTTP 路由不再自行构造 QueryCommand；无传输依赖的 MCP facade 委托同一服务，同输入会得到等价 QueryExecution。真正的 stdio 协议进程将在 M5-02 接入。
+`KnowledgeApplication` 现已成为 HTTP、MCP 与后续 CLI 的唯一查询用例入口，统一负责服务端身份绑定、Query ID、同步执行和 SSE 流。stdio Adapter 基于官方 MCP SDK v2 暴露 6 个只读 Tool，以及 collection/document/section Resource；所有身份均由进程端绑定。Tool 同时返回人类可读内容和结构化结果，错误经过净化。入口强制 stdout 只承载 JSON-RPC，并由真实 SDK 客户端子进程测试覆盖 list/call/read 与缓冲输出隔离。
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 
