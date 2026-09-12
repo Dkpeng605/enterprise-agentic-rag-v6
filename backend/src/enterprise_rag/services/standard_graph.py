@@ -185,6 +185,18 @@ class StandardQueryGraph:
             with start_span("rag.rrf_fusion") as stage_span:
                 fused = self._fusion.fuse(tuple(searched))
                 stage_span.set_attribute("rag.candidate_count", len(fused.hits))
+                for rank, hit in enumerate(fused.hits, start=1):
+                    attributes: dict[str, str | int | float] = {
+                        "rag.rank": rank,
+                        "rag.leaf_id": hit.leaf_id,
+                        "rag.root_id": hit.root_id,
+                        "rag.fused_score": hit.fused_score,
+                    }
+                    if hit.dense_rank is not None:
+                        attributes["rag.dense_rank"] = hit.dense_rank
+                    if hit.sparse_rank is not None:
+                        attributes["rag.sparse_rank"] = hit.sparse_rank
+                    stage_span.add_event("rag.fusion.candidate", attributes)
 
             transitions.append(StageTransition(QueryGraphStage.AUTHORIZE))
             with start_span("rag.auth_and_scope"):
@@ -213,9 +225,19 @@ class StandardQueryGraph:
                 )
 
             transitions.append(StageTransition(QueryGraphStage.RERANK))
-            reranked = await trace_async(
-                "rag.rerank", self._reranking.rerank(plan.rewritten_query, items)
-            )
+            with start_span("rag.rerank") as stage_span:
+                reranked = await self._reranking.rerank(plan.rewritten_query, items)
+                stage_span.set_attribute("rag.degraded", reranked.degraded)
+                for rank, hit in enumerate(reranked.hits, start=1):
+                    attributes = {
+                        "rag.rank": rank,
+                        "rag.leaf_id": hit.leaf_id,
+                        "rag.root_id": hit.root_id,
+                        "rag.fused_score": hit.fused_score,
+                    }
+                    if hit.rerank_score is not None:
+                        attributes["rag.rerank_score"] = hit.rerank_score
+                    stage_span.add_event("rag.rerank.candidate", attributes)
             reranker_degraded = reranked.degraded
             transitions.append(StageTransition(QueryGraphStage.RECOVER))
             recovered = await trace_async(

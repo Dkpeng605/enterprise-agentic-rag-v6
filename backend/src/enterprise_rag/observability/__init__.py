@@ -5,6 +5,7 @@ from enterprise_rag.observability.context import (
     bind_context,
     current_context,
 )
+from enterprise_rag.observability.exporter import BufferedSpanExporter
 from enterprise_rag.observability.logging import JsonLogFormatter, configure_json_logging
 from enterprise_rag.observability.tracing import (
     safe_attributes,
@@ -15,6 +16,7 @@ from enterprise_rag.observability.tracing import (
 
 __all__ = [
     "JsonLogFormatter",
+    "BufferedSpanExporter",
     "ObservationContext",
     "bind_context",
     "configure_json_logging",

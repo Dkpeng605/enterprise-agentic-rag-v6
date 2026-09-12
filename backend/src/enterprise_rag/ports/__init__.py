@@ -46,6 +46,15 @@ from enterprise_rag.ports.registry import ProviderRegistry, RegistryError, Regis
 from enterprise_rag.ports.reranker import RerankCandidate, Reranker, RerankResult
 from enterprise_rag.ports.sparse import SparseEncoder
 from enterprise_rag.ports.splitter import SplitResult, Splitter
+from enterprise_rag.ports.traces import (
+    StoredSpan,
+    TraceCompletion,
+    TraceDetail,
+    TracePage,
+    TraceRecorder,
+    TraceStore,
+    TraceSummary,
+)
 from enterprise_rag.ports.usage import (
     UsageAmounts,
     UsageLimits,
@@ -125,4 +134,11 @@ __all__ = [
     "UsageReservation",
     "UsageSnapshot",
     "UsageStore",
+    "StoredSpan",
+    "TraceCompletion",
+    "TraceDetail",
+    "TracePage",
+    "TraceRecorder",
+    "TraceStore",
+    "TraceSummary",
 ]

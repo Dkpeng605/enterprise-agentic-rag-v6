@@ -25,6 +25,7 @@ from enterprise_rag.ports.cleaner import Cleaner
 from enterprise_rag.ports.loader import BinarySource, IngestionContext, LoadedRoot, Loader
 from enterprise_rag.ports.object_store import ObjectStore
 from enterprise_rag.ports.splitter import Splitter
+from enterprise_rag.ports.traces import TraceCompletion, TraceRecorder
 from enterprise_rag.ports.vector_store import VectorStore
 from enterprise_rag.services.images import EnrichedImage, ImageEnricher
 from enterprise_rag.services.projection import ProjectionRequest, ProjectionService
@@ -81,6 +82,7 @@ class IngestionPipeline:
         lease_for: timedelta = timedelta(minutes=2),
         retry_delay: timedelta = timedelta(seconds=5),
         tracer_provider: TracerProvider | None = None,
+        trace_recorder: TraceRecorder | None = None,
         clock: Clock = utc_now,
     ) -> None:
         if not loaders:
@@ -103,6 +105,7 @@ class IngestionPipeline:
         self._lease_for = lease_for
         self._retry_delay = retry_delay
         self._tracer_provider = tracer_provider
+        self._trace_recorder = trace_recorder
         self._clock = clock
 
     async def run_once(self, *, owner: str) -> PipelineRunResult | None:
@@ -120,11 +123,20 @@ class IngestionPipeline:
         return await self._execute(running, owner=owner)
 
     async def _execute(self, job: JobSnapshot, *, owner: str) -> PipelineRunResult:
-        with bind_context(job_id=job.id), start_span(
+        started_at = self._clock()
+        trace_id: str | None = None
+        with bind_context(
+            tenant_id=job.tenant_id,
+            job_id=job.id,
+            document_id=job.document_id,
+        ), start_span(
             "rag.ingestion",
             attributes={"rag.ingestion.attempt": job.attempts},
             tracer_provider=self._tracer_provider,
         ) as span:
+            context = span.get_span_context()
+            if context.is_valid:
+                trace_id = f"{context.trace_id:032x}"
             result = await self._execute_traced(job, owner=owner)
             span.set_attribute("rag.ingestion.status", result.job.status.value)
             span.set_attribute("rag.ingestion.completed", result.completed)
@@ -135,7 +147,46 @@ class IngestionPipeline:
                     "outcome": result.job.status.value,
                 },
             )
-            return result
+        await self._record_trace(trace_id, job, result, started_at)
+        return result
+
+    async def _record_trace(
+        self,
+        trace_id: str | None,
+        job: JobSnapshot,
+        result: PipelineRunResult,
+        started_at: datetime,
+    ) -> None:
+        recorder = getattr(self, "_trace_recorder", None)
+        if recorder is None or trace_id is None:
+            return
+        completion = TraceCompletion(
+            trace_id,
+            "ingestion",
+            job.tenant_id,
+            None,
+            "worker",
+            job.id,
+            None,
+            None,
+            result.job.status.value,
+            started_at,
+            self._clock(),
+            {},
+            {
+                "attempt": result.job.attempts,
+                "progress": result.job.progress,
+                "completed": result.completed,
+                "error_code": result.job.error_code,
+            },
+        )
+        try:
+            await recorder.record(completion)
+        except Exception:
+            LOGGER.warning(
+                "rag.trace.persist_failed",
+                extra={"event_code": "TRACE_PERSIST_FAILED", "outcome": "degraded"},
+            )
 
     async def _execute_traced(self, job: JobSnapshot, *, owner: str) -> PipelineRunResult:
         work: IngestionWork | None = None

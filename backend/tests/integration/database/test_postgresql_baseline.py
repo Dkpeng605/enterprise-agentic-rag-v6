@@ -28,6 +28,8 @@ EXPECTED_TABLES = {
     "query_usage_windows",
     "roots",
     "tenants",
+    "trace_runs",
+    "trace_spans",
     "users",
 }
 TENANT_ID = UUID("01900000-0000-7000-8000-000000000101")

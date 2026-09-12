@@ -14,6 +14,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from enterprise_rag.api import create_app
+from enterprise_rag.domain.common import utc_now
 from enterprise_rag.domain.jobs import JobSnapshot, JobStatus
 from enterprise_rag.observability import (
     JsonLogFormatter,
@@ -62,6 +63,8 @@ class FixtureRunner:
 class TraceOnlyPipeline(IngestionPipeline):
     def __init__(self, provider: TracerProvider) -> None:
         self._tracer_provider = provider
+        self._trace_recorder = None
+        self._clock = utc_now
 
     async def _execute_traced(self, job: JobSnapshot, *, owner: str) -> PipelineRunResult:
         await asyncio.sleep(0)
