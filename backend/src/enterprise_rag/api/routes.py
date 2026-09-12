@@ -40,14 +40,14 @@ from enterprise_rag.api.schemas import (
     TenantModel,
     UploadResponse,
 )
-from enterprise_rag.domain.common import new_uuid7, to_json_value
+from enterprise_rag.domain.common import to_json_value
 from enterprise_rag.domain.documents import DocumentStatus, DocumentVisibility
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.jobs import JobSnapshot
 from enterprise_rag.domain.retrieval import QueryMode, QueryScope
 from enterprise_rag.ports.planner import ConversationRole, ConversationTurn
 from enterprise_rag.services.auth import SESSION_COOKIE, AnonymousSessionService, Principal
-from enterprise_rag.services.query_api import QueryApiService, QueryCommand
+from enterprise_rag.services.knowledge import KnowledgeApplication, KnowledgeQuery
 from enterprise_rag.services.workspace import (
     CollectionSnapshot,
     DocumentDetail,
@@ -102,7 +102,7 @@ def create_api_router(
     *,
     auth: AnonymousSessionService | None,
     workspace: WorkspaceService | None,
-    query_api: QueryApiService | None,
+    knowledge: KnowledgeApplication | None,
     tenant_slug: str,
     allowed_suffixes: tuple[str, ...],
     max_upload_bytes: int,
@@ -135,10 +135,10 @@ def create_api_router(
             raise _unavailable()
         return workspace
 
-    def _query_api() -> QueryApiService:
-        if query_api is None:
+    def _knowledge() -> KnowledgeApplication:
+        if knowledge is None:
             raise _unavailable()
-        return query_api
+        return knowledge
 
     @router.get("/auth/me", response_model=AuthMeResponse, tags=["auth"])
     async def auth_me(
@@ -392,7 +392,7 @@ def create_api_router(
         body: QueryRequestModel,
         principal: Annotated[Principal, Depends(reader)],
     ) -> QueryResponseModel:
-        result = await _query_api().execute(_query_command(body, principal))
+        result = await _knowledge().execute(principal, _knowledge_query(body))
         return QueryResponseModel.model_validate(result.to_dict())
 
     @router.post(
@@ -406,11 +406,13 @@ def create_api_router(
         request: Request,
         principal: Annotated[Principal, Depends(reader)],
     ) -> StreamingResponse:
-        command = _query_command(body, principal)
-        service = _query_api()
+        query = _knowledge_query(body)
+        service = _knowledge()
 
         async def events() -> AsyncIterator[str]:
-            async for event in service.stream(command, disconnected=request.is_disconnected):
+            async for event in service.stream(
+                principal, query, disconnected=request.is_disconnected
+            ):
                 payload = json.dumps(
                     to_json_value(event.data), ensure_ascii=False, separators=(",", ":")
                 )
@@ -460,7 +462,7 @@ def _unavailable() -> AppError:
     )
 
 
-def _query_command(body: QueryRequestModel, principal: Principal) -> QueryCommand:
+def _knowledge_query(body: QueryRequestModel) -> KnowledgeQuery:
     try:
         scope = QueryScope(
             tuple(body.scope.collection_ids),
@@ -475,16 +477,7 @@ def _query_command(body: QueryRequestModel, principal: Principal) -> QueryComman
             ConversationTurn(ConversationRole(item.role), item.content.strip())
             for item in body.history
         )
-        return QueryCommand(
-            new_uuid7(),
-            principal.tenant_id,
-            principal.actor_id,
-            body.query.strip(),
-            QueryMode(body.mode),
-            scope,
-            history,
-            principal.session_id,
-        )
+        return KnowledgeQuery(body.query.strip(), QueryMode(body.mode), scope, history)
     except ValueError as error:
         raise AppError(ErrorCode.VALIDATION_ERROR, "The query request is invalid.") from error
 

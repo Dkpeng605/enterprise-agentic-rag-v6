@@ -34,6 +34,11 @@ from enterprise_rag.services.documents import DocumentRegistrationService, Regis
 from enterprise_rag.services.fusion import FusionDiagnostic, FusionResult, ReciprocalRankFusion
 from enterprise_rag.services.images import EnrichedImage, ImageEnricher, ImageEnrichmentResult
 from enterprise_rag.services.ingestion import IngestionPipeline, PipelineRunResult
+from enterprise_rag.services.knowledge import (
+    KnowledgeApplication,
+    KnowledgeQuery,
+    McpApplicationService,
+)
 from enterprise_rag.services.lifecycle import (
     DeletionResult,
     DeletionStep,
@@ -112,9 +117,12 @@ __all__ = [
     "ImageEnricher",
     "ImageEnrichmentResult",
     "IngestionPipeline",
+    "KnowledgeApplication",
+    "KnowledgeQuery",
     "AnonymousSessionService",
     "PipelineRunResult",
     "PlannerOutcome",
+    "McpApplicationService",
     "Principal",
     "ProjectionError",
     "ProjectionRequest",

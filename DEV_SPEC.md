@@ -1669,12 +1669,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
-| M5 | MCP 与全链路可观测性 | 6 | 未开始 |
+| M5 | MCP 与全链路可观测性 | 6 | M5-01 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 32/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 33/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1947,8 +1947,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M5-01 MCP Application Layer
 
-- REST/MCP 共用服务，不复制 RAG 逻辑；
-- 验收：同输入产生等价 QueryResult。
+- 共享用例：新增 transport-neutral `KnowledgeApplication`，统一拥有服务端 Query UUIDv7 生成、Principal → tenant/actor/session 绑定、输入净化、`QueryCommand` 构造、同步执行与流式执行；HTTP、MCP 和后续 CLI Adapter 只能调用该应用边界，不能自行调用检索图或复制 RAG 编排；
+- 输入：`KnowledgeQuery` 使用领域 `QueryMode`、`QueryScope` 和 `ConversationTurn`，问题去空白后非空且不超过 2,000 字符；协议层先完成 schema 解码，应用层再次执行不依赖 FastAPI/Pydantic 的边界校验；
+- HTTP：同步与 SSE 路由移除本地 `_query_command` 业务构造，统一把 HTTP Schema 映射为 `KnowledgeQuery` 后调用共享应用服务；未配置 QueryRunner 时仍在 SSE response headers 发出前返回稳定 503；
+- MCP：新增无 SDK/transport 依赖的 `McpApplicationService` facade，`query_knowledge_base` 直接委托同一个 `KnowledgeApplication`；M5-02/M5-03 只负责 MCP 消息、认证和内容编码；
+- 身份：query ID factory 可测试注入但必须产生 UUIDv7；tenant、actor 与匿名 session 只来自服务端 Principal，MCP/HTTP 输入均不存在可覆盖字段；
+- 验收：同一 Principal、KnowledgeQuery 和固定 query ID 分别经 HTTP-facing application 与 MCP facade 调用，得到完全相等的 QueryExecution，Runner 收到完全相等的 command；非法 ID 生成器返回稳定 `VALIDATION_ERROR`，现有 REST/SSE/Cost Guard 集成回归保持通过。
 
 #### M5-02 stdio MCP
 
