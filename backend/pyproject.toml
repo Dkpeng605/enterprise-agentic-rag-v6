@@ -10,6 +10,7 @@ dependencies = [
   "fastapi>=0.116,<1",
   "fastembed>=0.8,<0.9",
   "httpx>=0.28,<1",
+  "mcp>=2,<3",
   "openpyxl>=3.1,<4",
   "pillow>=11,<13",
   "pymilvus[milvus-lite]>=2.6,<3",
@@ -22,6 +23,9 @@ dependencies = [
   "uvicorn[standard]>=0.35,<1",
   "xlrd>=2.0,<3",
 ]
+
+[project.scripts]
+enterprise-rag-mcp-stdio = "enterprise_rag.mcp.stdio:main"
 
 [dependency-groups]
 dev = [

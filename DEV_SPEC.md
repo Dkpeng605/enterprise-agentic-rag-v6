@@ -1669,12 +1669,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
-| M5 | MCP 与全链路可观测性 | 6 | M5-01 完成 |
+| M5 | MCP 与全链路可观测性 | 6 | M5-01～M5-02 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 33/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 34/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -1956,8 +1956,23 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M5-02 stdio MCP
 
-- Tools、Resources、stdout 约束；
-- 验收：真实 SDK client 子进程 list/call/read。
+- SDK 与进程：锁定官方 Python SDK v2 的 `mcp>=2,<3`，由
+  `enterprise-rag-mcp-stdio` console script 启动 `MCPServer.run_stdio_async()`；生产组合必须通过
+  `ENTERPRISE_RAG_MCP_STDIO_FACTORY=module:function` 显式提供，不允许测试 fixture 或隐式全局单例成为生产默认；
+- 身份边界：stdio 进程构造时绑定一个服务端 `Principal`，所有 Tool/Resource 只把该身份传给应用服务和
+  Catalog；协议参数不接受 tenant、actor 或 session 字段，无法越权覆盖进程身份；
+- Tools：提供 `query_knowledge_base`、`search_documents`、`list_collections`、
+  `get_document_summary`、`list_document_sections`、`verify_answer` 六个只读 Tool；声明
+  `readOnlyHint=true`、`openWorldHint=false`，字符串、列表、top-k 与分页均有 JSON Schema 上限；
+- 内容编码：每次成功调用同时返回供人阅读的 `TextContent` 与供程序消费的
+  `structuredContent`；查询必须调用 M5-01 的 `McpApplicationService`，其他查询型能力依赖受租户约束的
+  `McpCatalog` 端口，不复制检索或 RAG 编排；异常只返回稳定错误码和净化消息；
+- Resources：暴露 `rag://collections` 目录，以及 collection、document 和长度受限 Root section
+  三类模板；禁止通过 Resource 返回对象文件、完整原文或不受限结果集；
+- stdout 约束：JSON-RPC 独占 stdout，日志和启动错误只写 stderr；入口启用行缓冲与 write-through，配合
+  SDK 的 fd diversion，避免业务代码的缓冲 `print` 在 transport 关闭后污染协议流；
+- 验收：官方 SDK `Client` 启动真实隔离子进程，完成 initialize、Tool/Resource/Template list、Tool call
+  和动态 Resource read；fixture 故意写 stdout，测试同时证明该内容进入 stderr 且客户端无协议解析错误。
 
 #### M5-03 HTTP MCP
 
