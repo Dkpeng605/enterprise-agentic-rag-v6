@@ -220,7 +220,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M6-02 Golden Set: complete
 - M6-03 Eval Runner: complete
 - M6-04 LLM Judge: complete
-- Next: M6-05 CI Quality Gate
+- M6-05 CI Quality Gate: complete
+- Next: M6-06 Public Benchmark Adapter
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -258,6 +259,17 @@ evaluation:
   max_llm_calls: 30
   llm_judge_enabled: true
   llm_judge_max_output_tokens: 128
+```
+
+Required CI now runs all 30 Golden Cases through the real `HashingSparseEncoder` at zero external cost and checks both absolute thresholds and the maximum 0.02 regression from its versioned baseline. It runs inside the required `backend-quality` check, so failure blocks a main merge. Run the same gate locally with:
+
+```bash
+cd backend
+uv run enterprise-rag-quality-gate \
+  --manifest ../evals/golden/v1/manifest.yaml \
+  --policy ../evals/quality-gate-v1.yaml \
+  --report ../artifacts/evals/ci-smoke.json \
+  --commit-sha "$(git rev-parse HEAD)"
 ```
 
 Local development may scrape `http://127.0.0.1:8000/metrics` directly. Production must configure `METRICS_TOKEN` and send it when scraping:

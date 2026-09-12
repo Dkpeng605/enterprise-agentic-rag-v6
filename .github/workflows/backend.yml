@@ -69,5 +69,14 @@ jobs:
         working-directory: backend
         run: uv run pytest -q
 
+      - name: Run deterministic quality gate
+        working-directory: backend
+        run: >-
+          uv run enterprise-rag-quality-gate
+          --manifest ../evals/golden/v1/manifest.yaml
+          --policy ../evals/quality-gate-v1.yaml
+          --report ../artifacts/evals/ci-smoke.json
+          --commit-sha "${GITHUB_SHA}"
+
       - name: Build backend package
         run: uv build --project backend

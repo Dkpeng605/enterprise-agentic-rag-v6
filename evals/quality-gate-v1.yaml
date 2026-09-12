@@ -1,0 +1,15 @@
+schema_version: "1.0"
+baseline_revision: "hashing-lexical-smoke-2026-09-12"
+minimums:
+  document_recall_at_5: 0.80
+  mrr_at_10: 0.60
+  citation_coverage: 1.00
+  citation_validity: 1.00
+  abstention_accuracy: 1.00
+baseline:
+  document_recall_at_5: 1.00
+  mrr_at_10: 0.9615384615384616
+  citation_coverage: 1.00
+  citation_validity: 1.00
+  abstention_accuracy: 1.00
+max_regression: 0.02

@@ -78,6 +78,14 @@ from enterprise_rag.services.projection import (
     ProjectionResult,
     ProjectionService,
 )
+from enterprise_rag.services.quality_gate import (
+    QualityGatePolicy,
+    QualityGatePolicyError,
+    QualityGateResult,
+    SparseGoldenSubject,
+    evaluate_quality_gate,
+    load_quality_gate_policy,
+)
 from enterprise_rag.services.query_api import (
     QueryApiService,
     QueryCommand,
@@ -168,6 +176,9 @@ __all__ = [
     "ProjectionRequest",
     "ProjectionResult",
     "ProjectionService",
+    "QualityGatePolicy",
+    "QualityGatePolicyError",
+    "QualityGateResult",
     "PostgreSQLHealthProbe",
     "QueryPlanningService",
     "QueryGraphStage",
@@ -202,6 +213,7 @@ __all__ = [
     "SearchDiagnostic",
     "SearchMethod",
     "ScopeRootService",
+    "SparseGoldenSubject",
     "StageTransition",
     "StandardQueryGraph",
     "StandardQueryRequest",
@@ -212,5 +224,7 @@ __all__ = [
     "build_persistent_tracing",
     "configure_optional_llm_judge",
     "evaluation_report_dict",
+    "evaluate_quality_gate",
+    "load_quality_gate_policy",
     "write_evaluation_report",
 ]
