@@ -1,0 +1,92 @@
+schema_version: "1.0"
+documents:
+  - id: doc_retention
+    collection_id: demo-policy
+    title: 数据保留政策 / Data Retention Policy
+    roots:
+      - id: root_retention_schedule
+        text: "审计日志 A 保留 30 天。安全日志 B 保留 90 天。Audit logs A are retained for 30 days. Security logs B are retained for 90 days."
+      - id: root_retention_deletion
+        text: "超过保留期的数据在七日内安全删除。Expired data is securely deleted within seven days."
+  - id: doc_access
+    collection_id: demo-policy
+    title: 访问控制标准 / Access Control Standard
+    roots:
+      - id: root_access_mfa
+        text: "管理员必须启用多因素认证。Administrators must enable multi-factor authentication."
+      - id: root_access_lockout
+        text: "连续登录失败 5 次后账户锁定 30 分钟。Accounts are locked for 30 minutes after 5 consecutive failed sign-ins."
+      - id: root_access_ticket
+        text: "紧急访问申请使用编号 SEC-1042。Emergency access requests use form SEC-1042."
+  - id: doc_incident
+    collection_id: demo-policy
+    title: 事件响应手册 / Incident Response Handbook
+    roots:
+      - id: root_incident_timeline
+        text: "P1 事件须在 15 分钟内确认，并在 30 分钟内通知负责人。P1 incidents must be acknowledged within 15 minutes and escalated within 30 minutes."
+      - id: root_incident_channel
+        text: "值班人员通过 #incident-bridge 频道协调响应。Responders coordinate in the #incident-bridge channel."
+  - id: doc_leave
+    collection_id: demo-hr
+    title: 员工休假指南 / Employee Leave Guide
+    roots:
+      - id: root_leave_allowance
+        text: "全职员工每年享有 10 天带薪事假。Full-time employees receive 10 paid personal-leave days per year."
+      - id: root_leave_process
+        text: "三天以上休假需至少提前两周由直属经理批准。Leave longer than three days requires manager approval at least two weeks in advance."
+  - id: doc_expense
+    collection_id: demo-finance
+    title: 差旅报销限额表 / Travel Expense Limits
+    roots:
+      - id: root_expense_table
+        text: "限额表：酒店每晚 800 元；餐费每天 200 元；国内航班仅限经济舱。Limits table: hotel CNY 800 per night; meals CNY 200 per day; domestic flights economy class only."
+      - id: root_expense_receipts
+        text: "单笔超过 100 元的费用必须提供发票。Receipts are required for any single expense above CNY 100."
+  - id: doc_recovery
+    collection_id: demo-operations
+    title: 灾难恢复目标 / Disaster Recovery Objectives
+    roots:
+      - id: root_recovery_targets
+        text: "核心订单系统的 RTO 为 4 小时，RPO 为 15 分钟。The core ordering system has an RTO of 4 hours and an RPO of 15 minutes."
+      - id: root_recovery_test
+        text: "灾难恢复演练每季度执行一次。Disaster recovery exercises run quarterly."
+  - id: doc_vendor
+    collection_id: demo-security
+    title: 供应商安全基线 / Vendor Security Baseline
+    roots:
+      - id: root_vendor_review
+        text: "高风险供应商每 12 个月复审一次。High-risk vendors are reviewed every 12 months."
+      - id: root_vendor_encryption
+        text: "供应商传输数据必须使用 TLS 1.3。Vendor data in transit must use TLS 1.3."
+  - id: doc_product
+    collection_id: demo-product
+    title: 产品支持等级 / Product Support Tiers
+    roots:
+      - id: root_product_tiers
+        text: "基础版支持响应为 2 个工作日；企业版支持响应为 4 小时。Basic support responds within 2 business days; Enterprise support responds within 4 hours."
+      - id: root_product_availability
+        text: "企业版月度可用性目标为 99.9%。The Enterprise monthly availability target is 99.9%."
+  - id: doc_cn_region
+    collection_id: regional-policy
+    title: 中国区客户数据政策 CN-2025
+    roots:
+      - id: root_cn_region_retention
+        text: "CN-2025 规定中国区客户数据保留 180 天。"
+  - id: doc_eu_region
+    collection_id: regional-policy
+    title: EU Customer Data Policy EU-2025
+    roots:
+      - id: root_eu_region_retention
+        text: "EU-2025 requires EU customer data to be retained for 365 days."
+  - id: doc_ocr_badge
+    collection_id: demo-scans
+    title: "扫描件：访客证管理 / Scan: Visitor Badge Control"
+    roots:
+      - id: root_ocr_badge_return
+        text: "扫描识别：访客证必须在离场前归还前台。OCR text: Visitor badges must be returned to reception before departure."
+  - id: doc_ocr_warehouse
+    collection_id: demo-scans
+    title: "Scan: Warehouse Safety Notice"
+    roots:
+      - id: root_ocr_warehouse_ppe
+        text: "OCR text: Safety helmets and reflective vests are mandatory in Zone C. 扫描识别：C 区必须佩戴安全帽和反光背心。"

@@ -33,6 +33,7 @@ from enterprise_rag.services.deep_recovery import (
 from enterprise_rag.services.documents import DocumentRegistrationService, RegisterDocument
 from enterprise_rag.services.evaluation import DeterministicEvaluator
 from enterprise_rag.services.fusion import FusionDiagnostic, FusionResult, ReciprocalRankFusion
+from enterprise_rag.services.golden_set import GoldenSetLoader, GoldenSetValidationError
 from enterprise_rag.services.health import (
     ComponentHealth,
     ConfigurationHealthProbe,
@@ -111,6 +112,8 @@ __all__ = [
     "DeletionStep",
     "DocumentDeletionService",
     "DocumentRegistrationService",
+    "GoldenSetLoader",
+    "GoldenSetValidationError",
     "DeterministicEvaluator",
     "DeepRecoveryController",
     "DeepRecoveryOutcome",
