@@ -86,6 +86,7 @@ from enterprise_rag.services.standard_graph import (
     StandardQueryRequest,
     StandardQueryResult,
 )
+from enterprise_rag.services.traces import TraceService, build_persistent_tracing
 from enterprise_rag.services.workspace import WorkspaceService
 
 __all__ = [
@@ -167,4 +168,6 @@ __all__ = [
     "StandardQueryResult",
     "VerificationIssue",
     "WorkspaceService",
+    "TraceService",
+    "build_persistent_tracing",
 ]

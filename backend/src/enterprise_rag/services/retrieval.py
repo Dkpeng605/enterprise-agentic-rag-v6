@@ -141,6 +141,17 @@ class DualSearchService:
             hits = await self._vector_store.dense_search(request)
             span.set_attribute("rag.candidate_count", len(hits))
             span.set_attribute("rag.candidate_ids", tuple(hit.leaf_id for hit in hits))
+            for rank, hit in enumerate(hits, start=1):
+                span.add_event(
+                    "rag.retrieval.candidate",
+                    {
+                        "rag.method": "dense",
+                        "rag.rank": rank,
+                        "rag.leaf_id": hit.leaf_id,
+                        "rag.root_id": hit.root_id,
+                        "rag.score": hit.score,
+                    },
+                )
             return hits
 
     async def _search_sparse(
@@ -159,6 +170,17 @@ class DualSearchService:
             hits = await self._vector_store.sparse_search(request)
             span.set_attribute("rag.candidate_count", len(hits))
             span.set_attribute("rag.candidate_ids", tuple(hit.leaf_id for hit in hits))
+            for rank, hit in enumerate(hits, start=1):
+                span.add_event(
+                    "rag.retrieval.candidate",
+                    {
+                        "rag.method": "sparse",
+                        "rag.rank": rank,
+                        "rag.leaf_id": hit.leaf_id,
+                        "rag.root_id": hit.root_id,
+                        "rag.score": hit.score,
+                    },
+                )
             return hits
 
     @staticmethod

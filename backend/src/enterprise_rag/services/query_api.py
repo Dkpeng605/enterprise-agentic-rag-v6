@@ -74,10 +74,16 @@ class QueryExecution:
     citations: tuple[Citation, ...]
     diagnostics: Mapping[str, object] = field(default_factory=dict)
     usage: Mapping[str, object] = field(default_factory=dict)
+    trace_id: str | None = None
 
     def __post_init__(self) -> None:
         require_uuid7(self.query_id, "query_id")
         require_non_empty(self.answer, "answer")
+        if self.trace_id is not None and (
+            len(self.trace_id) != 32
+            or any(character not in "0123456789abcdef" for character in self.trace_id)
+        ):
+            raise ValueError("trace_id has an invalid format")
         object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
         object.__setattr__(self, "usage", MappingProxyType(dict(self.usage)))
 
@@ -89,6 +95,7 @@ class QueryExecution:
             "citations": [citation.to_dict() for citation in self.citations],
             "diagnostics": to_json_value(self.diagnostics),
             "usage": to_json_value(self.usage),
+            "trace_id": self.trace_id,
         }
 
 

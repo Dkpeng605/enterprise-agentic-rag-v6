@@ -179,3 +179,43 @@ class QueryResponseModel(ApiModel):
     citations: list[QueryCitationResponse]
     diagnostics: dict[str, object]
     usage: dict[str, object]
+    trace_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+
+
+class TraceSummaryResponse(ApiModel):
+    trace_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    trace_type: Literal["query", "ingestion", "evaluation"]
+    subject_id: UUID
+    mode: str | None
+    status: str
+    started_at: datetime
+    finished_at: datetime
+    duration_ms: float
+    span_count: int
+    degraded: bool
+
+
+class TraceListResponse(ApiModel):
+    items: list[TraceSummaryResponse]
+    next_cursor: str | None
+
+
+class TraceSpanResponse(ApiModel):
+    span_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    parent_span_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
+    name: str
+    started_at: datetime
+    finished_at: datetime
+    duration_ms: float
+    status: str
+    attributes: dict[str, object]
+    events: list[dict[str, object]]
+
+
+class TraceDetailResponse(ApiModel):
+    summary: TraceSummaryResponse
+    actor_type: str
+    request_id: UUID | None
+    usage: dict[str, object]
+    attributes: dict[str, object]
+    spans: list[TraceSpanResponse]

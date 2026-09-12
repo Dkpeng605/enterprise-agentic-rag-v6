@@ -432,3 +432,57 @@ class QueryBudgetReservationModel(TimestampMixin, Base):
     actual_input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     actual_output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     settled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class TraceRunModel(Base):
+    __tablename__ = "trace_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "trace_type IN ('query', 'ingestion', 'evaluation')", name="trace_type"
+        ),
+        CheckConstraint("finished_at >= started_at", name="time_order"),
+        Index("ix_trace_runs_tenant_type_started", "tenant_id", "trace_type", "started_at"),
+    )
+
+    trace_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    actor_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    trace_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    subject_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    request_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    mode: Mapped[str | None] = mapped_column(String(30))
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    usage: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class TraceSpanModel(Base):
+    __tablename__ = "trace_spans"
+    __table_args__ = (
+        CheckConstraint("finished_at >= started_at", name="time_order"),
+        Index("ix_trace_spans_trace_started", "trace_id", "started_at"),
+    )
+
+    trace_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("trace_runs.trace_id", ondelete="CASCADE"), primary_key=True
+    )
+    span_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    parent_span_id: Mapped[str | None] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    events: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)

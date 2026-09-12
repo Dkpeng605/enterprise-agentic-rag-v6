@@ -12,10 +12,15 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from opentelemetry import propagate
+from opentelemetry.sdk.trace import TracerProvider as SdkTracerProvider
 from opentelemetry.trace import Status, StatusCode, TracerProvider
 
 from enterprise_rag import __version__
-from enterprise_rag.adapters.database import Database, PostgreSQLUsageStore
+from enterprise_rag.adapters.database import (
+    Database,
+    PostgreSQLTraceStore,
+    PostgreSQLUsageStore,
+)
 from enterprise_rag.adapters.object_store import LocalObjectStore
 from enterprise_rag.adapters.usage import InMemoryUsageStore
 from enterprise_rag.api.routes import create_api_router
@@ -29,6 +34,7 @@ from enterprise_rag.services.auth import AnonymousSessionService
 from enterprise_rag.services.cost_guard import BudgetedQueryRunner, CostGuard, QueryBudget
 from enterprise_rag.services.knowledge import KnowledgeApplication
 from enterprise_rag.services.query_api import QueryApiService, QueryRunner
+from enterprise_rag.services.traces import TraceService, build_persistent_tracing
 from enterprise_rag.services.workspace import WorkspaceService
 
 SERVICE_NAME: Final = "enterprise-agentic-rag-v6"
@@ -64,6 +70,7 @@ def create_app(
     usage_store: UsageStore | None = None,
     query_heartbeat_seconds: float = 15.0,
     tracer_provider: TracerProvider | None = None,
+    trace_service: TraceService | None = None,
     clock: Clock = utc_now,
 ) -> FastAPI:
     """Build the ASGI application and optionally compose configured infrastructure."""
@@ -80,10 +87,23 @@ def create_app(
     workspace_ready = (
         database is not None and object_store is not None and selected_secret is not None
     )
+    active_tracer_provider = tracer_provider
+    active_trace_service = trace_service
+    trace_recorder = trace_service
+    owned_tracer_provider: SdkTracerProvider | None = None
+    if database is not None and active_trace_service is None:
+        if active_tracer_provider is None:
+            owned_tracer_provider, active_trace_service = build_persistent_tracing(database)
+            active_tracer_provider = owned_tracer_provider
+            trace_recorder = active_trace_service
+        else:
+            active_trace_service = TraceService(PostgreSQLTraceStore(database))
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
+        if owned_tracer_provider is not None:
+            owned_tracer_provider.shutdown()
         if owns_database and database is not None:
             await database.dispose()
         if owns_database and object_store is not None:
@@ -107,7 +127,7 @@ def create_app(
                 "http.request.method": request.method,
                 "url.path": request.url.path,
             },
-            tracer_provider=tracer_provider,
+            tracer_provider=active_tracer_provider,
             context=propagate.extract(request.headers),
         ) as span:
             response = await call_next(request)
@@ -219,11 +239,14 @@ def create_app(
                         ),
                         heartbeat_seconds=query_heartbeat_seconds,
                     ),
-                    tracer_provider=tracer_provider,
+                    tracer_provider=active_tracer_provider,
+                    trace_recorder=trace_recorder,
+                    clock=clock,
                 )
                 if query_runner is not None
                 else None
             ),
+            traces=active_trace_service,
             tenant_slug=active_settings.security.anonymous_demo_tenant_slug,
             allowed_suffixes=active_settings.ingestion.allowed_suffixes,
             max_upload_bytes=min(

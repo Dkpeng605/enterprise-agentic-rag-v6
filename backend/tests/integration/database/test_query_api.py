@@ -109,6 +109,14 @@ async def test_query_rest_binds_server_tenant_and_accepts_anonymous_reader(
         "input_tokens": 120,
         "output_tokens": 30,
     }
+    assert len(response.json()["trace_id"]) == 32
+    trace_id = response.json()["trace_id"]
+    traces = await client.get("/api/v1/traces/query")
+    assert traces.status_code == 200
+    assert traces.json()["items"][0]["trace_id"] == trace_id
+    trace_detail = await client.get(f"/api/v1/traces/{trace_id}")
+    assert trace_detail.status_code == 200
+    assert trace_detail.json()["spans"][0]["name"] == "rag.query"
     assert response.headers["x-request-id"]
     assert runner.commands[-1].mode is QueryMode.DEEP
     assert runner.commands[-1].scope.titles == ("Policy",)
@@ -134,7 +142,9 @@ async def test_query_sse_has_ordered_ids_events_and_terminal_payload(
     assert response.text.count("event: progress") == 3
     assert "event: completed" in response.text
     assert response.text.index("event: accepted") < response.text.index("event: completed")
-    assert 'data: {"query_id"' in response.text
+    assert '"query_id"' in response.text
+    assert '"trace_id"' in response.text
+    assert '"mode":"standard"' in response.text
 
 
 @pytest.mark.anyio

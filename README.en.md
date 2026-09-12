@@ -70,6 +70,8 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `/api/v1/documents` — streaming upload, filtering, and cursor pagination
 - `/api/v1/documents/{id}` and `/api/v1/ingestion-jobs/{id}` — document and ingestion status
 - `POST /api/v1/queries` and `POST /api/v1/queries/stream` — synchronous and SSE query contracts; the current entry point returns 503 until a QueryRunner is injected
+- `GET /api/v1/traces`, `/api/v1/traces/query`, and `/api/v1/traces/ingestion` — tenant-scoped Trace filtering and cursor pagination
+- `GET /api/v1/traces/{trace_id}` — stage timing, candidate ranks, scores, and degradation details
 
 The stdio MCP server uses the official Python SDK v2 and exposes six read-only knowledge tools plus four tenant-scoped resource forms. Build an `MCPServer` in your own composition module, then configure its factory explicitly:
 
@@ -90,7 +92,7 @@ uv run --project backend uvicorn your_package.bootstrap:mcp_app
 
 The public `public_base_url` must use HTTPS; only a local test composition may opt into `allow_insecure_http=True`. Clients send `Authorization: Bearer <token>`. Tokens are stored only as peppered HMACs and bind a tenant, actor, tool scopes, and a collection allowlist. Anonymous demo users cannot issue or administer tokens. The system-admin issuance and revocation UI arrives in M9-03, so a trusted deployment/bootstrap process must populate `api_tokens` for now; the repository ships no default token.
 
-The default backend entry point writes one-line JSON application logs with environment plus request/trace/span/tenant correlation and stable event fields. HTTP accepts W3C `traceparent`; Query, Standard RAG stages, and Ingestion stages are manually instrumented with OpenTelemetry. The application creates spans but does not export them to an external service by default. A production composition can inject an SDK `TracerProvider` into `create_app`, `KnowledgeApplication`, and `IngestionPipeline`; M5-05 adds the PostgreSQL Trace Exporter. Logs and spans exclude query strings, request bodies, raw questions, Root text, prompts, Authorization, cookies, and secrets.
+The default backend entry point writes one-line JSON application logs with environment plus request/trace/span/tenant correlation and stable event fields. HTTP accepts W3C `traceparent`; Query, Standard RAG stages, and Ingestion stages are manually instrumented with OpenTelemetry. When PostgreSQL is configured, FastAPI composes a bounded in-memory exporter and PostgreSQL Trace Store by default; custom deployments may still inject an SDK `TracerProvider`/`TraceService` into `create_app`, `KnowledgeApplication`, and `IngestionPipeline`. Logs and traces exclude query strings, request bodies, raw questions, Root text, prompts, Authorization, cookies, and secrets. A Trace write failure does not change the business result.
 
 Before a write, call `GET /api/v1/auth/me`, retain its Cookie, and send the returned `csrf_token` in the `X-CSRF-Token` header. Development HTTP cookies omit Secure; production or an HTTPS base URL always enables Secure.
 
@@ -209,7 +211,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M5-02 stdio MCP: complete
 - M5-03 HTTP MCP: complete
 - M5-04 Trace/Logging: complete
-- Next: M5-05 Trace Persistence
+- M5-05 Trace Persistence: complete
+- Next: M5-06 Metrics/Health
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -220,6 +223,8 @@ The Cost Guard atomically reserves a per-minute query slot and worst-case call/t
 The Streamable HTTP adapter requires bearer authentication at `/mcp` and checks its connection scope before protocol dispatch. Raw tokens never reach the database; immutable authentication claims establish request identity, and tool scopes plus collection allowlists can only narrow access. Public composition rejects HTTP and validates Host/Origin. Token administration remains a later system-admin milestone and is not part of anonymous demo business permissions.
 
 The observability baseline combines task-local correlation context, JSON Lines logs, and OpenTelemetry spans. HTTP upstream trace context propagates through Query and RAG stages without leaking tenant/query/job context across async tasks. Standard and Ingestion major stages have dedicated child spans. Telemetry uses field allow-lists, rejects sensitive attributes, and does not automatically attach exception messages to spans.
+
+Traces now persist by tenant in `trace_runs`/`trace_spans`; synchronous Query, SSE Query, and Ingestion perform idempotent upserts after their root span ends. Bounded events preserve Dense/Sparse, RRF, and Rerank Leaf/Root ranks and scores, while the degradation summary is derived only from stable `*_degraded` fields. Anonymous users can read all traces in the demo tenant, and a cross-tenant trace ID always returns 404. Run `alembic upgrade head` as shown above after creating or updating an environment.
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 

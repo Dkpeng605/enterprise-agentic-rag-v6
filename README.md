@@ -70,6 +70,8 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `/api/v1/documents` — 流式上传、筛选与 cursor 分页
 - `/api/v1/documents/{id}`、`/api/v1/ingestion-jobs/{id}` — 文档和摄取状态
 - `POST /api/v1/queries`、`POST /api/v1/queries/stream` — 同步与 SSE 查询契约；未注入 QueryRunner 的当前启动入口会返回 503
+- `GET /api/v1/traces`、`/api/v1/traces/query`、`/api/v1/traces/ingestion` — 租户内 Trace 筛选与 cursor 分页
+- `GET /api/v1/traces/{trace_id}` — 阶段耗时、候选排名、分数和降级详情
 
 stdio MCP Server 使用官方 Python SDK v2，提供 6 个只读知识 Tool 与 4 类租户隔离的 Resource。先在你自己的组合模块中构造 `MCPServer`，再显式配置 factory 启动：
 
@@ -90,7 +92,7 @@ uv run --project backend uvicorn your_package.bootstrap:mcp_app
 
 公网 `public_base_url` 必须使用 HTTPS；只有本地测试组合可以显式设置 `allow_insecure_http=True`。客户端必须发送 `Authorization: Bearer <token>`。Token 只以 pepper-HMAC 保存，绑定 tenant、actor、Tool scopes 和 collection allowlist；匿名 demo 用户不能签发或管理 Token。M9-03 才会提供系统管理员签发/撤销界面，因此当前需由受信任的部署/bootstrap 流程写入 `api_tokens`，仓库不会提供默认 Token。
 
-默认后端入口把应用日志写成单行 JSON，包含环境、request/trace/span/tenant correlation 和稳定事件字段。HTTP 接受 W3C `traceparent`；Query、Standard RAG 阶段和 Ingestion 阶段已接入 OpenTelemetry。应用只创建 spans，不默认把 Trace 发到外部服务；生产组合可向 `create_app`、`KnowledgeApplication` 和 `IngestionPipeline` 注入 SDK `TracerProvider`，M5-05 会增加 PostgreSQL Trace Exporter。日志/span 不记录 query string、请求体、原始问题、Root 正文、Prompt、Authorization、Cookie 或密钥。
+默认后端入口把应用日志写成单行 JSON，包含环境、request/trace/span/tenant correlation 和稳定事件字段。HTTP 接受 W3C `traceparent`；Query、Standard RAG 阶段和 Ingestion 阶段已接入 OpenTelemetry。配置 PostgreSQL 时，FastAPI 默认组合有界内存 Exporter 和 PostgreSQL Trace Store；自定义部署仍可向 `create_app`、`KnowledgeApplication` 和 `IngestionPipeline` 注入 SDK `TracerProvider`/`TraceService`。日志和 Trace 不记录 query string、请求体、原始问题、Root 正文、Prompt、Authorization、Cookie 或密钥。Trace 写入失败不会改变业务结果。
 
 写请求必须先调用 `GET /api/v1/auth/me`，保留响应 Cookie，并把响应中的 `csrf_token` 放入 `X-CSRF-Token` header。开发环境的 HTTP Cookie 不设置 Secure；生产环境或 HTTPS base URL 强制设置 Secure。
 
@@ -209,7 +211,8 @@ pnpm --dir=frontend build
 - M5-02 stdio MCP：已完成
 - M5-03 HTTP MCP：已完成
 - M5-04 Trace/Logging：已完成
-- 下一项：M5-05 Trace Persistence
+- M5-05 Trace Persistence：已完成
+- 下一项：M5-06 Metrics/Health
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -220,6 +223,8 @@ Cost Guard 在 QueryRunner 进入任何 Provider 逻辑前，通过 PostgreSQL �
 Streamable HTTP Adapter 在 `/mcp` 强制 Bearer Token，并在协议分发前校验连接 scope。Token 原文不会入库；请求身份从不可变的认证 claims 建立，Tool scope 与 collection allowlist 只能继续收窄。公网组合拒绝 HTTP，并启用 Host/Origin 防护。当前 Token 管理仍属于后续系统管理员里程碑，匿名 demo 全业务权限不包含 Token、密钥和系统配置权限。
 
 可观测性基线使用 task-local correlation context、JSON Lines 日志和 OpenTelemetry spans。HTTP 上游 trace context 会向 Query 与 RAG 阶段传播，异步并发不会串 tenant/query/job；Standard 与 Ingestion 的主要阶段均有独立子 span。遥测采用字段 allow-list，敏感属性会被拒绝，异常消息不会自动写入 span。
+
+Trace 现在以 `trace_runs`/`trace_spans` 按 tenant 持久化，同步 Query、SSE Query 和 Ingestion 在根 span 结束后以幂等 upsert 落库。Dense/Sparse、RRF 和 Rerank 候选以有界 event 保存，可重建 Leaf/Root 排名与分数变化；降级摘要只由稳定 `*_degraded` 字段派生。匿名用户可读取 demo tenant 全部 Trace，跨租户 trace ID 统一返回 404。新环境或旧环境更新后都需先执行上方 `alembic upgrade head`。
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 

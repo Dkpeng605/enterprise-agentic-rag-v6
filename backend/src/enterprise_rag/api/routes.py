@@ -4,7 +4,7 @@ import json
 from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from fastapi import (
@@ -38,6 +38,10 @@ from enterprise_rag.api.schemas import (
     QueryRequestModel,
     QueryResponseModel,
     TenantModel,
+    TraceDetailResponse,
+    TraceListResponse,
+    TraceSpanResponse,
+    TraceSummaryResponse,
     UploadResponse,
 )
 from enterprise_rag.domain.common import to_json_value
@@ -46,8 +50,10 @@ from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.jobs import JobSnapshot
 from enterprise_rag.domain.retrieval import QueryMode, QueryScope
 from enterprise_rag.ports.planner import ConversationRole, ConversationTurn
+from enterprise_rag.ports.traces import StoredSpan, TraceDetail, TraceSummary
 from enterprise_rag.services.auth import SESSION_COOKIE, AnonymousSessionService, Principal
 from enterprise_rag.services.knowledge import KnowledgeApplication, KnowledgeQuery
+from enterprise_rag.services.traces import TraceService
 from enterprise_rag.services.workspace import (
     CollectionSnapshot,
     DocumentDetail,
@@ -109,6 +115,7 @@ def create_api_router(
     session_minutes: int,
     cookie_secure: bool,
     clock: Clock,
+    traces: TraceService | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1", responses=ERROR_RESPONSES)
     cookie_scheme = APIKeyCookie(name=SESSION_COOKIE, auto_error=False)
@@ -139,6 +146,11 @@ def create_api_router(
         if knowledge is None:
             raise _unavailable()
         return knowledge
+
+    def _traces() -> TraceService:
+        if traces is None:
+            raise _unavailable()
+        return traces
 
     @router.get("/auth/me", response_model=AuthMeResponse, tags=["auth"])
     async def auth_me(
@@ -424,6 +436,86 @@ def create_api_router(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    @router.get(
+        "/traces",
+        response_model=TraceListResponse,
+        tags=["traces"],
+    )
+    async def list_traces(
+        principal: Annotated[Principal, Depends(reader)],
+        trace_type: Annotated[
+            Literal["query", "ingestion", "evaluation"] | None,
+            Query(alias="type"),
+        ] = None,
+        cursor: Annotated[str | None, Query(max_length=1_000)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    ) -> TraceListResponse:
+        page = await _traces().list_traces(
+            principal.tenant_id,
+            trace_type=trace_type,
+            cursor=cursor,
+            limit=limit,
+        )
+        return TraceListResponse(
+            items=[_trace_summary(item) for item in page.items],
+            next_cursor=page.next_cursor,
+        )
+
+    @router.get(
+        "/traces/query",
+        response_model=TraceListResponse,
+        tags=["traces"],
+    )
+    async def list_query_traces(
+        principal: Annotated[Principal, Depends(reader)],
+        cursor: Annotated[str | None, Query(max_length=1_000)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    ) -> TraceListResponse:
+        page = await _traces().list_traces(
+            principal.tenant_id,
+            trace_type="query",
+            cursor=cursor,
+            limit=limit,
+        )
+        return TraceListResponse(
+            items=[_trace_summary(item) for item in page.items],
+            next_cursor=page.next_cursor,
+        )
+
+    @router.get(
+        "/traces/ingestion",
+        response_model=TraceListResponse,
+        tags=["traces"],
+    )
+    async def list_ingestion_traces(
+        principal: Annotated[Principal, Depends(reader)],
+        cursor: Annotated[str | None, Query(max_length=1_000)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    ) -> TraceListResponse:
+        page = await _traces().list_traces(
+            principal.tenant_id,
+            trace_type="ingestion",
+            cursor=cursor,
+            limit=limit,
+        )
+        return TraceListResponse(
+            items=[_trace_summary(item) for item in page.items],
+            next_cursor=page.next_cursor,
+        )
+
+    @router.get(
+        "/traces/{trace_id}",
+        response_model=TraceDetailResponse,
+        tags=["traces"],
+    )
+    async def get_trace(
+        trace_id: str,
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> TraceDetailResponse:
+        return _trace_detail(
+            await _traces().get_trace(principal.tenant_id, trace_id)
+        )
+
     @router.get("/system/status", tags=["system"])
     async def system_status(
         principal: Annotated[Principal, Depends(reader)],
@@ -459,6 +551,48 @@ def _unavailable() -> AppError:
     return AppError(
         ErrorCode.SERVICE_UNAVAILABLE,
         "The workspace infrastructure is not configured.",
+    )
+
+
+def _trace_summary(item: TraceSummary) -> TraceSummaryResponse:
+    return TraceSummaryResponse(
+        trace_id=item.trace_id,
+        trace_type=cast(
+            Literal["query", "ingestion", "evaluation"], item.trace_type
+        ),
+        subject_id=item.subject_id,
+        mode=item.mode,
+        status=item.status,
+        started_at=item.started_at,
+        finished_at=item.finished_at,
+        duration_ms=item.duration_ms,
+        span_count=item.span_count,
+        degraded=item.degraded,
+    )
+
+
+def _trace_span(item: StoredSpan) -> TraceSpanResponse:
+    return TraceSpanResponse(
+        span_id=item.span_id,
+        parent_span_id=item.parent_span_id,
+        name=item.name,
+        started_at=item.started_at,
+        finished_at=item.finished_at,
+        duration_ms=item.duration_ms,
+        status=item.status,
+        attributes=dict(item.attributes),
+        events=[dict(event) for event in item.events],
+    )
+
+
+def _trace_detail(item: TraceDetail) -> TraceDetailResponse:
+    return TraceDetailResponse(
+        summary=_trace_summary(item.summary),
+        actor_type=item.actor_type,
+        request_id=item.request_id,
+        usage=dict(item.usage),
+        attributes=dict(item.attributes),
+        spans=[_trace_span(span) for span in item.spans],
     )
 
 

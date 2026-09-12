@@ -1669,12 +1669,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
-| M5 | MCP 与全链路可观测性 | 6 | M5-01～M5-04 完成 |
+| M5 | MCP 与全链路可观测性 | 6 | M5-01～M5-05 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 36/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 37/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2028,8 +2028,29 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M5-05 Trace Persistence
 
-- Query/Ingestion spans 与查询 API；
-- 验收：候选排名和降级可重建，分页有效。
+- 持久化模型：Alembic 新增 `trace_runs` 和 `trace_spans`；Trace Run 保存 tenant、actor
+  type、query/job subject、request ID、mode、终态、起止时间、usage 和有界降级属性，Span
+  保存父子 ID、阶段名、耗时、状态、allow-list attributes 和 events；
+- 采集边界：`BufferedSpanExporter` 按 Trace 和单 Trace Span 数量双重有界，根 span 结束后由
+  `TraceService` 一次 drain 并幂等 upsert；非法 span、非有限浮点和缓冲区溢出不得反向中断业务；
+- Query：同步和 SSE 共用 `KnowledgeApplication` 记录 answered/abstained/no_results/error/cancelled、
+  数值 usage 与稳定 degraded/provider 字段；SSE 断开时保存已完成 spans 并标记 cancelled；
+- Ingestion：`IngestionPipeline` 在 job 终态后记录 attempts、progress、completed 和稳定
+  error code，不保存文档正文或原始异常消息；
+- 排名重建：Dense/Sparse、RRF 和 Rerank spans 以 event 分别保存 candidate Leaf/Root ID、
+  阶段 rank 与对应 score，可重建召回→融合→重排变化；摘要的 `degraded` 由稳定
+  `*_degraded` 字段派生；
+- 安全：Exporter 和 Completion 同时使用 allow-list，禁止 query/document text、Prompt、
+  Authorization、Cookie、password、token 和 secret；Trace 写失败只记录
+  `TRACE_PERSIST_FAILED`，不泄露底层异常且不改变 Query/Ingestion 结果；
+- 查询 API：匿名 reader 可使用 `GET /api/v1/traces`、`GET /api/v1/traces/query`、
+  `GET /api/v1/traces/ingestion` 和 `GET /api/v1/traces/{trace_id}`；列表支持类型过滤、最多 100 条和
+  稳定 cursor，详情返回按时间排序的 spans；所有 SQL 在 tenant 条件内执行，跨租户 ID 统一 404；
+- 组合：默认 FastAPI 在配置 PostgreSQL 时自动组合有界 OpenTelemetry exporter、
+  `PostgreSQLTraceStore` 和 Trace API；自定义 Provider/Exporter 仍可显式注入；
+- 验收：真实 PostgreSQL 验证 migration upgrade/downgrade、幂等写入、无重叠 cursor 分页、
+  Query/Ingestion 过滤、跨 tenant 隐藏和排名/降级重建；单测验证缓冲上限、敏感值剔除与
+  写失败时业务继续。
 
 #### M5-06 Metrics/Health
 
