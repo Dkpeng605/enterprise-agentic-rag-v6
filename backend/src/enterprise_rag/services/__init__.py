@@ -32,6 +32,15 @@ from enterprise_rag.services.deep_recovery import (
 )
 from enterprise_rag.services.documents import DocumentRegistrationService, RegisterDocument
 from enterprise_rag.services.fusion import FusionDiagnostic, FusionResult, ReciprocalRankFusion
+from enterprise_rag.services.health import (
+    ComponentHealth,
+    ConfigurationHealthProbe,
+    HealthProbe,
+    HealthReport,
+    HealthService,
+    HealthStatus,
+    PostgreSQLHealthProbe,
+)
 from enterprise_rag.services.images import EnrichedImage, ImageEnricher, ImageEnrichmentResult
 from enterprise_rag.services.ingestion import IngestionPipeline, PipelineRunResult
 from enterprise_rag.services.knowledge import (
@@ -117,6 +126,12 @@ __all__ = [
     "FusionResult",
     "ImageEnricher",
     "ImageEnrichmentResult",
+    "ComponentHealth",
+    "ConfigurationHealthProbe",
+    "HealthProbe",
+    "HealthReport",
+    "HealthService",
+    "HealthStatus",
     "IngestionPipeline",
     "KnowledgeApplication",
     "KnowledgeQuery",
@@ -129,6 +144,7 @@ __all__ = [
     "ProjectionRequest",
     "ProjectionResult",
     "ProjectionService",
+    "PostgreSQLHealthProbe",
     "QueryPlanningService",
     "QueryGraphStage",
     "QueryGraphStatus",

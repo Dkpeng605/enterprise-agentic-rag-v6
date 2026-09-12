@@ -117,6 +117,10 @@ async def test_query_rest_binds_server_tenant_and_accepts_anonymous_reader(
     trace_detail = await client.get(f"/api/v1/traces/{trace_id}")
     assert trace_detail.status_code == 200
     assert trace_detail.json()["spans"][0]["name"] == "rag.query"
+    metrics = await client.get("/metrics")
+    assert metrics.status_code == 200
+    assert 'rag_queries_total{mode="deep",status="answered"} 1.0' in metrics.text
+    assert 'route="/api/v1/queries"' in metrics.text
     assert response.headers["x-request-id"]
     assert runner.commands[-1].mode is QueryMode.DEEP
     assert runner.commands[-1].scope.titles == ("Policy",)

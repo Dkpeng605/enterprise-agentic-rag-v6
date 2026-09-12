@@ -32,6 +32,7 @@ ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "RERANK_API_KEY": ("credentials", "rerank_api_key"),
     "RERANK_MODEL": ("credentials", "rerank_model"),
     "MCP_TOKEN_PEPPER": ("credentials", "mcp_token_pepper"),
+    "METRICS_TOKEN": ("credentials", "metrics_token"),
 }
 
 KNOWN_PROVIDERS: dict[str, frozenset[str]] = {
@@ -51,6 +52,7 @@ PRODUCTION_REQUIRED_ENV = (
     "ADMIN_BOOTSTRAP_PASSWORD",
     "DATABASE_URL",
     "MCP_TOKEN_PEPPER",
+    "METRICS_TOKEN",
     "SESSION_SECRET",
 )
 

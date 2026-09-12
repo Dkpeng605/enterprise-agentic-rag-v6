@@ -1669,12 +1669,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
-| M5 | MCP 与全链路可观测性 | 6 | M5-01～M5-05 完成 |
+| M5 | MCP 与全链路可观测性 | 6 | 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 37/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 38/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2054,8 +2054,30 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M5-06 Metrics/Health
 
-- Prometheus、live/ready/provider doctor；
-- 验收：依赖故障反映在 readiness，不泄露 secret。
+- 依赖：锁定官方 `prometheus-client>=0.26,<1`；每个 FastAPI 应用拥有独立
+  `CollectorRegistry`，禁止测试、多应用实例或热重载共享可变全局 metric 状态；
+- 指标集：实现 13.5 规定的 HTTP、Query、候选数、Recovery、Provider、Token、
+  Ingestion、Milvus、Evaluation 和 Rate Limit Counter/Histogram；M6 Evaluation 通过稳定
+  `ApplicationMetrics` 边界接入；
+- 实时打点：HTTP middleware 记录 method、路由模板、status 和 duration；Query 记录
+  mode/status/duration；Dense/Sparse/RRF/Rerank 记录阶段候选数；Deep 记录有界 Recovery
+  route；LLM wrapper 记录 provider outcome/duration/token；Ingestion 记录 job 终态和七个阶段耗时；
+  Milvus Lite 公开操作记录 success/error/cancelled；Cost Guard 429 记录稳定 budget；
+- 基数约束：HTTP 只使用 FastAPI route template，404 统一为 `unmatched`；Metric label 禁止
+  tenant/user/session/query/document/trace ID、原始 path、问题文本、密钥或异常消息；
+- 端点：`GET /health/live` 只证明进程和 ASGI loop 存活；`GET /health/ready` 检查当前工作区
+  配置、PostgreSQL、注册的 required Provider 及可注入后台 Runner probe，任一 required 项
+  unavailable 返回 503；`GET /health/doctor` 返回相同检查及 Provider 的 kind/name/version/
+  capabilities/health，不返回 endpoint、连接串、credential 或底层异常；
+- 健康语义：PostgreSQL probe 使用两秒有界 `SELECT 1`；Provider `unavailable` 使 readiness
+  失败，`unknown/degraded` 保持可接流量但整体报 degraded；任意 probe 抛错转换为稳定
+  `CHECK_FAILED`，不传播异常文本；
+- Metrics 安全：开发环境允许本地 `GET /metrics`；生产启动强制配置独立
+  `METRICS_TOKEN`，端点用常数时间 Bearer 比较，缺失或错误凭证返回 401，不使用匿名
+  demo Cookie 或 CSRF 代替系统监控凭证；
+- 验收：单测验证全部 metric family、路由模板、高基数字段缺失、生产 Metrics
+  401/200、live/ready 分离、Provider/probe 失败与 secret 剔除；真实 PostgreSQL 验证健康
+  readiness，Milvus Lite 契约验证成功与失败计数。
 
 ### M6：评测闭环
 

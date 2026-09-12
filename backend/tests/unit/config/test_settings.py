@@ -64,6 +64,7 @@ def test_production_missing_secrets_has_stable_sanitized_error() -> None:
             "ADMIN_BOOTSTRAP_PASSWORD",
             "DATABASE_URL",
             "MCP_TOKEN_PEPPER",
+            "METRICS_TOKEN",
             "SESSION_SECRET",
         )
     }
@@ -75,6 +76,7 @@ def test_remote_embedding_requires_its_own_production_credentials() -> None:
         "ADMIN_BOOTSTRAP_PASSWORD": "password",
         "DATABASE_URL": "postgresql+asyncpg://example.test/db",
         "MCP_TOKEN_PEPPER": "pepper",
+        "METRICS_TOKEN": "metrics",
         "SESSION_SECRET": "session",
     }
     with pytest.raises(SettingsError) as raised:
@@ -97,6 +99,7 @@ def test_remote_reranker_requires_its_own_production_credentials() -> None:
         "ADMIN_BOOTSTRAP_PASSWORD": "password",
         "DATABASE_URL": "postgresql+asyncpg://example.test/db",
         "MCP_TOKEN_PEPPER": "pepper",
+        "METRICS_TOKEN": "metrics",
         "SESSION_SECRET": "session",
     }
     with pytest.raises(SettingsError) as raised:

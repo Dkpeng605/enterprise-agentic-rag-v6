@@ -2,10 +2,12 @@
 
 import logging
 import tempfile
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 from uuid import UUID
 
 from opentelemetry import trace
@@ -20,7 +22,13 @@ from enterprise_rag.adapters.database.jobs import IngestionJobRepository
 from enterprise_rag.domain.common import utc_now
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.jobs import JobSnapshot, JobStatus
-from enterprise_rag.observability import bind_context, start_span
+from enterprise_rag.observability import (
+    ApplicationMetrics,
+    bind_context,
+    bind_metrics,
+    current_metrics,
+    start_span,
+)
 from enterprise_rag.ports.cleaner import Cleaner
 from enterprise_rag.ports.loader import BinarySource, IngestionContext, LoadedRoot, Loader
 from enterprise_rag.ports.object_store import ObjectStore
@@ -83,6 +91,7 @@ class IngestionPipeline:
         retry_delay: timedelta = timedelta(seconds=5),
         tracer_provider: TracerProvider | None = None,
         trace_recorder: TraceRecorder | None = None,
+        metrics: ApplicationMetrics | None = None,
         clock: Clock = utc_now,
     ) -> None:
         if not loaders:
@@ -106,6 +115,7 @@ class IngestionPipeline:
         self._retry_delay = retry_delay
         self._tracer_provider = tracer_provider
         self._trace_recorder = trace_recorder
+        self._metrics = metrics
         self._clock = clock
 
     async def run_once(self, *, owner: str) -> PipelineRunResult | None:
@@ -124,8 +134,10 @@ class IngestionPipeline:
 
     async def _execute(self, job: JobSnapshot, *, owner: str) -> PipelineRunResult:
         started_at = self._clock()
+        started_monotonic = perf_counter()
         trace_id: str | None = None
-        with bind_context(
+        metrics = getattr(self, "_metrics", None)
+        with bind_metrics(metrics), bind_context(
             tenant_id=job.tenant_id,
             job_id=job.id,
             document_id=job.document_id,
@@ -147,7 +159,18 @@ class IngestionPipeline:
                     "outcome": result.job.status.value,
                 },
             )
-        await self._record_trace(trace_id, job, result, started_at)
+        try:
+            await self._record_trace(trace_id, job, result, started_at)
+        finally:
+            if metrics is not None:
+                metrics.observe_ingestion_job(
+                    status=result.job.status.value,
+                    job_type=result.job.type,
+                )
+                metrics.observe_ingestion_stage(
+                    stage="total",
+                    duration_seconds=perf_counter() - started_monotonic,
+                )
         return result
 
     async def _record_trace(
@@ -212,7 +235,7 @@ class IngestionPipeline:
                 )
                 with start_span(
                     "rag.ingestion.load", tracer_provider=self._tracer_provider
-                ) as stage_span:
+                ) as stage_span, _observe_ingestion_stage("load"):
                     loaded = await loader.load(
                         _StoredSource(
                             work.source_name,
@@ -226,17 +249,17 @@ class IngestionPipeline:
                 await self._checkpoint(job.id, owner, 30, "images")
                 with start_span(
                     "rag.ingestion.images", tracer_provider=self._tracer_provider
-                ):
+                ), _observe_ingestion_stage("images"):
                     enriched = [await self._enrich_root(root) for root in loaded]
                 await self._checkpoint(job.id, owner, 40, "cleaning")
                 with start_span(
                     "rag.ingestion.clean", tracer_provider=self._tracer_provider
-                ):
+                ), _observe_ingestion_stage("clean"):
                     cleaned = await self._cleaner.clean_all(enriched, context)
                 await self._checkpoint(job.id, owner, 55, "splitting")
                 with start_span(
                     "rag.ingestion.split", tracer_provider=self._tracer_provider
-                ) as stage_span:
+                ) as stage_span, _observe_ingestion_stage("split"):
                     split_results = [
                         await self._splitter.split(result.root, context) for result in cleaned
                     ]
@@ -249,7 +272,7 @@ class IngestionPipeline:
             await self._checkpoint(job.id, owner, 65, "persisting")
             with start_span(
                 "rag.ingestion.persist", tracer_provider=self._tracer_provider
-            ):
+            ), _observe_ingestion_stage("persist"):
                 async with self._database.session() as session:
                     await IngestionContentRepository(session).replace_content(
                         version_id=work.version_id, roots=roots, leaves=leaves
@@ -257,7 +280,7 @@ class IngestionPipeline:
             await self._checkpoint(job.id, owner, 75, "projecting")
             with start_span(
                 "rag.ingestion.project", tracer_provider=self._tracer_provider
-            ):
+            ), _observe_ingestion_stage("project"):
                 await self._projection.project(
                     ProjectionRequest(
                         work.tenant_id,
@@ -271,7 +294,7 @@ class IngestionPipeline:
             await self._checkpoint(job.id, owner, 95, "finalizing")
             with start_span(
                 "rag.ingestion.finalize", tracer_provider=self._tracer_provider
-            ):
+            ), _observe_ingestion_stage("finalize"):
                 async with self._database.session() as session:
                     await IngestionContentRepository(session).finalize(
                         work, expected_leaves=len(leaves)
@@ -388,3 +411,17 @@ class IngestionPipeline:
             "caption_status": image.caption_status.value,
             "caption_error_code": image.caption_error_code,
         }
+
+
+@contextmanager
+def _observe_ingestion_stage(stage: str) -> Iterator[None]:
+    started = perf_counter()
+    try:
+        yield
+    finally:
+        metrics = current_metrics()
+        if metrics is not None:
+            metrics.observe_ingestion_stage(
+                stage=stage,
+                duration_seconds=perf_counter() - started,
+            )

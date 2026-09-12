@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Mapping, Sequence
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, cast
@@ -11,6 +11,7 @@ from uuid import UUID
 from pymilvus import DataType, MilvusClient  # type: ignore[import-untyped]
 
 from enterprise_rag.domain.common import require_uuid7, to_json_value
+from enterprise_rag.observability import current_metrics
 from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, ProviderKind
 from enterprise_rag.ports.vector_store import (
     DenseSearchRequest,
@@ -29,6 +30,22 @@ def _int_value(value: object) -> int:
     if isinstance(value, (int, float, str)):
         return int(value)
     raise TypeError("Milvus response count is not numeric")
+
+
+async def _observe_milvus[ResultT](
+    operation: str, awaitable: Awaitable[ResultT]
+) -> ResultT:
+    status = "error"
+    try:
+        result = await awaitable
+        status = "success"
+        return result
+    except asyncio.CancelledError:
+        status = "cancelled"
+        raise
+    finally:
+        if (metrics := current_metrics()) is not None:
+            metrics.observe_milvus(operation=operation, status=status)
 
 
 class MilvusLiteVectorStore:
@@ -56,6 +73,9 @@ class MilvusLiteVectorStore:
         )
 
     async def ensure_revision(self, schema: IndexSchema) -> None:
+        await _observe_milvus("ensure_revision", self._ensure_revision(schema))
+
+    async def _ensure_revision(self, schema: IndexSchema) -> None:
         self._ensure_open()
         collection_name = self._collection_name(schema.revision)
         async with self._lock:
@@ -127,6 +147,9 @@ class MilvusLiteVectorStore:
             self._dimensions[schema.revision] = schema.dimension
 
     async def upsert(self, records: Sequence[VectorRecord]) -> UpsertResult:
+        return await _observe_milvus("upsert", self._upsert(records))
+
+    async def _upsert(self, records: Sequence[VectorRecord]) -> UpsertResult:
         self._ensure_open()
         if not records:
             return UpsertResult(0)
@@ -158,6 +181,9 @@ class MilvusLiteVectorStore:
         return UpsertResult(count)
 
     async def dense_search(self, request: DenseSearchRequest) -> list[VectorHit]:
+        return await _observe_milvus("dense_search", self._dense_search(request))
+
+    async def _dense_search(self, request: DenseSearchRequest) -> list[VectorHit]:
         dimension = self._dimensions.get(request.index_revision)
         if dimension is None:
             raise ValueError("index revision must be ensured before search")
@@ -177,6 +203,9 @@ class MilvusLiteVectorStore:
         )
 
     async def sparse_search(self, request: SparseSearchRequest) -> list[VectorHit]:
+        return await _observe_milvus("sparse_search", self._sparse_search(request))
+
+    async def _sparse_search(self, request: SparseSearchRequest) -> list[VectorHit]:
         if request.index_revision not in self._dimensions:
             raise ValueError("index revision must be ensured before search")
         return await self._search(
@@ -193,6 +222,11 @@ class MilvusLiteVectorStore:
         )
 
     async def delete_by_version(self, tenant_id: UUID, version_id: UUID) -> int:
+        return await _observe_milvus(
+            "delete_by_version", self._delete_by_version(tenant_id, version_id)
+        )
+
+    async def _delete_by_version(self, tenant_id: UUID, version_id: UUID) -> int:
         self._ensure_open()
         require_uuid7(tenant_id, "tenant_id")
         require_uuid7(version_id, "version_id")
@@ -221,6 +255,11 @@ class MilvusLiteVectorStore:
         return count
 
     async def count_by_version(self, tenant_id: UUID, version_id: UUID) -> int:
+        return await _observe_milvus(
+            "count_by_version", self._count_by_version(tenant_id, version_id)
+        )
+
+    async def _count_by_version(self, tenant_id: UUID, version_id: UUID) -> int:
         self._ensure_open()
         require_uuid7(tenant_id, "tenant_id")
         require_uuid7(version_id, "version_id")
@@ -240,6 +279,11 @@ class MilvusLiteVectorStore:
         return count
 
     async def list_version_projections(self) -> tuple[VectorProjection, ...]:
+        return await _observe_milvus(
+            "list_version_projections", self._list_version_projections()
+        )
+
+    async def _list_version_projections(self) -> tuple[VectorProjection, ...]:
         """Return aggregate projection ownership without exposing vector payloads."""
 
         self._ensure_open()

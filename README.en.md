@@ -72,6 +72,8 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `POST /api/v1/queries` and `POST /api/v1/queries/stream` — synchronous and SSE query contracts; the current entry point returns 503 until a QueryRunner is injected
 - `GET /api/v1/traces`, `/api/v1/traces/query`, and `/api/v1/traces/ingestion` — tenant-scoped Trace filtering and cursor pagination
 - `GET /api/v1/traces/{trace_id}` — stage timing, candidate ranks, scores, and degradation details
+- `GET /health/live`, `GET /health/ready`, and `GET /health/doctor` — liveness, readiness, and sanitized Provider diagnostics
+- `GET /metrics` — Prometheus text exposition; production requires a dedicated bearer token
 
 The stdio MCP server uses the official Python SDK v2 and exposes six read-only knowledge tools plus four tenant-scoped resource forms. Build an `MCPServer` in your own composition module, then configure its factory explicitly:
 
@@ -132,7 +134,7 @@ cp .env.example .env
 uv run --project backend uvicorn enterprise_rag.main:app --reload --env-file .env
 ```
 
-Flat deployment variables such as `DATABASE_URL`, `SESSION_SECRET`, and `LLM_API_KEY` are supported. Any regular setting can also be overridden with a nested name such as `ENTERPRISE_RAG__DEEP__LOW_THRESHOLD=0.50`.
+Flat deployment variables such as `DATABASE_URL`, `SESSION_SECRET`, `METRICS_TOKEN`, and `LLM_API_KEY` are supported. Any regular setting can also be overridden with a nested name such as `ENTERPRISE_RAG__DEEP__LOW_THRESHOLD=0.50`.
 
 Production startup fails before serving traffic when required credentials are missing, thresholds are invalid, YAML is malformed, or a configured Provider name is unknown. Secret values use masked types and are never included in validation error details.
 
@@ -212,7 +214,9 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M5-03 HTTP MCP: complete
 - M5-04 Trace/Logging: complete
 - M5-05 Trace Persistence: complete
-- Next: M5-06 Metrics/Health
+- M5-06 Metrics/Health: complete
+- M5 MCP and end-to-end observability milestone: complete
+- Next: M6-01 Evaluator Contracts
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -225,6 +229,14 @@ The Streamable HTTP adapter requires bearer authentication at `/mcp` and checks 
 The observability baseline combines task-local correlation context, JSON Lines logs, and OpenTelemetry spans. HTTP upstream trace context propagates through Query and RAG stages without leaking tenant/query/job context across async tasks. Standard and Ingestion major stages have dedicated child spans. Telemetry uses field allow-lists, rejects sensitive attributes, and does not automatically attach exception messages to spans.
 
 Traces now persist by tenant in `trace_runs`/`trace_spans`; synchronous Query, SSE Query, and Ingestion perform idempotent upserts after their root span ends. Bounded events preserve Dense/Sparse, RRF, and Rerank Leaf/Root ranks and scores, while the degradation summary is derived only from stable `*_degraded` fields. Anonymous users can read all traces in the demo tenant, and a cross-tenant trace ID always returns 404. Run `alembic upgrade head` as shown above after creating or updating an environment.
+
+Prometheus metrics use an application-local Registry and cover HTTP, Query, Retrieval/Recovery, Provider/Token, Ingestion, Milvus, Evaluation, and Rate Limit activity. HTTP labels use route templates only, never raw paths or tenant/user/document/query IDs. `live` has no external dependency; `ready` returns 503 when required configuration, PostgreSQL, or a Provider is unavailable; `doctor` returns only stable status codes and public Provider metadata.
+
+Local development may scrape `http://127.0.0.1:8000/metrics` directly. Production must configure `METRICS_TOKEN` and send it when scraping:
+
+```bash
+curl -H "Authorization: Bearer $METRICS_TOKEN" https://your-host.example/metrics
+```
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
@@ -240,7 +252,7 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
-M1, M2, M3, and M4 are complete. The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, synchronous/SSE query contracts, a PostgreSQL Cost Guard, lifecycle state, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation. A concrete production QueryRunner/Provider composition entry point is not wired yet, so the default entry point does not pretend to be a usable complete query product.
+M1 through M5 are complete. The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, synchronous/SSE query contracts, a PostgreSQL Cost Guard, lifecycle state, Milvus Lite projections, crash-safe local objects, idempotent deletion, and cross-store reconciliation. A concrete production QueryRunner/Provider composition entry point is not wired yet, so the default entry point does not pretend to be a usable complete query product.
 
 The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for image enrichment. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. The Loader is wired into the background ingestion Pipeline; the HTTP upload endpoint arrives in M3-10.
 

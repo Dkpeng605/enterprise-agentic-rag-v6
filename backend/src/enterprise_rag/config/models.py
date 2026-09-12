@@ -163,6 +163,7 @@ class CredentialSettings(SettingsModel):
     rerank_api_key: SecretStr | None = None
     rerank_model: str | None = None
     mcp_token_pepper: SecretStr | None = None
+    metrics_token: SecretStr | None = None
 
 
 class AppSettings(SettingsModel):

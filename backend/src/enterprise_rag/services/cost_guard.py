@@ -4,9 +4,11 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from time import perf_counter
 
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import QueryMode
+from enterprise_rag.observability import current_metrics
 from enterprise_rag.ports.llm import CompletionRequest, CompletionResult, LanguageModel
 from enterprise_rag.ports.provider import ProviderInfo
 from enterprise_rag.ports.usage import (
@@ -49,15 +51,25 @@ class CostGuard:
         self._clock = clock
 
     async def reserve(self, command: QueryCommand) -> UsageReservation:
-        return await self._store.reserve(
-            query_id=command.query_id,
-            tenant_id=command.tenant_id,
-            actor_id=command.actor_id,
-            rate_limit_id=command.session_id or command.actor_id,
-            now=self._clock(),
-            requested=self._budgets.for_mode(command.mode),
-            limits=self._limits,
-        )
+        try:
+            return await self._store.reserve(
+                query_id=command.query_id,
+                tenant_id=command.tenant_id,
+                actor_id=command.actor_id,
+                rate_limit_id=command.session_id or command.actor_id,
+                now=self._clock(),
+                requested=self._budgets.for_mode(command.mode),
+                limits=self._limits,
+            )
+        except AppError as error:
+            if error.code is ErrorCode.RATE_LIMITED and (
+                metrics := current_metrics()
+            ) is not None:
+                budget = error.details.get("budget")
+                metrics.observe_rate_limit(
+                    budget=budget if isinstance(budget, str) else "unknown"
+                )
+            raise
 
     async def settle(self, reservation: UsageReservation, result: QueryExecution) -> QueryExecution:
         if result.query_id != reservation.query_id:
@@ -139,11 +151,22 @@ class BoundedLanguageModel:
         await self._delegate.aclose()
 
     async def complete(self, request: CompletionRequest) -> CompletionResult:
+        info = self._delegate.info()
         for retry_count in range(self._max_retries + 1):
+            started = perf_counter()
             try:
                 result = await asyncio.wait_for(
                     self._delegate.complete(request), timeout=self._timeout
                 )
+                if (metrics := current_metrics()) is not None:
+                    metrics.observe_provider(
+                        kind=info.kind.value,
+                        provider=info.name,
+                        status="success",
+                        duration_seconds=perf_counter() - started,
+                        input_tokens=result.input_tokens,
+                        output_tokens=result.output_tokens,
+                    )
                 return CompletionResult(
                     result.text,
                     result.input_tokens,
@@ -151,8 +174,22 @@ class BoundedLanguageModel:
                     result.retry_count + retry_count,
                 )
             except asyncio.CancelledError:
+                if (metrics := current_metrics()) is not None:
+                    metrics.observe_provider(
+                        kind=info.kind.value,
+                        provider=info.name,
+                        status="cancelled",
+                        duration_seconds=perf_counter() - started,
+                    )
                 raise
             except Exception as error:
+                if (metrics := current_metrics()) is not None:
+                    metrics.observe_provider(
+                        kind=info.kind.value,
+                        provider=info.name,
+                        status="error",
+                        duration_seconds=perf_counter() - started,
+                    )
                 if retry_count >= self._max_retries or not _retryable(error):
                     if isinstance(error, AppError) and error.code is not ErrorCode.LLM_UNAVAILABLE:
                         raise

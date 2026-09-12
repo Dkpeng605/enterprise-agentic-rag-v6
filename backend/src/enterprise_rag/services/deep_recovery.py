@@ -8,6 +8,7 @@ from typing import Protocol
 
 from enterprise_rag.domain.common import require_non_empty
 from enterprise_rag.domain.retrieval import QueryScope
+from enterprise_rag.observability import current_metrics
 
 
 class EvidenceDecision(StrEnum):
@@ -262,6 +263,8 @@ class DeepRecoveryController:
                 return _outcome(assessment, ledger, actions, assessor_calls)
             action = self._planner.plan(request, assessment, round_number=round_number + 1)
             actions.append(action)
+            if (metrics := current_metrics()) is not None:
+                metrics.observe_recovery(route=action.route.value)
             recovered = tuple(await self._executor.execute(action))
             if any(
                 item.round_number != action.round_number or item.route is not action.route

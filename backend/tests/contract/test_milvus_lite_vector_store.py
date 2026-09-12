@@ -4,6 +4,7 @@ from uuid import UUID
 import pytest
 
 from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
+from enterprise_rag.observability import ApplicationMetrics, bind_metrics
 from enterprise_rag.ports import (
     DenseSearchRequest,
     IndexSchema,
@@ -165,3 +166,22 @@ def test_vector_requests_reject_invalid_dimensions_sparse_values_and_top_k() -> 
         SparseSearchRequest(REVISION, TENANT_A, {1: 0.0}, 5)
     with pytest.raises(ValueError, match="dimension"):
         IndexSchema(REVISION, 1)
+
+
+@pytest.mark.anyio
+async def test_milvus_operations_publish_bounded_success_and_error_metrics(
+    database_path: Path,
+) -> None:
+    metrics = ApplicationMetrics()
+    store = MilvusLiteVectorStore(database_path)
+    try:
+        with bind_metrics(metrics):
+            await store.ensure_revision(IndexSchema(revision=REVISION, dimension=3))
+            with pytest.raises(ValueError, match="different dimension"):
+                await store.ensure_revision(IndexSchema(revision=REVISION, dimension=4))
+    finally:
+        await store.aclose()
+
+    rendered = metrics.render().decode()
+    assert 'milvus_operations_total{operation="ensure_revision",status="success"} 1.0' in rendered
+    assert 'milvus_operations_total{operation="ensure_revision",status="error"} 1.0' in rendered
