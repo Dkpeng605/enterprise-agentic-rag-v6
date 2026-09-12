@@ -12,6 +12,12 @@ from enterprise_rag.domain.documents import (
     RootKind,
 )
 from enterprise_rag.domain.errors import AppError, ErrorCode, ErrorDetail, ErrorResponse
+from enterprise_rag.domain.evaluation import (
+    EvaluationCase,
+    EvaluationCitation,
+    EvaluationObservation,
+    MetricSet,
+)
 from enterprise_rag.domain.jobs import TERMINAL_JOB_STATUSES, JobSnapshot, JobStatus
 from enterprise_rag.domain.retrieval import (
     Citation,
@@ -33,7 +39,11 @@ __all__ = [
     "ErrorCode",
     "ErrorDetail",
     "ErrorResponse",
+    "EvaluationCase",
+    "EvaluationCitation",
+    "EvaluationObservation",
     "LeafChunk",
+    "MetricSet",
     "JobSnapshot",
     "JobStatus",
     "QueryIntent",

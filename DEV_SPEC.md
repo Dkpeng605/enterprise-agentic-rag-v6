@@ -1670,11 +1670,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
-| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
+| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 进行中（1/6） |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 38/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 39/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2083,8 +2083,27 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M6-01 Evaluator Contracts
 
-- Recall、MRR、Citation、Abstention；
-- 验收：手算 fixture 精确一致。
+- 状态：已完成；
+- 领域输入：不可变 `EvaluationCase` 显式记录语言、分类、问题、查询模式、允许集合、
+  期望文档/Root/事实、是否必须拒答、最大恢复轮次和标签；仅接受 `zh`/`en`，拒绝空白、
+  重复 ID、携带期望事实的拒答样本，以及没有期望事实的可回答样本；
+- 运行观测：不可变 `EvaluationObservation` 保存有序 Document/Root 命中、结构化引用、
+  已授权 Root 原文和最终拒答状态；授权原文复制为只读映射，评测器不得依赖 HTTP、数据库
+  或具体检索实现；
+- 插件契约：`Evaluator` Protocol 只暴露能力声明与异步 `evaluate`；`EvaluatorInfo` 必须声明
+  名称、版本、支持指标、是否需要 LLM 和单 Case 预计 LLM 调用数，使 Runner 能在执行前完成
+  成本检查；确定性实现声明零 LLM 调用；
+- 指标定义：Document Recall@5 与 Root Recall@5 均为 top-k 命中 Gold 集合比例；MRR@10
+  在有序 Root 结果中取首个 Gold Root 的倒数排名；没有对应 Gold 时三者返回 `null`，存在
+  Gold 但未命中时返回 `0`；
+- 引用定义：Citation Coverage 为被引用事实与期望事实的交集比例；Citation Validity 仅在
+  引用的 Root 属于已授权集合且 quote 是该 Root 原文的连续子串时计为有效。正常回答无引用
+  记 `0`，正确拒答无引用记 `null`；引用中声明未知事实不会提高 Coverage；
+- 拒答定义：最终 `abstained` 与 `must_abstain` 完全一致时 Abstention Accuracy 为 `1`，否则
+  为 `0`；所有分数由 `MetricSet` 约束在 `[0, 1]`；
+- 验收：手算双语 fixture 精确验证 `0.5/1.0/0.5/0.5/0.5/1.0`，并覆盖空 Gold、
+  无引用回答、正确拒答、重复 ID 与矛盾拒答样本；Ruff、Mypy 与单测通过；
+- PR：`feat/m6-evaluator-contracts`。
 
 #### M6-02 Golden Set
 
