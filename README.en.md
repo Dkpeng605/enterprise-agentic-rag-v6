@@ -219,7 +219,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M6-01 Evaluator Contracts: complete
 - M6-02 Golden Set: complete
 - M6-03 Eval Runner: complete
-- Next: M6-04 LLM Judge
+- M6-04 LLM Judge: complete
+- Next: M6-05 CI Quality Gate
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -247,6 +248,16 @@ uv run enterprise-rag-eval \
   --manifest ../evals/golden/v1/manifest.yaml \
   --report ../artifacts/evals/local-smoke.json \
   --commit-sha "$(git rev-parse HEAD)"
+```
+
+The LLM Judge is an optional adapter that is disabled by default. It calculates faithfulness and relevancy separately without replacing deterministic metrics. When enabled, its worst-case calls enter the Eval Runner budget; without a credential it remains unavailable and deterministic evaluation still runs in full. Judge output must be a strict two-field JSON score object; malformed output fails that evaluation instead of becoming a fabricated low score. Example development configuration:
+
+```yaml
+evaluation:
+  max_cases: 30
+  max_llm_calls: 30
+  llm_judge_enabled: true
+  llm_judge_max_output_tokens: 128
 ```
 
 Local development may scrape `http://127.0.0.1:8000/metrics` directly. Production must configure `METRICS_TOKEN` and send it when scraping:

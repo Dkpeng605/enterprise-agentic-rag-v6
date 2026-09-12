@@ -28,6 +28,7 @@ from enterprise_rag.ports.eval_subject import (
     EvaluationSubjectResult,
 )
 from enterprise_rag.ports.evaluator import Evaluator, EvaluatorInfo
+from enterprise_rag.ports.judge import Judge, JudgeInfo, JudgeInput
 
 
 class EvaluationBudgetExceeded(ValueError):
@@ -75,7 +76,8 @@ class GoldenFixtureSubject:
             authorized_roots,
             case.must_abstain,
         )
-        return EvaluationSubjectResult(observation, EvaluationUsage())
+        answer = " ".join(case.expected_facts) or "The supplied evidence cannot answer this."
+        return EvaluationSubjectResult(observation, EvaluationUsage(), answer=answer)
 
 
 class EvaluationRunner:
@@ -84,10 +86,12 @@ class EvaluationRunner:
         subject: EvaluationSubject,
         evaluator: Evaluator,
         cache: EvaluationResultCache | None = None,
+        judge: Judge | None = None,
     ) -> None:
         self._subject = subject
         self._evaluator = evaluator
         self._cache = cache
+        self._judge = judge
 
     async def run(
         self, golden_set: GoldenSet, config: EvaluationRunConfig
@@ -95,9 +99,11 @@ class EvaluationRunner:
         cases = golden_set.cases[: config.max_cases]
         subject_info = self._subject.info()
         evaluator_info = self._evaluator.info()
+        judge_info = self._judge.info() if self._judge is not None else None
         estimated_llm_calls = len(cases) * (
             subject_info.estimated_llm_calls_per_case
             + evaluator_info.estimated_llm_calls_per_case
+            + (judge_info.estimated_llm_calls_per_case if judge_info is not None else 0)
         )
         if estimated_llm_calls > config.max_llm_calls:
             raise EvaluationBudgetExceeded(
@@ -108,11 +114,13 @@ class EvaluationRunner:
         config_hash = _digest(config_snapshot)
         subject_snapshot = _subject_snapshot(subject_info)
         evaluator_snapshot = _evaluator_snapshot(evaluator_info)
+        judge_snapshot = _judge_snapshot(judge_info) if judge_info is not None else None
         identity: dict[str, JsonValue] = {
             "dataset_revision": golden_set.revision,
             "config_hash": config_hash,
             "subject": subject_snapshot,
             "evaluator": evaluator_snapshot,
+            "judge": judge_snapshot,
         }
         results: list[CaseEvaluation] = []
         usage = EvaluationUsage()
@@ -124,9 +132,35 @@ class EvaluationRunner:
                 continue
             subject_result = await self._subject.observe(case, golden_set)
             metrics = await self._evaluator.evaluate(case, subject_result.observation)
-            result = CaseEvaluation(case.id, request_hash, metrics, subject_result.usage, False)
+            result_usage = subject_result.usage
+            judge_metrics: dict[str, float] | None = None
+            if self._judge is not None:
+                if subject_result.answer is None:
+                    raise ValueError(
+                        "the evaluation subject did not provide an answer for the judge"
+                    )
+                judge_result = await self._judge.evaluate(
+                    JudgeInput(
+                        case.question,
+                        subject_result.answer,
+                        tuple(subject_result.observation.authorized_roots.values()),
+                    )
+                )
+                judge_metrics = {
+                    "faithfulness": judge_result.scores.faithfulness,
+                    "relevancy": judge_result.scores.relevancy,
+                }
+                result_usage += judge_result.usage
+            result = CaseEvaluation(
+                case.id,
+                request_hash,
+                metrics,
+                result_usage,
+                False,
+                judge_metrics,
+            )
             results.append(result)
-            usage += subject_result.usage
+            usage += result_usage
             if self._cache is not None and subject_result.cacheable:
                 self._cache.put(result)
         run_id = _digest({**identity, "case_ids": [case.id for case in cases]})[:24]
@@ -138,9 +172,11 @@ class EvaluationRunner:
             config_snapshot,
             subject_snapshot,
             evaluator_snapshot,
+            judge_snapshot,
             estimated_llm_calls,
             tuple(results),
             _aggregate(tuple(results)),
+            _aggregate_judge(tuple(results)),
             usage,
         )
 
@@ -167,8 +203,10 @@ def evaluation_report_dict(report: EvaluationReport) -> dict[str, JsonValue]:
         "config_snapshot": dict(report.config_snapshot),
         "subject": dict(report.subject_snapshot),
         "evaluator": dict(report.evaluator_snapshot),
+        "judge": dict(report.judge_snapshot) if report.judge_snapshot is not None else None,
         "estimated_llm_calls": report.estimated_llm_calls,
         "aggregate_metrics": dict(report.aggregate_metrics),
+        "aggregate_judge_metrics": dict(report.aggregate_judge_metrics),
         "usage": cast(JsonValue, report.usage.to_dict()),
         "cases": cast(JsonValue, [
             {
@@ -177,6 +215,9 @@ def evaluation_report_dict(report: EvaluationReport) -> dict[str, JsonValue]:
                 "metrics": cast(JsonValue, result.metrics.to_dict()),
                 "usage": cast(JsonValue, result.usage.to_dict()),
                 "from_cache": result.from_cache,
+                "judge_metrics": (
+                    dict(result.judge_metrics) if result.judge_metrics is not None else None
+                ),
             }
             for result in report.cases
         ]),
@@ -218,6 +259,15 @@ def _evaluator_snapshot(info: EvaluatorInfo) -> dict[str, JsonValue]:
     }
 
 
+def _judge_snapshot(info: JudgeInfo) -> dict[str, JsonValue]:
+    return {
+        "name": info.name,
+        "version": info.version,
+        "estimated_llm_calls_per_case": info.estimated_llm_calls_per_case,
+        "supported_metrics": cast(JsonValue, sorted(info.supported_metrics)),
+    }
+
+
 def _aggregate(results: tuple[CaseEvaluation, ...]) -> dict[str, float | None]:
     names = tuple(MetricSet(None, None, None, None, None, 0).to_dict())
     aggregate: dict[str, float | None] = {}
@@ -226,6 +276,18 @@ def _aggregate(results: tuple[CaseEvaluation, ...]) -> dict[str, float | None]:
             value
             for result in results
             if (value := result.metrics.to_dict()[name]) is not None
+        ]
+        aggregate[name] = sum(values) / len(values) if values else None
+    return aggregate
+
+
+def _aggregate_judge(results: tuple[CaseEvaluation, ...]) -> dict[str, float | None]:
+    aggregate: dict[str, float | None] = {}
+    for name in ("faithfulness", "relevancy"):
+        values = [
+            result.judge_metrics[name]
+            for result in results
+            if result.judge_metrics is not None and name in result.judge_metrics
         ]
         aggregate[name] = sum(values) / len(values) if values else None
     return aggregate

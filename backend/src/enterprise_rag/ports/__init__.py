@@ -16,6 +16,15 @@ from enterprise_rag.ports.eval_subject import (
     EvaluationSubjectResult,
 )
 from enterprise_rag.ports.evaluator import Evaluator, EvaluatorInfo
+from enterprise_rag.ports.judge import (
+    Judge,
+    JudgeInfo,
+    JudgeInput,
+    JudgeRegistration,
+    JudgeRegistrationStatus,
+    JudgeResult,
+    JudgeScores,
+)
 from enterprise_rag.ports.llm import (
     CompletionRequest,
     CompletionResult,
@@ -98,6 +107,13 @@ __all__ = [
     "EvaluationSubjectResult",
     "Evaluator",
     "EvaluatorInfo",
+    "Judge",
+    "JudgeInfo",
+    "JudgeInput",
+    "JudgeRegistration",
+    "JudgeRegistrationStatus",
+    "JudgeResult",
+    "JudgeScores",
     "Provider",
     "PlannerRequest",
     "ProviderHealth",

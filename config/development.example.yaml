@@ -42,3 +42,9 @@ security:
   anonymous_daily_llm_calls: 500
   anonymous_daily_input_tokens: 10000000
   anonymous_daily_output_tokens: 1000000
+
+evaluation:
+  max_cases: 30
+  max_llm_calls: 0
+  llm_judge_enabled: false
+  llm_judge_max_output_tokens: 128
