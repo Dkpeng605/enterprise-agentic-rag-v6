@@ -12,6 +12,12 @@ from enterprise_rag.domain.documents import (
     RootKind,
 )
 from enterprise_rag.domain.errors import AppError, ErrorCode, ErrorDetail, ErrorResponse
+from enterprise_rag.domain.eval_run import (
+    CaseEvaluation,
+    EvaluationReport,
+    EvaluationRunConfig,
+    EvaluationUsage,
+)
 from enterprise_rag.domain.evaluation import (
     EvaluationCase,
     EvaluationCitation,
@@ -31,6 +37,7 @@ from enterprise_rag.domain.retrieval import (
 
 __all__ = [
     "AppError",
+    "CaseEvaluation",
     "Citation",
     "Document",
     "DocumentStatus",
@@ -43,6 +50,9 @@ __all__ = [
     "EvaluationCase",
     "EvaluationCitation",
     "EvaluationObservation",
+    "EvaluationReport",
+    "EvaluationRunConfig",
+    "EvaluationUsage",
     "GoldenDocument",
     "GoldenRoot",
     "GoldenSet",

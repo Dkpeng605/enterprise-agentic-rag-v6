@@ -218,7 +218,8 @@ pnpm --dir=frontend build
 - M5 MCP 与全链路可观测性里程碑：已完成
 - M6-01 Evaluator Contracts：已完成
 - M6-02 Golden Set：已完成
-- 下一项：M6-03 Eval Runner
+- M6-03 Eval Runner：已完成
+- 下一项：M6-04 LLM Judge
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -237,6 +238,16 @@ Prometheus 指标使用应用内独立 Registry，覆盖 HTTP、Query、Retrieva
 评测领域现在拥有与传输层、数据库和具体检索实现解耦的不可变 Case、运行观测、指标结果与可插拔 Evaluator 契约。内置确定性评测器计算 Document/Root Recall@5、Root MRR@10、引用覆盖率、严格原文引用有效率和拒答准确率，并为无 Gold、无引用回答与正确拒答定义稳定的 `null`/`0` 语义。评测器同时声明支持指标与预计 LLM 成本，后续 Runner 可在运行前执行预算控制。
 
 首版 Golden Set 位于 `evals/golden/v1`：30 条人工改写 Case 按中文/英文各 15 条组织，并精确覆盖关键词、语义改写、比较、metadata scope、表格、OCR 和不可回答问题。版本化 manifest、JSON Schema 与严格 Loader 会校验未知字段、schema revision、重复或悬空 ID、collection scope、期望事实原文及分类/语言数量，防止评测输入静默漂移。
+
+Eval Runner 会在运行前按 Case 数和组件能力声明估算最坏 LLM 调用，超过预算时零 Provider 调用直接拒绝。配置、数据 revision、commit、Subject/Evaluator 版本共同形成稳定 hash；只有完整成功结果才按 request hash 缓存。以下零成本命令生成 Runner 机制验收报告；输出会明确标记 `golden-fixture-oracle`，不能作为产品检索准确率：
+
+```bash
+cd backend
+uv run enterprise-rag-eval \
+  --manifest ../evals/golden/v1/manifest.yaml \
+  --report ../artifacts/evals/local-smoke.json \
+  --commit-sha "$(git rev-parse HEAD)"
+```
 
 本地可直接访问 `http://127.0.0.1:8000/metrics`。生产环境必须配置 `METRICS_TOKEN`，抓取时发送：
 

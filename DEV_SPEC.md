@@ -1670,11 +1670,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
-| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 进行中（2/6） |
+| M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 进行中（3/6） |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 40/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 41/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2127,8 +2127,26 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M6-03 Eval Runner
 
-- 配置 snapshot、预算、缓存、报告；
-- 验收：重复运行可比较，超预算拒绝。
+- 状态：已完成；
+- Subject 边界：`EvaluationSubject` Protocol 将“被评系统生成观测”与指标计算分离，能力
+  元数据声明名称、版本及每 Case 最坏 LLM/Embedding/Rerank 调用数；Runner 不依赖具体
+  Query API、Provider 或 fixture；
+- 配置快照：每次运行固定 provider、model、prompt revision、index revision、commit SHA、
+  max cases、LLM 预算和非敏感运行设置；规范 JSON 经 SHA-256 生成 `config_hash`；
+- 预算预检：执行前按实际选中 Case 数乘以 Subject 与 Evaluator 的最坏 LLM 调用声明；
+  估算值大于 `max_llm_calls` 时抛出稳定 `EvaluationBudgetExceeded`，且不得调用 Subject；
+- 成功缓存：缓存键同时包含 dataset revision、完整配置 hash、Subject/Evaluator 名称与版本、
+  Case ID；只在 Subject 明确 `cacheable` 且观测与指标均成功后写入，配置或组件版本变化自动
+  失效，异常/截断结果不会进入缓存；
+- 可比较报告：报告包含稳定 run ID、输入 revision、完整配置/组件 snapshot、估算调用、逐
+  Case request hash/指标/usage/cache 状态、聚合指标和本次真实 usage；`null` 指标在聚合时
+  排除。相同输入的 run ID、config hash 和指标保持一致；
+- 原子输出：JSON 使用 UTF-8、固定 key 顺序和临时文件 replace；CLI
+  `enterprise-rag-eval` 可运行内置零成本 fixture oracle。该 Subject 明确标为
+  `golden-fixture-oracle`，只验证 Runner 机制，不得被引用为产品质量结果；
+- 验收：测试证明重复运行只调用 Subject 一轮、配置变化使缓存失效、预算超限前零调用、
+  报告重复写入字节一致；三 Case CLI smoke 成功生成报告；
+- PR：`feat/m6-eval-runner`。
 
 #### M6-04 LLM Judge
 
