@@ -10,6 +10,7 @@ from uuid import UUID
 from enterprise_rag.domain.common import require_non_empty
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import QueryMode, QueryPlan, QueryScope, RetrievalHit
+from enterprise_rag.observability import start_span, trace_async
 from enterprise_rag.ports.context import ResolvedQueryScope, ScopeAuthorization
 from enterprise_rag.ports.llm import CompletionRequest, LanguageModel
 from enterprise_rag.ports.planner import ConversationTurn, PlannerRequest
@@ -146,42 +147,58 @@ class StandardQueryGraph:
         try:
             transitions.append(StageTransition(QueryGraphStage.PLAN))
             llm_calls += 1
-            planned = await self._planner.plan(
-                PlannerRequest(
-                    request.query,
-                    request.history,
-                    request.requested_scope,
-                    QueryMode.STANDARD,
+            planned = await trace_async(
+                "rag.query_planning",
+                self._planner.plan(
+                    PlannerRequest(
+                        request.query,
+                        request.history,
+                        request.requested_scope,
+                        QueryMode.STANDARD,
+                    )
                 )
             )
             plan = planned.plan
             planner_degraded = planned.degraded
 
             transitions.append(StageTransition(QueryGraphStage.SEARCH))
-            searched = await asyncio.gather(
-                *(
-                    self._search.search(
-                        query=query,
-                        tenant_id=request.authorization.tenant_id,
-                        index_revision=request.index_revision,
-                        scope=plan.scope,
+
+            async def search_all() -> list[DualSearchResult]:
+                return await asyncio.gather(
+                    *(
+                        self._search.search(
+                            query=query,
+                            tenant_id=request.authorization.tenant_id,
+                            index_revision=request.index_revision,
+                            scope=plan.scope,
+                        )
+                        for query in plan.sub_queries
                     )
-                    for query in plan.sub_queries
                 )
+
+            searched = await trace_async(
+                "rag.retrieval",
+                search_all(),
+                attributes={"rag.retrieval.sub_query_count": len(plan.sub_queries)},
             )
             transitions.append(StageTransition(QueryGraphStage.FUSE))
-            fused = self._fusion.fuse(tuple(searched))
+            with start_span("rag.rrf_fusion") as stage_span:
+                fused = self._fusion.fuse(tuple(searched))
+                stage_span.set_attribute("rag.candidate_count", len(fused.hits))
 
             transitions.append(StageTransition(QueryGraphStage.AUTHORIZE))
-            if fused.hits:
-                prepared = await self._scope_root.prepare_candidates(
-                    request.authorization, plan.scope, fused.hits
-                )
-                scope = prepared.scope
-                items = prepared.items
-            else:
-                scope = await self._scope_root.resolve_scope(request.authorization, plan.scope)
-                items = ()
+            with start_span("rag.auth_and_scope"):
+                if fused.hits:
+                    prepared = await self._scope_root.prepare_candidates(
+                        request.authorization, plan.scope, fused.hits
+                    )
+                    scope = prepared.scope
+                    items = prepared.items
+                else:
+                    scope = await self._scope_root.resolve_scope(
+                        request.authorization, plan.scope
+                    )
+                    items = ()
             if not items:
                 transitions.append(StageTransition(QueryGraphStage.NO_RESULTS))
                 return _result(
@@ -196,10 +213,14 @@ class StandardQueryGraph:
                 )
 
             transitions.append(StageTransition(QueryGraphStage.RERANK))
-            reranked = await self._reranking.rerank(plan.rewritten_query, items)
+            reranked = await trace_async(
+                "rag.rerank", self._reranking.rerank(plan.rewritten_query, items)
+            )
             reranker_degraded = reranked.degraded
             transitions.append(StageTransition(QueryGraphStage.RECOVER))
-            recovered = await self._scope_root.recover(scope, reranked.hits)
+            recovered = await trace_async(
+                "rag.root_restore", self._scope_root.recover(scope, reranked.hits)
+            )
             roots = recovered.roots
             if not roots:
                 transitions.append(StageTransition(QueryGraphStage.NO_RESULTS))
@@ -218,24 +239,28 @@ class StandardQueryGraph:
             llm_calls += 1
             if llm_calls > 2:
                 raise RuntimeError("Standard graph exceeded its LLM call ceiling")
-            completion = await self._language_model.complete(
-                CompletionRequest(
-                    "Answer only from the supplied evidence. State uncertainty explicitly.",
-                    _answer_prompt(plan, roots),
-                    self._max_output_tokens,
+            completion = await trace_async(
+                "rag.answer_generation",
+                self._language_model.complete(
+                    CompletionRequest(
+                        "Answer only from the supplied evidence. State uncertainty explicitly.",
+                        _answer_prompt(plan, roots),
+                        self._max_output_tokens,
+                    )
                 )
             )
             transitions.append(StageTransition(QueryGraphStage.COMPLETE))
-            return _result(
-                QueryGraphStatus.COMPLETE,
-                completion.text,
-                plan,
-                roots,
-                transitions,
-                llm_calls,
-                planner_degraded,
-                reranker_degraded,
-            )
+            with start_span("rag.response_finalize"):
+                return _result(
+                    QueryGraphStatus.COMPLETE,
+                    completion.text,
+                    plan,
+                    roots,
+                    transitions,
+                    llm_calls,
+                    planner_degraded,
+                    reranker_degraded,
+                )
         except Exception as error:
             transitions.append(StageTransition(QueryGraphStage.FAILED))
             return _result(

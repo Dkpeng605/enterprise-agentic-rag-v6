@@ -1,14 +1,18 @@
 """FastAPI composition root, request boundary, and workspace routes."""
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
+from time import perf_counter
 from typing import Final
 from uuid import UUID
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from opentelemetry import propagate
+from opentelemetry.trace import Status, StatusCode, TracerProvider
 
 from enterprise_rag import __version__
 from enterprise_rag.adapters.database import Database, PostgreSQLUsageStore
@@ -18,6 +22,7 @@ from enterprise_rag.api.routes import create_api_router
 from enterprise_rag.config import AppSettings, load_settings
 from enterprise_rag.domain.common import new_uuid7, utc_now
 from enterprise_rag.domain.errors import AppError, ErrorCode, ErrorDetail, ErrorResponse
+from enterprise_rag.observability import bind_context, start_span
 from enterprise_rag.ports.object_store import ObjectStore
 from enterprise_rag.ports.usage import UsageAmounts, UsageLimits, UsageStore
 from enterprise_rag.services.auth import AnonymousSessionService
@@ -27,6 +32,7 @@ from enterprise_rag.services.query_api import QueryApiService, QueryRunner
 from enterprise_rag.services.workspace import WorkspaceService
 
 SERVICE_NAME: Final = "enterprise-agentic-rag-v6"
+LOGGER = logging.getLogger(__name__)
 Clock = Callable[[], datetime]
 RequestHandler = Callable[[Request], Awaitable[Response]]
 
@@ -57,6 +63,7 @@ def create_app(
     query_runner: QueryRunner | None = None,
     usage_store: UsageStore | None = None,
     query_heartbeat_seconds: float = 15.0,
+    tracer_provider: TracerProvider | None = None,
     clock: Clock = utc_now,
 ) -> FastAPI:
     """Build the ASGI application and optionally compose configured infrastructure."""
@@ -93,7 +100,29 @@ def create_app(
     async def request_identity(request: Request, call_next: RequestHandler) -> Response:
         request_id = new_uuid7()
         request.state.request_id = request_id
-        response = await call_next(request)
+        started = perf_counter()
+        with bind_context(request_id=request_id), start_span(
+            "http.request",
+            attributes={
+                "http.request.method": request.method,
+                "url.path": request.url.path,
+            },
+            tracer_provider=tracer_provider,
+            context=propagate.extract(request.headers),
+        ) as span:
+            response = await call_next(request)
+            span.set_attribute("http.response.status_code", response.status_code)
+            span.set_attribute("app.outcome", "error" if response.status_code >= 400 else "ok")
+            if response.status_code >= 500:
+                span.set_status(Status(StatusCode.ERROR))
+            LOGGER.info(
+                "http.request.completed",
+                extra={
+                    "event_code": "HTTP_REQUEST_COMPLETED",
+                    "outcome": "error" if response.status_code >= 400 else "ok",
+                    "duration_ms": round((perf_counter() - started) * 1000, 3),
+                },
+            )
         response.headers["X-Request-ID"] = str(request_id)
         return response
 
@@ -189,7 +218,8 @@ def create_app(
                             clock,
                         ),
                         heartbeat_seconds=query_heartbeat_seconds,
-                    )
+                    ),
+                    tracer_provider=tracer_provider,
                 )
                 if query_runner is not None
                 else None

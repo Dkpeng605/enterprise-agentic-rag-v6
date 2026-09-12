@@ -90,6 +90,8 @@ uv run --project backend uvicorn your_package.bootstrap:mcp_app
 
 公网 `public_base_url` 必须使用 HTTPS；只有本地测试组合可以显式设置 `allow_insecure_http=True`。客户端必须发送 `Authorization: Bearer <token>`。Token 只以 pepper-HMAC 保存，绑定 tenant、actor、Tool scopes 和 collection allowlist；匿名 demo 用户不能签发或管理 Token。M9-03 才会提供系统管理员签发/撤销界面，因此当前需由受信任的部署/bootstrap 流程写入 `api_tokens`，仓库不会提供默认 Token。
 
+默认后端入口把应用日志写成单行 JSON，包含环境、request/trace/span/tenant correlation 和稳定事件字段。HTTP 接受 W3C `traceparent`；Query、Standard RAG 阶段和 Ingestion 阶段已接入 OpenTelemetry。应用只创建 spans，不默认把 Trace 发到外部服务；生产组合可向 `create_app`、`KnowledgeApplication` 和 `IngestionPipeline` 注入 SDK `TracerProvider`，M5-05 会增加 PostgreSQL Trace Exporter。日志/span 不记录 query string、请求体、原始问题、Root 正文、Prompt、Authorization、Cookie 或密钥。
+
 写请求必须先调用 `GET /api/v1/auth/me`，保留响应 Cookie，并把响应中的 `csrf_token` 放入 `X-CSRF-Token` header。开发环境的 HTTP Cookie 不设置 Secure；生产环境或 HTTPS base URL 强制设置 Secure。
 
 在第二个终端启动前端：
@@ -206,7 +208,8 @@ pnpm --dir=frontend build
 - M5-01 MCP Application Layer：已完成
 - M5-02 stdio MCP：已完成
 - M5-03 HTTP MCP：已完成
-- 下一项：M5-04 Trace/Logging
+- M5-04 Trace/Logging：已完成
+- 下一项：M5-05 Trace Persistence
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -215,6 +218,8 @@ Cost Guard 在 QueryRunner 进入任何 Provider 逻辑前，通过 PostgreSQL �
 `KnowledgeApplication` 现已成为 HTTP、MCP 与后续 CLI 的唯一查询用例入口，统一负责服务端身份绑定、Query ID、同步执行和 SSE 流。stdio Adapter 基于官方 MCP SDK v2 暴露 6 个只读 Tool，以及 collection/document/section Resource；所有身份均由进程端绑定。Tool 同时返回人类可读内容和结构化结果，错误经过净化。入口强制 stdout 只承载 JSON-RPC，并由真实 SDK 客户端子进程测试覆盖 list/call/read 与缓冲输出隔离。
 
 Streamable HTTP Adapter 在 `/mcp` 强制 Bearer Token，并在协议分发前校验连接 scope。Token 原文不会入库；请求身份从不可变的认证 claims 建立，Tool scope 与 collection allowlist 只能继续收窄。公网组合拒绝 HTTP，并启用 Host/Origin 防护。当前 Token 管理仍属于后续系统管理员里程碑，匿名 demo 全业务权限不包含 Token、密钥和系统配置权限。
+
+可观测性基线使用 task-local correlation context、JSON Lines 日志和 OpenTelemetry spans。HTTP 上游 trace context 会向 Query 与 RAG 阶段传播，异步并发不会串 tenant/query/job；Standard 与 Ingestion 的主要阶段均有独立子 span。遥测采用字段 allow-list，敏感属性会被拒绝，异常消息不会自动写入 span。
 
 PostgreSQL 任务 Repository 已实现入队、独占租约、启动、心跳、重试、取消、成功和超期租约回收。Worker 使用 owner 字符串标识自身并续租限时 lease；过期或错误 owner 的更新会被拒绝。进度只能单调增加，重试不超过 `max_attempts`，并发 Worker 通过 `FOR UPDATE SKIP LOCKED` 确保同一任务只能被一个 Worker 领取。
 

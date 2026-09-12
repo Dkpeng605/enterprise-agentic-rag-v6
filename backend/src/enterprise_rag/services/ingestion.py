@@ -1,11 +1,15 @@
 """Lease-aware, resumable ingestion Pipeline orchestration."""
 
+import logging
 import tempfile
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import UUID
+
+from opentelemetry import trace
+from opentelemetry.trace import TracerProvider
 
 from enterprise_rag.adapters.database.engine import Database
 from enterprise_rag.adapters.database.ingestion import (
@@ -16,6 +20,7 @@ from enterprise_rag.adapters.database.jobs import IngestionJobRepository
 from enterprise_rag.domain.common import utc_now
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.jobs import JobSnapshot, JobStatus
+from enterprise_rag.observability import bind_context, start_span
 from enterprise_rag.ports.cleaner import Cleaner
 from enterprise_rag.ports.loader import BinarySource, IngestionContext, LoadedRoot, Loader
 from enterprise_rag.ports.object_store import ObjectStore
@@ -25,6 +30,7 @@ from enterprise_rag.services.images import EnrichedImage, ImageEnricher
 from enterprise_rag.services.projection import ProjectionRequest, ProjectionService
 
 Clock = Callable[[], datetime]
+LOGGER = logging.getLogger(__name__)
 _TERMINAL_INPUT_ERRORS = frozenset(
     {
         ErrorCode.DOCUMENT_UNSUPPORTED_TYPE,
@@ -74,6 +80,7 @@ class IngestionPipeline:
         index_revision: str,
         lease_for: timedelta = timedelta(minutes=2),
         retry_delay: timedelta = timedelta(seconds=5),
+        tracer_provider: TracerProvider | None = None,
         clock: Clock = utc_now,
     ) -> None:
         if not loaders:
@@ -95,6 +102,7 @@ class IngestionPipeline:
         self._index_revision = index_revision
         self._lease_for = lease_for
         self._retry_delay = retry_delay
+        self._tracer_provider = tracer_provider
         self._clock = clock
 
     async def run_once(self, *, owner: str) -> PipelineRunResult | None:
@@ -112,12 +120,33 @@ class IngestionPipeline:
         return await self._execute(running, owner=owner)
 
     async def _execute(self, job: JobSnapshot, *, owner: str) -> PipelineRunResult:
+        with bind_context(job_id=job.id), start_span(
+            "rag.ingestion",
+            attributes={"rag.ingestion.attempt": job.attempts},
+            tracer_provider=self._tracer_provider,
+        ) as span:
+            result = await self._execute_traced(job, owner=owner)
+            span.set_attribute("rag.ingestion.status", result.job.status.value)
+            span.set_attribute("rag.ingestion.completed", result.completed)
+            LOGGER.info(
+                "rag.ingestion.terminal",
+                extra={
+                    "event_code": "INGESTION_TERMINAL",
+                    "outcome": result.job.status.value,
+                },
+            )
+            return result
+
+    async def _execute_traced(self, job: JobSnapshot, *, owner: str) -> PipelineRunResult:
         work: IngestionWork | None = None
         try:
             async with self._database.session() as session:
                 work = await IngestionContentRepository(session).prepare(
                     job_id=job.id, owner=owner, now=self._clock()
                 )
+            current_span = trace.get_current_span()
+            current_span.set_attribute("app.tenant_id", str(work.tenant_id))
+            current_span.set_attribute("app.document_id", str(work.document_id))
             await self._checkpoint(job.id, owner, 10, "loading")
             loader = self._select_loader(work.media_type, work.source_name)
             with tempfile.TemporaryDirectory(
@@ -130,49 +159,75 @@ class IngestionPipeline:
                     temporary_directory=Path(temporary),
                     index_revision=self._index_revision,
                 )
-                loaded = await loader.load(
-                    _StoredSource(
-                        work.source_name,
-                        work.media_type,
-                        work.object_key,
-                        self._object_store,
-                    ),
-                    context,
-                )
+                with start_span(
+                    "rag.ingestion.load", tracer_provider=self._tracer_provider
+                ) as stage_span:
+                    loaded = await loader.load(
+                        _StoredSource(
+                            work.source_name,
+                            work.media_type,
+                            work.object_key,
+                            self._object_store,
+                        ),
+                        context,
+                    )
+                    stage_span.set_attribute("rag.ingestion.root_count", len(loaded))
                 await self._checkpoint(job.id, owner, 30, "images")
-                enriched = [await self._enrich_root(root) for root in loaded]
+                with start_span(
+                    "rag.ingestion.images", tracer_provider=self._tracer_provider
+                ):
+                    enriched = [await self._enrich_root(root) for root in loaded]
                 await self._checkpoint(job.id, owner, 40, "cleaning")
-                cleaned = await self._cleaner.clean_all(enriched, context)
+                with start_span(
+                    "rag.ingestion.clean", tracer_provider=self._tracer_provider
+                ):
+                    cleaned = await self._cleaner.clean_all(enriched, context)
                 await self._checkpoint(job.id, owner, 55, "splitting")
-                split_results = [
-                    await self._splitter.split(result.root, context) for result in cleaned
-                ]
+                with start_span(
+                    "rag.ingestion.split", tracer_provider=self._tracer_provider
+                ) as stage_span:
+                    split_results = [
+                        await self._splitter.split(result.root, context) for result in cleaned
+                    ]
+                    stage_span.set_attribute(
+                        "rag.ingestion.leaf_count",
+                        sum(len(result.leaves) for result in split_results),
+                    )
             roots = tuple(result.root for result in split_results)
             leaves = tuple(leaf for result in split_results for leaf in result.leaves)
             await self._checkpoint(job.id, owner, 65, "persisting")
-            async with self._database.session() as session:
-                await IngestionContentRepository(session).replace_content(
-                    version_id=work.version_id, roots=roots, leaves=leaves
-                )
+            with start_span(
+                "rag.ingestion.persist", tracer_provider=self._tracer_provider
+            ):
+                async with self._database.session() as session:
+                    await IngestionContentRepository(session).replace_content(
+                        version_id=work.version_id, roots=roots, leaves=leaves
+                    )
             await self._checkpoint(job.id, owner, 75, "projecting")
-            await self._projection.project(
-                ProjectionRequest(
-                    work.tenant_id,
-                    work.collection_id,
-                    work.document_id,
-                    work.version_id,
-                    self._index_revision,
-                    leaves,
+            with start_span(
+                "rag.ingestion.project", tracer_provider=self._tracer_provider
+            ):
+                await self._projection.project(
+                    ProjectionRequest(
+                        work.tenant_id,
+                        work.collection_id,
+                        work.document_id,
+                        work.version_id,
+                        self._index_revision,
+                        leaves,
+                    )
                 )
-            )
             await self._checkpoint(job.id, owner, 95, "finalizing")
-            async with self._database.session() as session:
-                await IngestionContentRepository(session).finalize(
-                    work, expected_leaves=len(leaves)
-                )
-                succeeded = await IngestionJobRepository(session).succeed(
-                    job.id, owner=owner, now=self._clock()
-                )
+            with start_span(
+                "rag.ingestion.finalize", tracer_provider=self._tracer_provider
+            ):
+                async with self._database.session() as session:
+                    await IngestionContentRepository(session).finalize(
+                        work, expected_leaves=len(leaves)
+                    )
+                    succeeded = await IngestionJobRepository(session).succeed(
+                        job.id, owner=owner, now=self._clock()
+                    )
             return PipelineRunResult(succeeded, True)
         except _PipelineCancelled:
             if work is not None:
