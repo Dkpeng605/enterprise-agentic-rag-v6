@@ -1669,12 +1669,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M2 | PostgreSQL、Milvus Lite 与文档生命周期 | 6 | 完成 |
 | M3 | 多格式摄取流水线 | 10 | 完成 |
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
-| M5 | MCP 与全链路可观测性 | 6 | M5-01～M5-03 完成 |
+| M5 | MCP 与全链路可观测性 | 6 | M5-01～M5-04 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 未开始 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 未开始 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 35/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 36/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2000,8 +2000,31 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M5-04 Trace/Logging
 
-- context、JSON logger、OTel spans；
-- 验收：字段完整、敏感值不出现。
+- 依赖与标准：锁定 OpenTelemetry API/SDK `>=1.38,<2`，使用 instrumentation scope
+  `enterprise_rag` 与项目版本；HTTP 入口只从 W3C propagator 提取上游 trace context，不复制或记录原始
+  headers，未提供 `traceparent` 时创建本地 root span；
+- Correlation Context：不可变 `ObservationContext` 通过 `ContextVar` 保存 request、tenant、actor、query、
+  ingestion job 和 document ID；嵌套 context 离开作用域必须恢复，并发 asyncio Task 之间不得串值；
+- Tracer Provider：`create_app`、`KnowledgeApplication` 与 `IngestionPipeline` 接受可注入 Provider；根 span
+  将 Provider 写入 task-local context，使下层服务无需依赖全局单例即可创建同一 Trace 的子 span；
+- HTTP/Query：`http.request` 只记录 method、path、status 与 outcome，不记录 query string、header、body 或
+  IP；`rag.query`/`rag.query.stream` 记录 mode、status、citation count 和服务端 ID，不保存问题正文；
+- Standard 链路：显式记录 `query_planning`、`retrieval`、`rrf_fusion`、`auth_and_scope`、`rerank`、
+  `root_restore`、`answer_generation`、`response_finalize`；Dense/Sparse 各自记录 provider、SHA-256
+  query hash、Top-K、scope 数、candidate count 和 candidate IDs，不记录 query/vector/Root/Prompt；Planner
+  与 Reranker 的 fallback 记录 degraded 和稳定 error code；
+- Ingestion 链路：job 领取后创建 `rag.ingestion`，记录 job/tenant/document、attempt、终态；子 span 覆盖
+  load、images、clean、split、persist、project、finalize，并只记录 Root/Leaf 数量等有界元数据；
+- 错误语义：span 捕获异常时仅写 `error.type` 与 ERROR status，不调用可能保存异常 message/stack 的默认
+  exception event；调用方如需稳定业务错误码可单独写 `error.code`；
+- JSON Logs：生产入口输出单行 JSON，固定 allow-list 至少包含 timestamp、level、service、environment、
+  request_id、trace_id、span_id、tenant_id、event、message、error_code；可选 actor/query/job/document、outcome、
+  duration；任意 `extra` 不会自动序列化，Bearer 和常见 credential assignment 在 message 中二次遮蔽；
+- 敏感属性防线：通用 span helper 拒绝 Authorization、Cookie、password、secret、API key、raw token、
+  query/document text、Prompt 和 request body 类属性名；调用点只允许字符串、布尔、数值和有界字符串序列；
+- 验收：内存 SpanExporter 精确验证 traceparent、父子关系、必需字段和 Standard/Ingestion spans；并发 Task
+  验证 ContextVar 隔离；JSON log fixture 同时放入 Bearer、token assignment、未知 extra 和带 secret 的异常，
+  输出中均不得出现；敏感 span 属性参数化测试必须在 export 前失败。
 
 #### M5-05 Trace Persistence
 

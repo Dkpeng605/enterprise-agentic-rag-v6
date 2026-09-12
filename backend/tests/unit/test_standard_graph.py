@@ -2,8 +2,12 @@ from collections.abc import Sequence
 from uuid import UUID
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from enterprise_rag.domain import QueryIntent, QueryMode, QueryPlan, QueryScope, RetrievalHit
+from enterprise_rag.observability import start_span
 from enterprise_rag.ports import (
     CompletionRequest,
     CompletionResult,
@@ -295,3 +299,32 @@ async def test_planner_degradation_is_visible_without_adding_an_llm_call() -> No
     assert result.status is QueryGraphStatus.COMPLETE
     assert result.planner_degraded is True
     assert result.llm_calls == 2
+
+
+@pytest.mark.anyio
+async def test_standard_graph_emits_stage_spans_without_evidence_text() -> None:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    runner, *_ = graph(hits=(retrieval_hit(),), roots=(root_context(),))
+
+    with start_span("rag.query", tracer_provider=provider):
+        result = await runner.run(request())
+
+    assert result.status is QueryGraphStatus.COMPLETE
+    spans = {span.name: span for span in exporter.get_finished_spans()}
+    assert {
+        "rag.query",
+        "rag.query_planning",
+        "rag.retrieval",
+        "rag.rrf_fusion",
+        "rag.auth_and_scope",
+        "rag.rerank",
+        "rag.root_restore",
+        "rag.answer_generation",
+        "rag.response_finalize",
+    } <= set(spans)
+    assert all(span.parent is not None for name, span in spans.items() if name != "rag.query")
+    assert "root evidence" not in repr(
+        [(span.name, span.attributes) for span in spans.values()]
+    )

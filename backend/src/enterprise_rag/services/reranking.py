@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import RetrievalHit
+from enterprise_rag.observability import start_span
 from enterprise_rag.ports.reranker import RerankCandidate, Reranker
 
 
@@ -55,28 +56,42 @@ class RerankingService:
             RerankCandidate(item.hit.leaf_id, item.retrieval_text, item.hit.fused_score)
             for item in candidates
         )
-        try:
-            results = await self._provider.rerank(query, request, top_k=selected_count)
-            scores = self._validate_results(
-                results,
-                candidate_ids={item.hit.leaf_id for item in candidates},
-                expected_count=selected_count,
-            )
-        except Exception as error:
-            code = (
-                error.code
-                if isinstance(error, AppError)
-                and error.code
-                in {ErrorCode.RERANKER_UNAVAILABLE, ErrorCode.RERANKER_INVALID_RESPONSE}
-                else ErrorCode.RERANKER_INVALID_RESPONSE
-            )
-            return RerankOutcome(
-                tuple(self._selected_hit(item.hit, None) for item in candidates[:selected_count]),
-                provider_name,
-                len(candidates),
-                True,
-                code,
-            )
+        with start_span(
+            "rag.rerank.provider",
+            attributes={
+                "provider.name": provider_name,
+                "rag.candidate_count": len(candidates),
+            },
+        ) as span:
+            try:
+                results = await self._provider.rerank(query, request, top_k=selected_count)
+                scores = self._validate_results(
+                    results,
+                    candidate_ids={item.hit.leaf_id for item in candidates},
+                    expected_count=selected_count,
+                )
+            except Exception as error:
+                code = (
+                    error.code
+                    if isinstance(error, AppError)
+                    and error.code
+                    in {ErrorCode.RERANKER_UNAVAILABLE, ErrorCode.RERANKER_INVALID_RESPONSE}
+                    else ErrorCode.RERANKER_INVALID_RESPONSE
+                )
+                span.set_attribute("rag.degraded", True)
+                span.set_attribute("error.code", code.value)
+                return RerankOutcome(
+                    tuple(
+                        self._selected_hit(item.hit, None)
+                        for item in candidates[:selected_count]
+                    ),
+                    provider_name,
+                    len(candidates),
+                    True,
+                    code,
+                )
+            span.set_attribute("rag.degraded", False)
+            span.set_attribute("rag.selected_count", len(scores))
         original_order = {item.hit.leaf_id: index for index, item in enumerate(candidates)}
         selected_items = [item for item in candidates if item.hit.leaf_id in scores]
         selected_items.sort(

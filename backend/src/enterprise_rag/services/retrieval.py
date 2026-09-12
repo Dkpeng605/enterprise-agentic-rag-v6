@@ -1,12 +1,14 @@
 """Independent dense and sparse retrieval with mandatory scope pushdown."""
 
 import asyncio
+import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
 
 from enterprise_rag.domain.common import require_non_empty, require_uuid7
 from enterprise_rag.domain.retrieval import QueryScope
+from enterprise_rag.observability import start_span, trace_async
 from enterprise_rag.ports.embedding import EmbeddingProvider
 from enterprise_rag.ports.sparse import SparseEncoder
 from enterprise_rag.ports.vector_store import (
@@ -76,8 +78,18 @@ class DualSearchService:
         require_non_empty(index_revision, "index_revision")
         require_uuid7(tenant_id, "tenant_id")
         active_scope = scope or QueryScope()
+        query_hash = hashlib.sha256(query.encode()).hexdigest()
         dense_vector, sparse_vector = await asyncio.gather(
-            self._embedding.embed_query(query), self._sparse.encode_query(query)
+            trace_async(
+                "rag.query_embedding",
+                self._embedding.embed_query(query),
+                attributes={"provider.name": self._embedding.info().name},
+            ),
+            trace_async(
+                "rag.sparse_encoding",
+                self._sparse.encode_query(query),
+                attributes={"provider.name": self._sparse.info().name},
+            ),
         )
         dense_request = DenseSearchRequest(
             index_revision=index_revision,
@@ -96,8 +108,8 @@ class DualSearchService:
             document_ids=active_scope.document_ids,
         )
         dense_hits, sparse_hits = await asyncio.gather(
-            self._vector_store.dense_search(dense_request),
-            self._vector_store.sparse_search(sparse_request),
+            self._search_dense(dense_request, query_hash),
+            self._search_sparse(sparse_request, query_hash),
         )
         dense = self._branch(
             SearchMethod.DENSE,
@@ -112,6 +124,42 @@ class DualSearchService:
             active_scope,
         )
         return DualSearchResult(query, dense, sparse)
+
+    async def _search_dense(
+        self, request: DenseSearchRequest, query_hash: str
+    ) -> list[VectorHit]:
+        with start_span(
+            "rag.dense_retrieval",
+            attributes={
+                "provider.name": self._vector_store.info().name,
+                "rag.query_hash": query_hash,
+                "rag.requested_top_k": request.top_k,
+                "rag.scope.collection_count": len(request.collection_ids),
+                "rag.scope.document_count": len(request.document_ids),
+            },
+        ) as span:
+            hits = await self._vector_store.dense_search(request)
+            span.set_attribute("rag.candidate_count", len(hits))
+            span.set_attribute("rag.candidate_ids", tuple(hit.leaf_id for hit in hits))
+            return hits
+
+    async def _search_sparse(
+        self, request: SparseSearchRequest, query_hash: str
+    ) -> list[VectorHit]:
+        with start_span(
+            "rag.sparse_retrieval",
+            attributes={
+                "provider.name": self._vector_store.info().name,
+                "rag.query_hash": query_hash,
+                "rag.requested_top_k": request.top_k,
+                "rag.scope.collection_count": len(request.collection_ids),
+                "rag.scope.document_count": len(request.document_ids),
+            },
+        ) as span:
+            hits = await self._vector_store.sparse_search(request)
+            span.set_attribute("rag.candidate_count", len(hits))
+            span.set_attribute("rag.candidate_ids", tuple(hit.leaf_id for hit in hits))
+            return hits
 
     @staticmethod
     def _branch(

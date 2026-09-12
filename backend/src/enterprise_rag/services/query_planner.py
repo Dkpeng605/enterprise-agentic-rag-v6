@@ -7,6 +7,7 @@ from uuid import UUID
 
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import QueryIntent, QueryPlan, QueryScope
+from enterprise_rag.observability import start_span
 from enterprise_rag.ports.planner import ConversationRole, PlannerRequest, QueryPlannerProvider
 
 _CJK = re.compile(r"[\u3400-\u9fff]")
@@ -34,19 +35,26 @@ class QueryPlanningService:
 
     async def plan(self, request: PlannerRequest) -> PlannerOutcome:
         provider_name = self._provider.info().name
-        try:
-            payload = await self._provider.plan(request)
-            plan = self._parse_plan(payload, request)
-        except Exception as error:
-            code = (
-                error.code
-                if isinstance(error, AppError)
-                and error.code
-                in {ErrorCode.PLANNER_UNAVAILABLE, ErrorCode.PLANNER_INVALID_RESPONSE}
-                else ErrorCode.PLANNER_INVALID_RESPONSE
-            )
-            return PlannerOutcome(self._deterministic_plan(request), provider_name, True, code)
-        return PlannerOutcome(plan, provider_name, False)
+        with start_span(
+            "rag.query_planning.provider", attributes={"provider.name": provider_name}
+        ) as span:
+            try:
+                payload = await self._provider.plan(request)
+                plan = self._parse_plan(payload, request)
+            except Exception as error:
+                code = (
+                    error.code
+                    if isinstance(error, AppError)
+                    and error.code
+                    in {ErrorCode.PLANNER_UNAVAILABLE, ErrorCode.PLANNER_INVALID_RESPONSE}
+                    else ErrorCode.PLANNER_INVALID_RESPONSE
+                )
+                span.set_attribute("rag.degraded", True)
+                span.set_attribute("error.code", code.value)
+                return PlannerOutcome(self._deterministic_plan(request), provider_name, True, code)
+            span.set_attribute("rag.degraded", False)
+            span.set_attribute("rag.sub_query_count", len(plan.sub_queries))
+            return PlannerOutcome(plan, provider_name, False)
 
     def _parse_plan(self, payload: Mapping[str, object], request: PlannerRequest) -> QueryPlan:
         required_keys = {

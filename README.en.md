@@ -90,6 +90,8 @@ uv run --project backend uvicorn your_package.bootstrap:mcp_app
 
 The public `public_base_url` must use HTTPS; only a local test composition may opt into `allow_insecure_http=True`. Clients send `Authorization: Bearer <token>`. Tokens are stored only as peppered HMACs and bind a tenant, actor, tool scopes, and a collection allowlist. Anonymous demo users cannot issue or administer tokens. The system-admin issuance and revocation UI arrives in M9-03, so a trusted deployment/bootstrap process must populate `api_tokens` for now; the repository ships no default token.
 
+The default backend entry point writes one-line JSON application logs with environment plus request/trace/span/tenant correlation and stable event fields. HTTP accepts W3C `traceparent`; Query, Standard RAG stages, and Ingestion stages are manually instrumented with OpenTelemetry. The application creates spans but does not export them to an external service by default. A production composition can inject an SDK `TracerProvider` into `create_app`, `KnowledgeApplication`, and `IngestionPipeline`; M5-05 adds the PostgreSQL Trace Exporter. Logs and spans exclude query strings, request bodies, raw questions, Root text, prompts, Authorization, cookies, and secrets.
+
 Before a write, call `GET /api/v1/auth/me`, retain its Cookie, and send the returned `csrf_token` in the `X-CSRF-Token` header. Development HTTP cookies omit Secure; production or an HTTPS base URL always enables Secure.
 
 Start the frontend in a second terminal:
@@ -206,7 +208,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M5-01 MCP Application Layer: complete
 - M5-02 stdio MCP: complete
 - M5-03 HTTP MCP: complete
-- Next: M5-04 Trace/Logging
+- M5-04 Trace/Logging: complete
+- Next: M5-05 Trace Persistence
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -215,6 +218,8 @@ The Cost Guard atomically reserves a per-minute query slot and worst-case call/t
 `KnowledgeApplication` is now the only query use-case boundary for HTTP, MCP, and the later CLI. The official MCP SDK v2 stdio adapter exposes six read-only tools plus collection/document/section resources, with every identity bound by the server process. Tools return both human-readable and structured content while sanitizing errors. The entry point reserves stdout for JSON-RPC, and a real SDK-client subprocess test covers list/call/read plus buffered-output isolation.
 
 The Streamable HTTP adapter requires bearer authentication at `/mcp` and checks its connection scope before protocol dispatch. Raw tokens never reach the database; immutable authentication claims establish request identity, and tool scopes plus collection allowlists can only narrow access. Public composition rejects HTTP and validates Host/Origin. Token administration remains a later system-admin milestone and is not part of anonymous demo business permissions.
+
+The observability baseline combines task-local correlation context, JSON Lines logs, and OpenTelemetry spans. HTTP upstream trace context propagates through Query and RAG stages without leaking tenant/query/job context across async tasks. Standard and Ingestion major stages have dedicated child spans. Telemetry uses field allow-lists, rejects sensitive attributes, and does not automatically attach exception messages to spans.
 
 The PostgreSQL job repository owns enqueue, exclusive lease, start, heartbeat, retry, cancel, success, and expired-lease recovery transitions. Workers identify themselves with an owner string and renew a time-limited lease; stale or wrong-owner updates are rejected. Progress is monotonic, retries stop at `max_attempts`, and concurrent workers use `FOR UPDATE SKIP LOCKED` so only one can claim a job.
 
