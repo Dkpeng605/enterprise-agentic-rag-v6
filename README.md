@@ -216,7 +216,8 @@ pnpm --dir=frontend build
 - M5-05 Trace Persistence：已完成
 - M5-06 Metrics/Health：已完成
 - M5 MCP 与全链路可观测性里程碑：已完成
-- 下一项：M6-01 Evaluator Contracts
+- M6-01 Evaluator Contracts：已完成
+- 下一项：M6-02 Golden Set
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -231,6 +232,8 @@ Streamable HTTP Adapter 在 `/mcp` 强制 Bearer Token，并在协议分发前�
 Trace 现在以 `trace_runs`/`trace_spans` 按 tenant 持久化，同步 Query、SSE Query 和 Ingestion 在根 span 结束后以幂等 upsert 落库。Dense/Sparse、RRF 和 Rerank 候选以有界 event 保存，可重建 Leaf/Root 排名与分数变化；降级摘要只由稳定 `*_degraded` 字段派生。匿名用户可读取 demo tenant 全部 Trace，跨租户 trace ID 统一返回 404。新环境或旧环境更新后都需先执行上方 `alembic upgrade head`。
 
 Prometheus 指标使用应用内独立 Registry，覆盖 HTTP、Query、Retrieval/Recovery、Provider/Token、Ingestion、Milvus、Evaluation 和 Rate Limit。HTTP label 只记录路由模板，不使用原始 path 或 tenant/user/document/query ID。`live` 不依赖外部服务；`ready` 的 required 配置、PostgreSQL 或 Provider 失败时返回 503；`doctor` 只返回稳定状态码和公开 Provider 元数据。
+
+评测领域现在拥有与传输层、数据库和具体检索实现解耦的不可变 Case、运行观测、指标结果与可插拔 Evaluator 契约。内置确定性评测器计算 Document/Root Recall@5、Root MRR@10、引用覆盖率、严格原文引用有效率和拒答准确率，并为无 Gold、无引用回答与正确拒答定义稳定的 `null`/`0` 语义。评测器同时声明支持指标与预计 LLM 成本，后续 Runner 可在运行前执行预算控制。
 
 本地可直接访问 `http://127.0.0.1:8000/metrics`。生产环境必须配置 `METRICS_TOKEN`，抓取时发送：
 

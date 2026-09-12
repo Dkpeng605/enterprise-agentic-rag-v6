@@ -31,6 +31,7 @@ from enterprise_rag.services.deep_recovery import (
     RetrievalMode,
 )
 from enterprise_rag.services.documents import DocumentRegistrationService, RegisterDocument
+from enterprise_rag.services.evaluation import DeterministicEvaluator
 from enterprise_rag.services.fusion import FusionDiagnostic, FusionResult, ReciprocalRankFusion
 from enterprise_rag.services.health import (
     ComponentHealth,
@@ -110,6 +111,7 @@ __all__ = [
     "DeletionStep",
     "DocumentDeletionService",
     "DocumentRegistrationService",
+    "DeterministicEvaluator",
     "DeepRecoveryController",
     "DeepRecoveryOutcome",
     "DeepRecoveryRequest",

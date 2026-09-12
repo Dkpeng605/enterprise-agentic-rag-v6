@@ -9,6 +9,7 @@ from enterprise_rag.ports.context import (
     StoredRootEvidence,
 )
 from enterprise_rag.ports.embedding import EmbeddingProvider
+from enterprise_rag.ports.evaluator import Evaluator, EvaluatorInfo
 from enterprise_rag.ports.llm import (
     CompletionRequest,
     CompletionResult,
@@ -85,6 +86,8 @@ __all__ = [
     "ConversationRole",
     "ConversationTurn",
     "EmbeddingProvider",
+    "Evaluator",
+    "EvaluatorInfo",
     "Provider",
     "PlannerRequest",
     "ProviderHealth",
