@@ -366,6 +366,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/evaluations/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Evaluation Catalog */
+        get: operations["evaluation_catalog_api_v1_evaluations_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evaluations/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Evaluation Runs */
+        get: operations["list_evaluation_runs_api_v1_evaluations_runs_get"];
+        put?: never;
+        /** Create Evaluation Run */
+        post: operations["create_evaluation_run_api_v1_evaluations_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evaluations/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Evaluation Run */
+        get: operations["get_evaluation_run_api_v1_evaluations_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evaluations/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Compare Evaluation Runs */
+        get: operations["compare_evaluation_runs_api_v1_evaluations_compare_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/traces/{trace_id}": {
         parameters: {
             query?: never;
@@ -674,6 +743,160 @@ export interface components {
         /** ErrorResponseModel */
         ErrorResponseModel: {
             error: components["schemas"]["ErrorDetailModel"];
+        };
+        /** EvaluationCatalogResponse */
+        EvaluationCatalogResponse: {
+            /** Dataset Revision */
+            dataset_revision: string;
+            /** Dataset Label */
+            dataset_label: string;
+            /** Case Counts */
+            case_counts: {
+                [key: string]: number;
+            };
+            /** Profiles */
+            profiles: components["schemas"]["EvaluationProfileResponse"][];
+            /** Max Cases */
+            max_cases: number;
+            /** Max Llm Calls */
+            max_llm_calls: number;
+        };
+        /** EvaluationComparisonResponse */
+        EvaluationComparisonResponse: {
+            /**
+             * Base Run Id
+             * Format: uuid
+             */
+            base_run_id: string;
+            /**
+             * Candidate Run Id
+             * Format: uuid
+             */
+            candidate_run_id: string;
+            /** Comparable */
+            comparable: boolean;
+            /** Reasons */
+            reasons: string[];
+            /** Base Metrics */
+            base_metrics: {
+                [key: string]: number | null;
+            };
+            /** Candidate Metrics */
+            candidate_metrics: {
+                [key: string]: number | null;
+            };
+            /** Deltas */
+            deltas: {
+                [key: string]: number | null;
+            };
+        };
+        /** EvaluationProfileResponse */
+        EvaluationProfileResponse: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Provider */
+            provider: string;
+            /** Model */
+            model: string;
+            /** Prompt Revision */
+            prompt_revision: string;
+            /** Requires Remote */
+            requires_remote: boolean;
+            /** Estimated Llm Calls Per Case */
+            estimated_llm_calls_per_case: number;
+        };
+        /** EvaluationRunCreate */
+        EvaluationRunCreate: {
+            /** Dataset Revision */
+            dataset_revision: string;
+            /**
+             * Mode
+             * @default all
+             * @enum {string}
+             */
+            mode: "all" | "standard" | "deep";
+            /** Provider Profile */
+            provider_profile: string;
+            /** Max Cases */
+            max_cases: number;
+            /** Max Llm Calls */
+            max_llm_calls: number;
+        };
+        /** EvaluationRunListResponse */
+        EvaluationRunListResponse: {
+            /** Items */
+            items: components["schemas"]["EvaluationRunResponse"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** EvaluationRunResponse */
+        EvaluationRunResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+            /** Dataset Revision */
+            dataset_revision: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "all" | "standard" | "deep";
+            /** Provider Profile */
+            provider_profile: string | null;
+            /** Provider */
+            provider: string | null;
+            /** Model */
+            model: string | null;
+            /** Prompt Revision */
+            prompt_revision: string | null;
+            /** Index Revision */
+            index_revision: string | null;
+            /** Commit Sha */
+            commit_sha: string | null;
+            /** Max Cases */
+            max_cases: number;
+            /** Max Llm Calls */
+            max_llm_calls: number;
+            /** Estimated Llm Calls */
+            estimated_llm_calls: number;
+            /** Completed Cases */
+            completed_cases: number;
+            /** Total Cases */
+            total_cases: number;
+            /** Case Ids */
+            case_ids: string[];
+            /** Aggregate Metrics */
+            aggregate_metrics: {
+                [key: string]: number | null;
+            };
+            /** Usage */
+            usage: {
+                [key: string]: number;
+            };
+            /** Error Code */
+            error_code: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Report */
+            report?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** HealthCheckResponse */
         HealthCheckResponse: {
@@ -3546,6 +3769,524 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IngestionTraceViewResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    evaluation_catalog_api_v1_evaluations_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationCatalogResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    list_evaluation_runs_api_v1_evaluations_runs_get: {
+        parameters: {
+            query?: {
+                status?: ("queued" | "running" | "succeeded" | "failed") | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRunListResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    create_evaluation_run_api_v1_evaluations_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationRunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRunResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    get_evaluation_run_api_v1_evaluations_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRunResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    compare_evaluation_runs_api_v1_evaluations_compare_get: {
+        parameters: {
+            query: {
+                base_run_id: string;
+                candidate_run_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationComparisonResponse"];
                 };
             };
             /** @description Invalid request */

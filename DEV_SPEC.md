@@ -1671,10 +1671,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 完成 |
-| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 6/8 完成 |
+| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 7/8 完成 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 50/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 51/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2395,8 +2395,40 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-07 Evaluation UI
 
-- 运行、预算、历史和比较；
-- 验收：不可比较 Run 给出原因。
+- 状态：已完成；
+- 持久化：新增 tenant-scoped `evaluation_runs`，保存 dataset/mode/provider/model/prompt/index/commit
+  快照、Case ID 集、预算、估算调用、单调进度、稳定状态/错误及聚合和逐 Case 报告；部分唯一索引保证
+  每个 tenant 最多一个 queued/running Run，聚合报告长期保留，列表按 `created_at/id` cursor 倒序；
+- Profile 与预算：`GET /api/v1/evaluations/catalog` 只返回服务端已启用的 Dataset/Profile 和部署上限；
+  首个 `deterministic-sparse-v1` 使用提交的 30 条 Golden Set、真实 `HashingSparseEncoder` 与
+  `DeterministicEvaluator`，明确标为本地零 LLM smoke，不冒充在线生成质量；UI 运行前展示所选
+  all/Standard/Deep 实际 Case 数与最坏 LLM 调用，超过 `evaluation.max_cases/max_llm_calls` 在执行前
+  拒绝且不调用 Subject；
+- 运行 API：CSRF 保护的 `POST /api/v1/evaluations/runs` 创建 202 Run，响应后任务按 Case 执行并将
+  `completed_cases/total_cases` 单调写入 PostgreSQL；`GET /api/v1/evaluations/runs` 支持稳定状态筛选、
+  cursor 和 limit，单 Run 详情才返回完整报告；失败仅持久化 `EVALUATION_FAILED`，异常消息和堆栈
+  不进入 API；匿名身份只能读写固定 demo tenant，跨租户 ID 与不存在统一 404；
+- 运行生命周期：前端只在列表存在 queued/running 时每秒轮询，终态会强制再拉取一次详情后停止，
+  避免列表已完成而 Inspector 停留在旧进度；刷新页面后从 PostgreSQL 恢复历史与报告。当前本地
+  smoke 由 ASGI response background task 执行，进程退出时不会虚假标记成功；可恢复分布式 Eval
+  Worker 属于后续企业扩展；
+- 报告：详情展示六项确定性聚合指标、真实 usage、Dataset/Index/Prompt/Provider/Commit 快照和低于
+  满分的 Case；JSON 导出保留服务端完整报告，Markdown 导出提供人类可读指标摘要，不包含问题、
+  Golden Root 正文、模型凭证或隐藏推理；Overview 同时读取新 Run 和兼容旧 evaluation Trace 活动；
+- 比较：`GET /api/v1/evaluations/compare` 在后端同时读取当前 tenant 的 Base/Candidate；只有两者
+  succeeded 且 report、dataset、mode、Provider profile/name/model、prompt、index 和精确 Case ID
+  集齐全且一致时才计算 `candidate - base`；Commit 可不同以支持回归比较。否则返回稳定原因集合，
+  包括同一 Run、未完成、报告/元数据缺失，以及 dataset/mode/provider/model/prompt/index/Case 集
+  不一致；前端逐项翻译原因，不显示误导 delta；
+- 状态与响应式：catalog/history/detail/compare 均有 loading、empty、error/request-ID/retry 或
+  disabled 状态；桌面展示 Launcher、历史与报告双栏、比较区，1120px 以下收敛布局，390×844 单栏
+  且文档根节点无水平溢出；
+- 验收：Runner 单测证明 progress 为 1..N；PostgreSQL/FastAPI 测试覆盖匿名 CSRF 运行、预算拒绝、
+  完成报告、状态筛选/cursor、tenant 隔离、可比较零 delta 及 Mode/Case 不匹配；Vitest 覆盖生成
+  Client 的五类端点、预算、运行参数、指标/失败 Case、终态竞态、不可比较原因、loading/empty/error；
+  真实 FastAPI/PostgreSQL 浏览器完成三次 Run、正反比较及 893px/390×844 检查，控制台无
+  warning/error；
+- PR：`feat/m7-evaluation-ui`。
 
 #### M7-08 Browser E2E
 

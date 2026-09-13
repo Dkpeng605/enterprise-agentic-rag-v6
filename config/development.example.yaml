@@ -1,6 +1,7 @@
 app:
   environment: development
   public_base_url: http://localhost:8000
+  commit_sha: development
 
 providers:
   llm: mock
@@ -48,3 +49,4 @@ evaluation:
   max_llm_calls: 0
   llm_judge_enabled: false
   llm_judge_max_output_tokens: 128
+  golden_manifest: evals/golden/v1/manifest.yaml

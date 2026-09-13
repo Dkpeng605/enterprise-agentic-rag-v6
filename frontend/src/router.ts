@@ -11,6 +11,7 @@ import { useAuthStore } from './stores/auth'
 import HomeView from './views/HomeView.vue'
 import ChatView from './views/ChatView.vue'
 import DocumentsView from './views/DocumentsView.vue'
+import EvaluationView from './views/EvaluationView.vue'
 import LoginView from './views/LoginView.vue'
 import IngestionView from './views/IngestionView.vue'
 import IngestionTraceView from './views/IngestionTraceView.vue'
@@ -66,8 +67,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/workspace/evaluations',
     name: 'evaluations',
-    component: PlaceholderView,
-    props: { eyebrow: 'EDD', title: '评测中心', description: '预算、运行、历史与比较将在 M7-07 接入。' },
+    component: EvaluationView,
     meta: { access: 'workspace', title: '评测中心' },
   },
   { path: '/login', name: 'login', component: LoginView, meta: { access: 'public', title: '管理员登录' } },

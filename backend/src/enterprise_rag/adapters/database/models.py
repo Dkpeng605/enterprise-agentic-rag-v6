@@ -512,3 +512,56 @@ class TraceSpanModel(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     events: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+
+
+class EvaluationRunModel(Base):
+    __tablename__ = "evaluation_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed')", name="status"
+        ),
+        CheckConstraint("mode IN ('all', 'standard', 'deep')", name="mode"),
+        CheckConstraint("max_cases > 0", name="max_cases_positive"),
+        CheckConstraint("max_llm_calls >= 0", name="max_llm_calls_non_negative"),
+        CheckConstraint("estimated_llm_calls >= 0", name="estimated_llm_calls_non_negative"),
+        CheckConstraint("completed_cases >= 0", name="completed_cases_non_negative"),
+        CheckConstraint("total_cases > 0", name="total_cases_positive"),
+        CheckConstraint("completed_cases <= total_cases", name="progress_within_total"),
+        Index("ix_evaluation_runs_tenant_created", "tenant_id", "created_at"),
+        Index(
+            "uq_evaluation_runs_one_active_per_tenant",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    dataset_revision: Mapped[str | None] = mapped_column(String(100))
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    provider_profile: Mapped[str | None] = mapped_column(String(100))
+    provider: Mapped[str | None] = mapped_column(String(100))
+    model: Mapped[str | None] = mapped_column(String(200))
+    prompt_revision: Mapped[str | None] = mapped_column(String(100))
+    index_revision: Mapped[str | None] = mapped_column(String(100))
+    commit_sha: Mapped[str | None] = mapped_column(String(100))
+    max_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_llm_calls: Mapped[int] = mapped_column(Integer, nullable=False)
+    estimated_llm_calls: Mapped[int] = mapped_column(Integer, nullable=False)
+    completed_cases: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    case_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    error_code: Mapped[str | None] = mapped_column(String(100))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

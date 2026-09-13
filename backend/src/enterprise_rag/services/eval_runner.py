@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -94,7 +94,11 @@ class EvaluationRunner:
         self._judge = judge
 
     async def run(
-        self, golden_set: GoldenSet, config: EvaluationRunConfig
+        self,
+        golden_set: GoldenSet,
+        config: EvaluationRunConfig,
+        *,
+        progress: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> EvaluationReport:
         cases = golden_set.cases[: config.max_cases]
         subject_info = self._subject.info()
@@ -124,11 +128,13 @@ class EvaluationRunner:
         }
         results: list[CaseEvaluation] = []
         usage = EvaluationUsage()
-        for case in cases:
+        for completed, case in enumerate(cases, start=1):
             request_hash = _digest({**identity, "case_id": case.id})
             cached = self._cache.get(request_hash) if self._cache is not None else None
             if cached is not None:
                 results.append(replace(cached, from_cache=True))
+                if progress is not None:
+                    await progress(completed, len(cases))
                 continue
             subject_result = await self._subject.observe(case, golden_set)
             metrics = await self._evaluator.evaluate(case, subject_result.observation)
@@ -163,6 +169,8 @@ class EvaluationRunner:
             usage += result_usage
             if self._cache is not None and subject_result.cacheable:
                 self._cache.put(result)
+            if progress is not None:
+                await progress(completed, len(cases))
         run_id = _digest({**identity, "case_ids": [case.id for case in cases]})[:24]
         return EvaluationReport(
             "1.0",

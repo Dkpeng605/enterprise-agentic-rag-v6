@@ -10,6 +10,11 @@ from enterprise_rag.adapters.database.documents import (
     DocumentRegistrationRepository,
 )
 from enterprise_rag.adapters.database.engine import Database
+from enterprise_rag.adapters.database.evaluations import (
+    EvaluationRunPage,
+    PersistedEvaluationRun,
+    PostgreSQLEvaluationRunStore,
+)
 from enterprise_rag.adapters.database.ingestion import (
     IngestionContentRepository,
     IngestionPersistenceError,
@@ -37,6 +42,9 @@ __all__ = [
     "PostgreSQLMcpTokenStore",
     "ScopeConflictError",
     "Database",
+    "EvaluationRunPage",
+    "PersistedEvaluationRun",
+    "PostgreSQLEvaluationRunStore",
     "DocumentRegistration",
     "DocumentRegistrationError",
     "DocumentRegistrationRepository",

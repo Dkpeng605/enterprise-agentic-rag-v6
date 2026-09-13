@@ -18,6 +18,7 @@ class SettingsModel(BaseModel):
 class ApplicationSettings(SettingsModel):
     environment: Literal["development", "test", "production"] = "development"
     public_base_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8000")
+    commit_sha: Annotated[str, Field(min_length=1, max_length=100)] = "development"
 
 
 class ProviderSettings(SettingsModel):
@@ -151,6 +152,7 @@ class EvaluationSettings(SettingsModel):
     max_llm_calls: Annotated[int, Field(ge=0, le=100_000)] = 0
     llm_judge_enabled: bool = False
     llm_judge_max_output_tokens: Annotated[int, Field(ge=32, le=1_024)] = 128
+    golden_manifest: Path = Path("evals/golden/v1/manifest.yaml")
 
 
 class CredentialSettings(SettingsModel):

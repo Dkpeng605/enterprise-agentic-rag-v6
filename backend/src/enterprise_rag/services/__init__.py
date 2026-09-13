@@ -40,6 +40,12 @@ from enterprise_rag.services.eval_runner import (
     write_evaluation_report,
 )
 from enterprise_rag.services.evaluation import DeterministicEvaluator
+from enterprise_rag.services.evaluation_workspace import (
+    EvaluationCatalog,
+    EvaluationComparison,
+    EvaluationProfile,
+    EvaluationWorkspaceService,
+)
 from enterprise_rag.services.fusion import FusionDiagnostic, FusionResult, ReciprocalRankFusion
 from enterprise_rag.services.golden_set import GoldenSetLoader, GoldenSetValidationError
 from enterprise_rag.services.health import (
@@ -153,7 +159,11 @@ __all__ = [
     "DocumentDeletionService",
     "DocumentRegistrationService",
     "EvaluationBudgetExceeded",
+    "EvaluationCatalog",
+    "EvaluationComparison",
+    "EvaluationProfile",
     "EvaluationRunner",
+    "EvaluationWorkspaceService",
     "GoldenSetLoader",
     "GoldenSetValidationError",
     "GoldenFixtureSubject",
