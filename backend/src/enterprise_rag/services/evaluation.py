@@ -33,6 +33,9 @@ class DeterministicEvaluator:
             float(observation.abstained == case.must_abstain),
         )
 
+    async def aclose(self) -> None:
+        return None
+
 
 def _recall(gold: Sequence[str], ranked: Sequence[str], top_k: int) -> float | None:
     if not gold:

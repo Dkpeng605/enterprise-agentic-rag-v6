@@ -1,14 +1,13 @@
 """Milvus Lite implementation of the VectorStore contract."""
 
 import asyncio
+import os
 from collections import defaultdict
 from collections.abc import Awaitable, Mapping, Sequence
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
-
-from pymilvus import DataType, MilvusClient  # type: ignore[import-untyped]
 
 from enterprise_rag.domain.common import require_uuid7, to_json_value
 from enterprise_rag.observability import current_metrics
@@ -24,6 +23,26 @@ from enterprise_rag.ports.vector_store import (
 )
 
 OUTPUT_FIELDS = ["root_id", "metadata"]
+
+
+def _import_pymilvus() -> tuple[Any, Any]:
+    """Import pymilvus without allowing its settings module to load an app .env file."""
+
+    disabled_before = os.environ.get("PYTHON_DOTENV_DISABLED")
+    os.environ["PYTHON_DOTENV_DISABLED"] = "1"
+    try:
+        from pymilvus import DataType as data_type  # type: ignore[import-untyped]
+        from pymilvus import MilvusClient as client
+
+        return data_type, client
+    finally:
+        if disabled_before is None:
+            os.environ.pop("PYTHON_DOTENV_DISABLED", None)
+        else:
+            os.environ["PYTHON_DOTENV_DISABLED"] = disabled_before
+
+
+DataType, MilvusClient = _import_pymilvus()
 
 
 def _int_value(value: object) -> int:
@@ -144,6 +163,7 @@ class MilvusLiteVectorStore:
                     index_params=index_params,
                     consistency_level="Strong",
                 )
+            await asyncio.to_thread(self._client.load_collection, collection_name)
             self._dimensions[schema.revision] = schema.dimension
 
     async def upsert(self, records: Sequence[VectorRecord]) -> UpsertResult:

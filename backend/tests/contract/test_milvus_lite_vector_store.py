@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 from pathlib import Path
 from uuid import UUID
 
@@ -52,6 +55,35 @@ def record(
 @pytest.fixture
 def database_path(tmp_path: Path) -> Path:
     return tmp_path / "milvus-contract.db"
+
+
+def test_milvus_adapter_import_does_not_load_application_dotenv(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text(
+        "ENTERPRISE_RAG_CONFIG_FILE=unexpected-from-dotenv.yaml\n",
+        encoding="utf-8",
+    )
+    environment = os.environ.copy()
+    environment.pop("ENTERPRISE_RAG_CONFIG_FILE", None)
+    environment.pop("PYTHON_DOTENV_DISABLED", None)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os; "
+                "import enterprise_rag.adapters.vector_store; "
+                "print(os.getenv('ENTERPRISE_RAG_CONFIG_FILE', 'NOT_LOADED'))"
+            ),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.stdout.strip() == "NOT_LOADED"
 
 
 @pytest.mark.anyio
@@ -153,6 +185,15 @@ async def test_revision_schema_is_persistent_and_rejects_dimension_change(
     try:
         await reopened.ensure_revision(IndexSchema(revision=REVISION, dimension=3))
         assert await reopened.count_by_version(TENANT_A, VERSION_A) == 1
+        hits = await reopened.dense_search(
+            DenseSearchRequest(
+                index_revision=REVISION,
+                tenant_id=TENANT_A,
+                vector=(1.0, 0.0, 0.0),
+                top_k=5,
+            )
+        )
+        assert [hit.leaf_id for hit in hits] == ["leaf_persistent"]
         with pytest.raises(ValueError, match="different dimension"):
             await reopened.ensure_revision(IndexSchema(revision=REVISION, dimension=4))
     finally:

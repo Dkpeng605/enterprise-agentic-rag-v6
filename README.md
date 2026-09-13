@@ -33,6 +33,56 @@ uv sync --project backend --locked
 pnpm install --frozen-lockfile
 ```
 
+### macOS 完整语义演示（推荐）
+
+这个入口运行真实的本地多语 Embedding、本地多语 CrossEncoder Reranker、Milvus Lite、后台文档
+解析/摄取 Worker，并通过 OpenAI-compatible Chat Completions 调用 LLM。文档原文和查询文本只在
+本机参与 Embedding/Rerank；发送给 LLM 的是经过租户权限复核后恢复的有限 Root 证据。
+
+先安装系统依赖并准备仅本机使用的配置：
+
+```bash
+brew install tesseract tesseract-lang
+cp .env.mac.example .env
+```
+
+编辑 `.env`，只把 `LLM_API_KEY` 改为自己的 TokenHub Token。TokenHub 当前返回的模型 ID 是大小写
+敏感的 `MiniMax-M3`；`.env` 已被 Git 忽略，不能提交、复制进 Issue 或写入日志。然后在第一个终端
+启动 PostgreSQL、迁移和完整 FastAPI+Worker 组合：
+
+```bash
+./scripts/mac-backend.sh
+```
+
+首次上传或查询会把以下 ONNX 模型下载到已忽略的 `data/runtime/mac/model-cache/`，之后复用缓存：
+
+- Embedding：`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`（384 维）；
+- Reranker：`jinaai/jina-reranker-v2-base-multilingual`；
+- LLM：`MiniMax-M3`，通过 `.env` 中的 `LLM_BASE_URL` 调用。
+
+在第二个终端启动 Vue 3 前端：
+
+```bash
+pnpm --dir=frontend dev
+```
+
+打开 `http://127.0.0.1:5173`。匿名用户会自动获得 Demo Tenant 全部业务权限，可依次新建集合、
+上传 PDF/DOCX/XLSX/XLS/CSV/HTML/TXT/Markdown、查看真实解析与摄取进度，再到“知识问答”观察
+Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引用。Provider 状态可在
+“租户总览”或 `http://127.0.0.1:8000/health/doctor` 查看。
+
+当前 Mac 组合的 Standard 与 Deep 都走真实模型链路；Deep 会为综合回答恢复更多 Root 证据。M4
+定义的多轮 Deep Recovery Controller 仍是可插拔服务，尚未装配到这个本地 QueryRunner，不能把
+当前 Deep 按钮描述为已经执行多轮检索恢复。
+
+停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
+
+```bash
+docker compose -f infra/compose/compose.dev.yml stop postgres
+```
+
+### 离线浏览器验收
+
 若要直接启动当前可交互的离线演示全链路（PostgreSQL、迁移、FastAPI+Worker、Vue），无需模型
 密钥：
 
@@ -42,10 +92,16 @@ docker compose -f infra/compose/compose.e2e.yml up --build postgres backend fron
 
 若 macOS Docker Desktop 在包含中文的仓库路径下报
 `x-docker-expose-session-sharedkey ... non-printable ASCII`，这是 BuildKit 尚未读取 Dockerfile 前的
-路径兼容错误；可在同一命令前加 `DOCKER_BUILDKIT=0`，或把仓库克隆到纯 ASCII 路径。本仓库已验证
-该兼容命令可以从当前中文路径完成镜像构建。
+路径兼容错误；可先用经典构建器构建，再启动服务，或把仓库克隆到纯 ASCII 路径：
 
-浏览器打开 `http://127.0.0.1:4173`。这个组合使用确定性 hashing Dense/Sparse 检索和摘录式回答，
+```bash
+DOCKER_BUILDKIT=0 docker compose -f infra/compose/compose.e2e.yml build
+docker compose -f infra/compose/compose.e2e.yml up postgres backend frontend
+```
+
+本仓库已验证上述兼容命令可以从当前中文路径完成镜像构建和浏览器全旅程。
+
+浏览器打开 `http://127.0.0.1:4173`。这个组合使用确定性 Hashing Dense/Sparse 检索和摘录式回答，
 用于本地演示与验收，不代表生产语义模型质量。匿名会话拥有 Demo Tenant 的全部业务权限；如需测试
 隔离的管理端，请使用仅供该 Compose 验收环境使用的 `admin@example.com` / `local-e2e-password`。
 停止并清除演示数据：
@@ -187,11 +243,15 @@ uv run --project backend uvicorn enterprise_rag.main:app --reload --env-file .en
 ```bash
 docker compose -f infra/compose/compose.dev.yml up -d postgres
 export TEST_DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test
-(cd backend && uv run ruff check src tests migrations)
-(cd backend && uv run mypy src tests migrations)
-(cd backend && uv run pytest -q)
+(cd backend && uv run --no-env-file ruff check src tests migrations)
+(cd backend && uv run --no-env-file mypy src tests migrations)
+(cd backend && uv run --no-env-file pytest -q)
 uv build --project backend
 ```
+
+`--no-env-file` 很重要：`uv run` 默认会自动读取仓库根目录的 `.env`；质量门禁必须避免本地 LLM
+密钥和开发数据库配置改变“未配置应用”测试的语义。PostgreSQL 集成测试只通过显式
+`TEST_DATABASE_URL` 获取测试连接。
 
 前端：
 
@@ -285,6 +345,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-07 Evaluation UI：已完成
 - M7-08 Browser E2E：已完成
 - M7 Vue3/TypeScript 公共端与管理端里程碑：已完成
+- M7-R1 macOS 真实 Provider 开发组合：已完成
 - 下一项：M8-01 Images
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
@@ -292,8 +353,9 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 `/chat` 公共问答页已接入该 SSE 契约，支持 Standard/Deep、Collection 范围、公开阶段状态、
 可展开引用、主动停止、429 `Retry-After` 和有边界拒答。断线会保留 Query ID，不会自动无限
 重连；公共页面不展示内部 diagnostics 或隐藏推理。默认 `enterprise_rag.main:app` 仍未组合生产
-QueryRunner；M7-08 另提供显式 `enterprise_rag.local_runtime:app`，以真实 PostgreSQL/Milvus/Worker
-链路和标记为 E2E 的确定性摘录适配器支持离线演示，不用 fixture 生成假答案。
+QueryRunner；M7-08 的 `enterprise_rag.local_runtime:app` 提供离线确定性验收，M7-R1 的
+`enterprise_rag.mac_runtime:app` 则组合本地语义 Embedding、多语 Reranker 和 OpenAI-compatible
+LLM，供 Mac 完整开发演示。两者都不是 M8 生产入口。
 
 `/workspace/overview` 通过 tenant-scoped 聚合接口展示 Collection、文档状态、Root/Leaf、过去
 24 小时 Query/P95/错误率与最近摄取/评测任务，并同时读取 doctor 的六类 Provider 能力位。
@@ -407,7 +469,7 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 
 Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
-M1～M7 已完成（52/64 Slice）。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、EDD 评测闭环、公开 Benchmark Adapter、完整 Vue3/TypeScript 工作区，以及 Compose 中可复现的浏览器全旅程。具体生产 QueryRunner 与 Provider 的组合入口仍属于后续发布工作，因此默认启动入口不会把离线验收适配器伪装成生产模型。
+M1～M7 已完成（52/64 Slice）。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、EDD 评测闭环、公开 Benchmark Adapter、完整 Vue3/TypeScript 工作区，以及 Compose 中可复现的浏览器全旅程。M7-R1 另提供不计入 64 个发布 Slice 的 Mac 真实 Provider 开发组合；生产镜像、进程和公网部署仍属于 M8，因此默认入口不会把离线验收或 Mac 开发组合冒充生产服务。
 
 PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供图片增强阶段使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。Loader 已接入后台摄取 Pipeline；HTTP 上传接口在 M3-10 交付。
 

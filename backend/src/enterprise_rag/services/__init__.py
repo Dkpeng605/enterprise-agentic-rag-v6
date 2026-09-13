@@ -136,6 +136,7 @@ from enterprise_rag.services.scope_root import (
     RootContext,
     ScopeRootService,
 )
+from enterprise_rag.services.semantic_query import SemanticQueryRunner
 from enterprise_rag.services.standard_graph import (
     QueryGraphStage,
     QueryGraphStatus,
@@ -254,6 +255,7 @@ __all__ = [
     "SearchBranchResult",
     "SearchDiagnostic",
     "SearchMethod",
+    "SemanticQueryRunner",
     "ScopeRootService",
     "SparseGoldenSubject",
     "StageTransition",

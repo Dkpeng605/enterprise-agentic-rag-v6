@@ -33,6 +33,61 @@ uv sync --project backend --locked
 pnpm install --frozen-lockfile
 ```
 
+### Full semantic demo on macOS (recommended)
+
+This entry point runs a real local multilingual embedding model, a local multilingual CrossEncoder
+reranker, Milvus Lite, and the background document parsing/ingestion worker. It calls the LLM through
+OpenAI-compatible Chat Completions. Document text and query text remain on the Mac for embedding and
+reranking; only bounded Root evidence recovered after tenant authorization is sent to the LLM.
+
+Install the system dependencies and prepare an untracked local configuration:
+
+```bash
+brew install tesseract tesseract-lang
+cp .env.mac.example .env
+```
+
+Edit `.env` and replace only `LLM_API_KEY` with your TokenHub token. TokenHub currently exposes the
+case-sensitive model ID `MiniMax-M3`. Git ignores `.env`; never commit it or paste it into an issue
+or log. Start PostgreSQL, migrations, and the full FastAPI+Worker composition in the first terminal:
+
+```bash
+./scripts/mac-backend.sh
+```
+
+The first upload or query downloads these ONNX models into the ignored
+`data/runtime/mac/model-cache/` directory and reuses them afterward:
+
+- Embedding: `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384 dimensions);
+- Reranker: `jinaai/jina-reranker-v2-base-multilingual`;
+- LLM: `MiniMax-M3`, called through `LLM_BASE_URL` from `.env`.
+
+Start the Vue 3 frontend in a second terminal:
+
+```bash
+pnpm --dir=frontend dev
+```
+
+Open `http://127.0.0.1:5173`. Anonymous users automatically receive all Demo Tenant business
+permissions. Create a collection, upload PDF/DOCX/XLSX/XLS/CSV/HTML/TXT/Markdown, inspect real
+parsing and ingestion progress, then use Knowledge Chat to exercise Dense/Sparse retrieval, RRF,
+CrossEncoder reranking, Root recovery, LLM generation, and citations. Inspect provider status in
+Tenant Overview or at `http://127.0.0.1:8000/health/doctor`.
+
+Both Standard and Deep use the real model chain in this Mac composition; Deep restores more Root
+evidence for synthesis. The multi-round Deep Recovery Controller specified in M4 remains a
+pluggable service and is not yet composed into this local QueryRunner, so the current Deep button
+must not be described as multi-round recovery.
+
+Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
+To stop PostgreSQL only:
+
+```bash
+docker compose -f infra/compose/compose.dev.yml stop postgres
+```
+
+### Offline browser acceptance
+
 To start the current interactive offline journey directly—PostgreSQL, migrations, the
 FastAPI+Worker process, and Vue—without model credentials:
 
@@ -42,8 +97,16 @@ docker compose -f infra/compose/compose.e2e.yml up --build postgres backend fron
 
 If Docker Desktop on macOS reports
 `x-docker-expose-session-sharedkey ... non-printable ASCII` for a repository path containing
-non-ASCII characters, prefix the same command with `DOCKER_BUILDKIT=0` or clone into an ASCII-only
-path. This compatibility command has been verified from the repository's current Chinese path.
+non-ASCII characters, build with the classic builder before starting the services, or clone into
+an ASCII-only path:
+
+```bash
+DOCKER_BUILDKIT=0 docker compose -f infra/compose/compose.e2e.yml build
+docker compose -f infra/compose/compose.e2e.yml up postgres backend frontend
+```
+
+These compatibility commands have been verified from the repository's current Chinese path through
+the complete browser journey.
 
 Open `http://127.0.0.1:4173`. This composition uses deterministic hashing Dense/Sparse
 retrieval and extractive answers for local demonstrations and acceptance; it is not a claim
@@ -179,11 +242,16 @@ Backend:
 ```bash
 docker compose -f infra/compose/compose.dev.yml up -d postgres
 export TEST_DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test
-(cd backend && uv run ruff check src tests migrations)
-(cd backend && uv run mypy src tests migrations)
-(cd backend && uv run pytest -q)
+(cd backend && uv run --no-env-file ruff check src tests migrations)
+(cd backend && uv run --no-env-file mypy src tests migrations)
+(cd backend && uv run --no-env-file pytest -q)
 uv build --project backend
 ```
+
+`--no-env-file` is important because `uv run` reads the repository-root `.env` by default. Quality
+gates must prevent local LLM credentials and development database settings from changing the
+semantics of unconfigured-application tests. PostgreSQL integration tests receive their test
+connection only through an explicit `TEST_DATABASE_URL`.
 
 Frontend:
 
@@ -277,6 +345,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-07 Evaluation UI: complete
 - M7-08 Browser E2E: complete
 - M7 Vue3/TypeScript public and administration milestone: complete
+- M7-R1 macOS real-provider development composition: complete
 - Next: M8-01 Images
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
@@ -285,8 +354,9 @@ The `/chat` public page now consumes that SSE contract with Standard/Deep select
 public stage status, expandable citations, explicit cancellation, 429 `Retry-After`, and bounded abstention.
 A disconnect retains the Query ID and never starts an infinite reconnect loop; internal diagnostics and hidden
 reasoning stay out of the public UI. The default `enterprise_rag.main:app` still has no production QueryRunner
-composition. M7-08 provides a separate, explicit `enterprise_rag.local_runtime:app` backed by real
-PostgreSQL/Milvus/Worker execution and an E2E-labelled deterministic extractive adapter, rather than a fixture answer.
+composition. M7-08 provides deterministic offline acceptance through `enterprise_rag.local_runtime:app`, while
+M7-R1 composes local semantic embeddings, a multilingual reranker, and an OpenAI-compatible LLM through
+`enterprise_rag.mac_runtime:app` for a complete Mac development demo. Neither is the M8 production entry point.
 
 `/workspace/overview` uses a tenant-scoped aggregate endpoint for Collections, document states, Roots/Leaves,
 24-hour query count/P95/error rate, and recent ingestion/evaluation activity, alongside six doctor-backed
@@ -406,7 +476,7 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
-M1 through M7 are complete (52/64 slices). The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, the complete Vue3/TypeScript workspace, and a reproducible Compose browser journey. A concrete production QueryRunner/Provider composition entry point remains later release work, so the default entry point does not present the offline acceptance adapter as a production model.
+M1 through M7 are complete (52/64 slices). The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, the complete Vue3/TypeScript workspace, and a reproducible Compose browser journey. M7-R1 also provides a real-provider Mac development composition outside the 64 release slices. Production images, processes, and public deployment remain M8 work, so neither the offline acceptance nor Mac development composition is presented as production.
 
 The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for image enrichment. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. The Loader is wired into the background ingestion Pipeline; the HTTP upload endpoint arrives in M3-10.
 
