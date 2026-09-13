@@ -1671,10 +1671,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 完成 |
-| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 2/8 完成 |
+| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 3/8 完成 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 46/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 47/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2276,8 +2276,27 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-03 Overview
 
-- Provider 与系统指标卡；
-- 验收：loading/empty/degraded/error 状态。
+- 状态：已完成；
+- 聚合边界：新增 reader 权限保护的 `GET /api/v1/workspace/overview`，tenant ID 只取服务端
+  Principal；单次服务调用聚合活跃 Collection、非 deleted 文档状态、Root/Leaf、过去 24 小时
+  Query 数/错误数/error rate/P95，以及最近 6 条摄取和评测活动；全部 SQL 显式包含 tenant
+  filter，不从前端已有列表推测全局统计；
+- 指标语义：P95 使用已完成 Query 的持久化 `duration_ms` nearest-rank，空样本返回 null；错误率
+  分母为窗口内全部 Query，`error/failed/cancelled` 计错，空样本返回 null；文档按
+  pending/processing/ready/failed/deleting 五态完整返回 0 值，seed Collection 仍计入活跃集合；
+- Provider：同屏读取 `/health/doctor`，固定展示 LLM、Embedding、Rerank、Vector Store、
+  Splitter、Evaluator 六类能力位；卡片名称、版本、远程属性和健康度只来自注册表，缺失能力
+  明确显示“未注册/不可用”，不使用前端 fixture 冒充生产 Provider；
+- 交互：loading 使用可访问 skeleton；业务数据为空时解释 Demo Tenant 的下一步，同时保留
+  真实零值指标；健康 `ready=false` 或非 healthy 时显示 degraded banner，但不隐藏仍可确认的
+  tenant 数据；请求失败显示净化错误和可选 Request ID，并提供一次显式重试；
+- 安全：匿名用户只获得单租户工作区读取能力，不展示 VPS 资源、密钥、内部 diagnostics 或其他
+  tenant 活动；最近任务 ID 仅显示短前缀；
+- 验收：PostgreSQL 集成测试同时注入第二租户 Collection/失败 Query，确认统计不受污染，并覆盖
+  空查询、五态文档、Root/Leaf、24h error rate/P95 和最近活动；Vitest 覆盖
+  loading/empty/degraded/error+retry 四态；OpenAPI Client 重新生成，TypeScript/build 通过；真实
+  FastAPI 匿名会话在 1280×720 与 390×844 浏览器检查通过且无水平溢出；
+- PR：`feat/m7-overview`。
 
 #### M7-04 Documents/Ingestion
 

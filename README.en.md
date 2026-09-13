@@ -68,6 +68,7 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `GET /api/v1/auth/me` — create an anonymous demo session and obtain a CSRF token
 - `POST /api/v1/auth/login` and `POST /api/v1/auth/logout` — Argon2id administrator login and CSRF-protected session revocation
 - `GET /api/v1/system/status` — server-enforced system administrator boundary; anonymous identities always receive 403
+- `GET /api/v1/workspace/overview` — current-tenant operational metrics and recent activity aggregates
 - `/api/v1/collections` — demo-tenant collection CRUD
 - `/api/v1/documents` — streaming upload, filtering, and cursor pagination
 - `/api/v1/documents/{id}` and `/api/v1/ingestion-jobs/{id}` — document and ingestion status
@@ -106,7 +107,7 @@ Start the frontend in a second terminal:
 pnpm --dir=frontend dev
 ```
 
-Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, and system route guards. Anonymous visitors may use `/workspace/*` without login, while `/admin/*` still requires a system administrator. Regenerate the committed OpenAPI types with:
+Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, system route guards, public SSE chat, and a tenant overview. Anonymous visitors may use `/workspace/*` without login; `/workspace/overview` reads current-tenant collection, document, index, 24-hour query, and recent activity aggregates alongside `/health/doctor` Provider states. `/admin/*` still requires a system administrator. Regenerate the committed OpenAPI types with:
 
 ```bash
 pnpm --dir=frontend generate:api
@@ -234,7 +235,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M6 evaluation loop and public Benchmark Adapter milestone: complete
 - M7-01 Shell/Auth: complete
 - M7-02 Public Chat: complete
-- Next: M7-03 Overview
+- M7-03 Overview: complete
+- Next: M7-04 Documents/Ingestion
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -243,6 +245,12 @@ public stage status, expandable citations, explicit cancellation, 429 `Retry-Aft
 A disconnect retains the Query ID and never starts an infinite reconnect loop; internal diagnostics and hidden
 reasoning stay out of the public UI. The default backend still has no production QueryRunner composition, so
 the page reports service unavailability instead of manufacturing a fixture answer.
+
+`/workspace/overview` uses a tenant-scoped aggregate endpoint for Collections, document states, Roots/Leaves,
+24-hour query count/P95/error rate, and recent ingestion/evaluation activity, alongside six doctor-backed
+Provider capability slots. Empty workspaces, unregistered Providers, and null metrics retain their real
+semantics. Loading, empty, degraded, and error/retry each have explicit UI states, errors may show a Request ID,
+and anonymous users cannot see VPS resources or cross-tenant operations.
 
 The Cost Guard atomically reserves a per-minute query slot and worst-case call/token capacity with PostgreSQL conditional upserts before QueryRunner can enter Provider logic. Minute limits are isolated per anonymous session, UTC daily capacity is shared by all anonymous sessions, and Standard/Deep use different weights. Successful calls refund unused capacity from trustworthy usage; failures or unverifiable usage conservatively consume the reservation, and 429 responses include `Retry-After`. The LLM decorator adds configurable per-attempt timeout, bounded transient-only retries, and a retry count. Apply the new tables first with the `alembic upgrade head` command above.
 
@@ -329,7 +337,7 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
-M1 through M6 are complete and the M7 frontend milestone is in progress. The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, and the Vue3/TypeScript shell with dual identity sessions. A concrete production QueryRunner/Provider composition entry point is not wired yet, so the default entry point does not pretend to be a usable complete query product.
+M1 through M6 are complete and 3/8 M7 frontend slices are done. The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, and the Vue3/TypeScript shell, dual identity sessions, public chat, and tenant overview. A concrete production QueryRunner/Provider composition entry point is not wired yet, so the default entry point does not pretend to be a usable complete query product.
 
 The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for image enrichment. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. The Loader is wired into the background ingestion Pipeline; the HTTP upload endpoint arrives in M3-10.
 

@@ -44,6 +44,7 @@ from enterprise_rag.api.schemas import (
     TraceSpanResponse,
     TraceSummaryResponse,
     UploadResponse,
+    WorkspaceOverviewResponse,
 )
 from enterprise_rag.domain.common import to_json_value
 from enterprise_rag.domain.documents import DocumentStatus, DocumentVisibility
@@ -54,6 +55,7 @@ from enterprise_rag.ports.planner import ConversationRole, ConversationTurn
 from enterprise_rag.ports.traces import StoredSpan, TraceDetail, TraceSummary
 from enterprise_rag.services.auth import SESSION_COOKIE, AnonymousSessionService, Principal
 from enterprise_rag.services.knowledge import KnowledgeApplication, KnowledgeQuery
+from enterprise_rag.services.overview import WorkspaceOverviewService
 from enterprise_rag.services.traces import TraceService
 from enterprise_rag.services.workspace import (
     CollectionSnapshot,
@@ -108,6 +110,7 @@ def create_api_router(
     cookie_secure: bool,
     clock: Clock,
     traces: TraceService | None = None,
+    overview: WorkspaceOverviewService | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1", responses=ERROR_RESPONSES)
     cookie_scheme = APIKeyCookie(name=SESSION_COOKIE, auto_error=False)
@@ -143,6 +146,11 @@ def create_api_router(
         if traces is None:
             raise _unavailable()
         return traces
+
+    def _overview() -> WorkspaceOverviewService:
+        if overview is None:
+            raise _unavailable()
+        return overview
 
     @router.get("/auth/me", response_model=AuthMeResponse, tags=["auth"])
     async def auth_me(
@@ -200,6 +208,17 @@ def create_api_router(
         del principal
         await _auth().revoke(token, now=clock())
         response.delete_cookie(SESSION_COOKIE, path="/")
+
+    @router.get(
+        "/workspace/overview",
+        response_model=WorkspaceOverviewResponse,
+        tags=["workspace"],
+    )
+    async def workspace_overview(
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> WorkspaceOverviewResponse:
+        snapshot = await _overview().get(principal.tenant_id, now=clock())
+        return WorkspaceOverviewResponse.model_validate(snapshot.to_dict())
 
     @router.get(
         "/collections",

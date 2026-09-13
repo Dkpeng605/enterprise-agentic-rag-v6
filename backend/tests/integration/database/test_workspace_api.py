@@ -1,6 +1,6 @@
 import os
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -15,7 +15,10 @@ from enterprise_rag.adapters.database.models import (
     AnonymousSessionModel,
     AuthenticatedSessionModel,
     CollectionModel,
+    LeafModel,
+    RootModel,
     TenantModel,
+    TraceRunModel,
     UserModel,
 )
 from enterprise_rag.adapters.object_store import LocalObjectStore
@@ -87,6 +90,160 @@ async def start_session(client: httpx2.AsyncClient) -> tuple[str, str]:
 
 def csrf_headers(token: str) -> dict[str, str]:
     return {"X-CSRF-Token": token}
+
+
+@pytest.mark.anyio
+async def test_workspace_overview_is_tenant_scoped_and_aggregates_operational_metrics(
+    api: httpx2.AsyncClient,
+) -> None:
+    csrf, tenant_id = await start_session(api)
+    empty = await api.get("/api/v1/workspace/overview")
+    assert empty.status_code == 200
+    assert empty.json()["queries_24h"] == 0
+    assert empty.json()["query_error_rate"] is None
+
+    collection = await api.post(
+        "/api/v1/collections",
+        json={"name": "Overview"},
+        headers=csrf_headers(csrf),
+    )
+    upload = await api.post(
+        "/api/v1/documents",
+        data={
+            "collection_id": collection.json()["id"],
+            "title": "Overview source",
+            "visibility": "tenant",
+        },
+        files={"file": ("overview.txt", b"overview content", "text/plain")},
+        headers=csrf_headers(csrf),
+    )
+    assert upload.status_code == 202
+    document_id = UUID(upload.json()["document_id"])
+    version_id = UUID(upload.json()["version_id"])
+    database = Database(DATABASE_URL)
+    try:
+        async with database.session() as session:
+            session.add(
+                RootModel(
+                    id="root_" + "1" * 64,
+                    tenant_id=UUID(tenant_id),
+                    document_id=document_id,
+                    version_id=version_id,
+                    index_revision="overview-v1",
+                    ordinal=0,
+                    kind="section",
+                    source_locator={},
+                    raw_text="overview content",
+                    clean_text="overview content",
+                    metadata_json={},
+                    content_hash="1" * 64,
+                )
+            )
+            await session.flush()
+            session.add(
+                LeafModel(
+                    id="leaf_" + "2" * 64,
+                    root_id="root_" + "1" * 64,
+                    tenant_id=UUID(tenant_id),
+                    document_id=document_id,
+                    version_id=version_id,
+                    ordinal=0,
+                    text="overview content",
+                    retrieval_text="overview content",
+                    token_count=2,
+                    metadata_json={},
+                    content_hash="2" * 64,
+                )
+            )
+            for index, (status, duration) in enumerate(
+                (("answered", 100), ("error", 800), ("abstained", 250)), start=1
+            ):
+                session.add(
+                    TraceRunModel(
+                        trace_id=f"{index:032x}",
+                        tenant_id=UUID(tenant_id),
+                        actor_id=None,
+                        actor_type="anonymous",
+                        trace_type="query",
+                        subject_id=UUID(f"01900000-0000-7000-8000-{index:012d}"),
+                        request_id=None,
+                        mode="standard",
+                        status=status,
+                        started_at=NOW - timedelta(hours=index),
+                        finished_at=NOW - timedelta(hours=index) + timedelta(milliseconds=duration),
+                        duration_ms=duration,
+                        usage={},
+                        attributes={},
+                    )
+                )
+            session.add(
+                TraceRunModel(
+                    trace_id="f" * 32,
+                    tenant_id=UUID(tenant_id),
+                    actor_id=None,
+                    actor_type="anonymous",
+                    trace_type="evaluation",
+                    subject_id=UUID("01900000-0000-7000-8000-000000009999"),
+                    request_id=None,
+                    mode="standard",
+                    status="succeeded",
+                    started_at=NOW - timedelta(minutes=30),
+                    finished_at=NOW - timedelta(minutes=29),
+                    duration_ms=60_000,
+                    usage={},
+                    attributes={},
+                )
+            )
+            session.add(
+                TenantModel(
+                    id=OTHER_TENANT_ID,
+                    name="Other overview tenant",
+                    slug="other-overview-tenant",
+                )
+            )
+            await session.flush()
+            session.add(
+                CollectionModel(
+                    id=OTHER_COLLECTION_ID,
+                    tenant_id=OTHER_TENANT_ID,
+                    name="Must stay hidden",
+                )
+            )
+            session.add(
+                TraceRunModel(
+                    trace_id="e" * 32,
+                    tenant_id=OTHER_TENANT_ID,
+                    actor_id=None,
+                    actor_type="anonymous",
+                    trace_type="query",
+                    subject_id=UUID("01900000-0000-7000-8000-000000008888"),
+                    request_id=None,
+                    mode="standard",
+                    status="error",
+                    started_at=NOW - timedelta(minutes=10),
+                    finished_at=NOW - timedelta(minutes=9),
+                    duration_ms=60_000,
+                    usage={},
+                    attributes={},
+                )
+            )
+    finally:
+        await database.dispose()
+
+    response = await api.get("/api/v1/workspace/overview")
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["collection_count"] == 2
+    assert payload["document_counts"]["pending"] == 1
+    assert payload["root_count"] == payload["leaf_count"] == 1
+    assert payload["queries_24h"] == 3
+    assert payload["query_errors_24h"] == 1
+    assert payload["query_error_rate"] == pytest.approx(1 / 3, abs=0.0001)
+    assert payload["query_p95_ms"] == 800
+    assert {item["kind"] for item in payload["recent_activity"]} == {
+        "ingestion",
+        "evaluation",
+    }
 
 
 @pytest.mark.anyio

@@ -42,6 +42,7 @@ from enterprise_rag.services.auth import AnonymousSessionService
 from enterprise_rag.services.cost_guard import BudgetedQueryRunner, CostGuard, QueryBudget
 from enterprise_rag.services.health import HealthService
 from enterprise_rag.services.knowledge import KnowledgeApplication
+from enterprise_rag.services.overview import WorkspaceOverviewService
 from enterprise_rag.services.query_api import QueryApiService, QueryRunner
 from enterprise_rag.services.traces import TraceService, build_persistent_tracing
 from enterprise_rag.services.workspace import WorkspaceService
@@ -335,6 +336,7 @@ def create_app(
                 else None
             ),
             traces=active_trace_service,
+            overview=WorkspaceOverviewService(database) if database is not None else None,
             allowed_suffixes=active_settings.ingestion.allowed_suffixes,
             max_upload_bytes=min(
                 active_settings.ingestion.max_upload_bytes,

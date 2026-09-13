@@ -443,6 +443,122 @@
         ]
       }
     },
+    "/api/v1/workspace/overview": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Workspace Overview",
+        "operationId": "workspace_overview_api_v1_workspace_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOverviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or invalid CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant-scoped resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Upload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Schema validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demo quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/collections": {
       "get": {
         "tags": [
@@ -3077,6 +3193,40 @@
         ],
         "title": "CollectionResponse"
       },
+      "DocumentCountsResponse": {
+        "properties": {
+          "pending": {
+            "type": "integer",
+            "title": "Pending"
+          },
+          "processing": {
+            "type": "integer",
+            "title": "Processing"
+          },
+          "ready": {
+            "type": "integer",
+            "title": "Ready"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "deleting": {
+            "type": "integer",
+            "title": "Deleting"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pending",
+          "processing",
+          "ready",
+          "failed",
+          "deleting"
+        ],
+        "title": "DocumentCountsResponse"
+      },
       "DocumentDeleteResponse": {
         "properties": {
           "document_id": {
@@ -3669,6 +3819,57 @@
           "password"
         ],
         "title": "LoginRequest"
+      },
+      "OverviewActivityResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ingestion",
+              "evaluation"
+            ],
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "label",
+          "started_at",
+          "progress"
+        ],
+        "title": "OverviewActivityResponse"
       },
       "ProviderDiagnosticResponse": {
         "properties": {
@@ -4264,6 +4465,82 @@
           "status"
         ],
         "title": "UploadResponse"
+      },
+      "WorkspaceOverviewResponse": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "collection_count": {
+            "type": "integer",
+            "title": "Collection Count"
+          },
+          "document_counts": {
+            "$ref": "#/components/schemas/DocumentCountsResponse"
+          },
+          "root_count": {
+            "type": "integer",
+            "title": "Root Count"
+          },
+          "leaf_count": {
+            "type": "integer",
+            "title": "Leaf Count"
+          },
+          "queries_24h": {
+            "type": "integer",
+            "title": "Queries 24H"
+          },
+          "query_errors_24h": {
+            "type": "integer",
+            "title": "Query Errors 24H"
+          },
+          "query_error_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Error Rate"
+          },
+          "query_p95_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query P95 Ms"
+          },
+          "recent_activity": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewActivityResponse"
+            },
+            "type": "array",
+            "title": "Recent Activity"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "generated_at",
+          "collection_count",
+          "document_counts",
+          "root_count",
+          "leaf_count",
+          "queries_24h",
+          "query_errors_24h",
+          "query_error_rate",
+          "query_p95_ms",
+          "recent_activity"
+        ],
+        "title": "WorkspaceOverviewResponse"
       }
     },
     "securitySchemes": {

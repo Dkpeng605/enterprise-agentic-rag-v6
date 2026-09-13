@@ -11,6 +11,7 @@ import { useAuthStore } from './stores/auth'
 import HomeView from './views/HomeView.vue'
 import ChatView from './views/ChatView.vue'
 import LoginView from './views/LoginView.vue'
+import OverviewView from './views/OverviewView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
 
 declare module 'vue-router' {
@@ -31,8 +32,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/workspace/overview',
     name: 'overview',
-    component: PlaceholderView,
-    props: { eyebrow: 'WORKSPACE', title: '租户总览', description: 'Provider 与系统运行指标将在 M7-03 接入。' },
+    component: OverviewView,
     meta: { access: 'workspace', title: '租户总览' },
   },
   {
