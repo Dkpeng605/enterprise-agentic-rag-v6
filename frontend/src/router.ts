@@ -10,7 +10,9 @@ import {
 import { useAuthStore } from './stores/auth'
 import HomeView from './views/HomeView.vue'
 import ChatView from './views/ChatView.vue'
+import DocumentsView from './views/DocumentsView.vue'
 import LoginView from './views/LoginView.vue'
+import IngestionView from './views/IngestionView.vue'
 import OverviewView from './views/OverviewView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
 
@@ -38,15 +40,13 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/workspace/documents',
     name: 'documents',
-    component: PlaceholderView,
-    props: { eyebrow: 'KNOWLEDGE', title: '文档管理', description: '集合与文档生命周期将在 M7-04 接入。' },
+    component: DocumentsView,
     meta: { access: 'workspace', title: '文档管理' },
   },
   {
     path: '/workspace/ingestion',
     name: 'ingestion',
-    component: PlaceholderView,
-    props: { eyebrow: 'PIPELINE', title: '摄取任务', description: '上传与异步任务进度将在 M7-04 接入。' },
+    component: IngestionView,
     meta: { access: 'workspace', title: '摄取任务' },
   },
   {

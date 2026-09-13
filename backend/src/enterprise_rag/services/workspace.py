@@ -84,6 +84,18 @@ class DocumentDetail:
 
 
 @dataclass(frozen=True, slots=True)
+class JobListItem:
+    snapshot: JobSnapshot
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class JobPage:
+    items: tuple[JobListItem, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class UploadSnapshot:
     document_id: UUID
     version_id: UUID
@@ -465,6 +477,48 @@ class WorkspaceService:
             if snapshot is None:
                 raise self._not_found("ingestion job", job_id)
             return snapshot
+
+    async def list_jobs(
+        self,
+        tenant_id: UUID,
+        *,
+        status: str | None,
+        cursor: str | None,
+        limit: int,
+    ) -> JobPage:
+        cursor_value = self._decode_cursor(cursor) if cursor else None
+        statement = select(IngestionJobModel).where(IngestionJobModel.tenant_id == tenant_id)
+        if status is not None:
+            statement = statement.where(IngestionJobModel.status == status)
+        if cursor_value is not None:
+            created_at, job_id = cursor_value
+            statement = statement.where(
+                or_(
+                    IngestionJobModel.created_at < created_at,
+                    and_(
+                        IngestionJobModel.created_at == created_at,
+                        IngestionJobModel.id < job_id,
+                    ),
+                )
+            )
+        statement = statement.order_by(
+            IngestionJobModel.created_at.desc(), IngestionJobModel.id.desc()
+        ).limit(limit + 1)
+        async with self._database.session() as session:
+            models = list((await session.scalars(statement)).all())
+            has_more = len(models) > limit
+            models = models[:limit]
+            repository = IngestionJobRepository(session)
+            items: list[JobListItem] = []
+            for model in models:
+                snapshot = await repository.get(model.id)
+                if snapshot is None:
+                    raise RuntimeError("listed ingestion job disappeared")
+                items.append(JobListItem(snapshot, model.created_at))
+        next_cursor = None
+        if has_more and models:
+            next_cursor = self._encode_cursor(models[-1].created_at, models[-1].id)
+        return JobPage(tuple(items), next_cursor)
 
     async def delete_document(
         self, tenant_id: UUID, document_id: UUID, *, now: datetime

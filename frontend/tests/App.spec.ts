@@ -22,6 +22,13 @@ vi.mock('../src/api/client', async (importOriginal) => {
   }
 })
 
+vi.mock('../src/api/workspace', () => ({
+  workspaceApi: {
+    listCollections: vi.fn().mockResolvedValue([]),
+    listDocuments: vi.fn().mockResolvedValue({ items: [] }),
+  },
+}))
+
 const anonymous: SessionProfile = {
   actor_type: 'anonymous',
   role: 'demo_operator',

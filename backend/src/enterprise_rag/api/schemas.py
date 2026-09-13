@@ -123,6 +123,15 @@ class JobResponse(ApiModel):
     cancel_requested: bool
 
 
+class JobListItemResponse(JobResponse):
+    created_at: datetime
+
+
+class JobListResponse(ApiModel):
+    items: list[JobListItemResponse]
+    next_cursor: str | None
+
+
 class DocumentDetailResponse(DocumentResponse):
     root_count: int
     leaf_count: int
