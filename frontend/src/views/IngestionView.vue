@@ -124,7 +124,7 @@ onBeforeUnmount(() => {
         <button v-if="nextCursor" class="load-more" type="button" :disabled="loadingMore" @click="loadJobs(true)">{{ loadingMore ? '载入中…' : '载入更多任务' }}</button>
       </div>
 
-      <aside class="job-detail">
+      <aside class="job-detail" data-testid="selected-job">
         <template v-if="selected">
           <p class="section-kicker">JOB INSPECTOR</p><h2>{{ stageLabel(selected) }}</h2><span class="state-chip" :class="`state-chip--${selected.status}`">{{ statusLabel(selected.status) }}</span>
           <div class="job-progress"><div><i :style="{ width: `${selected.progress}%` }"></i></div><strong>{{ selected.progress }}%</strong></div>

@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: enterprise_rag_e2e
+      POSTGRES_USER: enterprise_rag
+      POSTGRES_PASSWORD: enterprise_rag
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U enterprise_rag -d enterprise_rag_e2e"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: infra/e2e/backend.Dockerfile
+    environment:
+      APP_ENVIRONMENT: test
+      APP_COMMIT_SHA: compose-e2e
+      PUBLIC_BASE_URL: http://frontend:4173
+      DATABASE_URL: postgresql+asyncpg://enterprise_rag:enterprise_rag@postgres:5432/enterprise_rag_e2e
+      SESSION_SECRET: local-e2e-session-secret-at-least-32-bytes
+      ADMIN_BOOTSTRAP_EMAIL: admin@example.com
+      ADMIN_BOOTSTRAP_PASSWORD: local-e2e-password
+      ENTERPRISE_RAG__INGESTION__OBJECT_STORE_ROOT: /data/runtime/object-store
+      ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION: "128"
+      ENTERPRISE_RAG__EVALUATION__GOLDEN_MANIFEST: /app/evals/golden/v1/manifest.yaml
+      ENTERPRISE_RAG__SECURITY__ANONYMOUS_QUERIES_PER_MINUTE: "20"
+    volumes:
+      - runtime-e2e:/data/runtime
+    command:
+      - bash
+      - -lc
+      - >-
+        uv run --project /app/backend --no-sync alembic -c /app/backend/alembic.ini upgrade head &&
+        exec uv run --project /app/backend --no-sync uvicorn enterprise_rag.local_runtime:app
+        --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: infra/e2e/frontend.Dockerfile
+    environment:
+      VITE_PROXY_TARGET: http://backend:8000
+    ports:
+      - "127.0.0.1:4173:4173"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  e2e:
+    build:
+      context: ../..
+      dockerfile: infra/e2e/playwright.Dockerfile
+    working_dir: /app/frontend
+    environment:
+      CI: "1"
+      E2E_BASE_URL: http://frontend:4173
+      E2E_ADMIN_EMAIL: admin@example.com
+      E2E_ADMIN_PASSWORD: local-e2e-password
+    volumes:
+      - ../../frontend/playwright-report:/app/frontend/playwright-report
+      - ../../frontend/test-results:/app/frontend/test-results
+    command: ["pnpm", "test:e2e"]
+    depends_on:
+      frontend:
+        condition: service_healthy
+
+volumes:
+  runtime-e2e:

@@ -33,6 +33,28 @@ uv sync --project backend --locked
 pnpm install --frozen-lockfile
 ```
 
+To start the current interactive offline journey directly—PostgreSQL, migrations, the
+FastAPI+Worker process, and Vue—without model credentials:
+
+```bash
+docker compose -f infra/compose/compose.e2e.yml up --build postgres backend frontend
+```
+
+If Docker Desktop on macOS reports
+`x-docker-expose-session-sharedkey ... non-printable ASCII` for a repository path containing
+non-ASCII characters, prefix the same command with `DOCKER_BUILDKIT=0` or clone into an ASCII-only
+path. This compatibility command has been verified from the repository's current Chinese path.
+
+Open `http://127.0.0.1:4173`. This composition uses deterministic hashing Dense/Sparse
+retrieval and extractive answers for local demonstrations and acceptance; it is not a claim
+about production semantic-model quality. Anonymous sessions have all business permissions in
+the Demo Tenant. To test the isolated administration surface, use the acceptance-only credentials
+`admin@example.com` / `local-e2e-password`. Stop it and remove its demo data with:
+
+```bash
+docker compose -f infra/compose/compose.e2e.yml down --volumes --remove-orphans
+```
+
 Install the PDF/OCR system dependencies:
 
 ```bash
@@ -172,7 +194,17 @@ pnpm --dir=frontend typecheck
 pnpm --dir=frontend build
 ```
 
-The same commands run on every GitHub pull request. Both `backend-quality` and `frontend-quality` must pass before merge.
+Full browser acceptance (the first run downloads the pinned Playwright image):
+
+```bash
+docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
+  up --build --abort-on-container-exit --exit-code-from e2e
+docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
+  down --volumes --remove-orphans
+```
+
+The same commands run on every GitHub pull request. `backend-quality`, `frontend-quality`, and
+`browser-e2e` must pass before merge.
 
 ## Contribution workflow
 
@@ -243,15 +275,18 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-05 Query Trace: complete
 - M7-06 Ingestion Trace: complete
 - M7-07 Evaluation UI: complete
-- Next: M7-08 Browser E2E
+- M7-08 Browser E2E: complete
+- M7 Vue3/TypeScript public and administration milestone: complete
+- Next: M8-01 Images
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
 The `/chat` public page now consumes that SSE contract with Standard/Deep selection, Collection scope,
 public stage status, expandable citations, explicit cancellation, 429 `Retry-After`, and bounded abstention.
 A disconnect retains the Query ID and never starts an infinite reconnect loop; internal diagnostics and hidden
-reasoning stay out of the public UI. The default backend still has no production QueryRunner composition, so
-the page reports service unavailability instead of manufacturing a fixture answer.
+reasoning stay out of the public UI. The default `enterprise_rag.main:app` still has no production QueryRunner
+composition. M7-08 provides a separate, explicit `enterprise_rag.local_runtime:app` backed by real
+PostgreSQL/Milvus/Worker execution and an E2E-labelled deterministic extractive adapter, rather than a fixture answer.
 
 `/workspace/overview` uses a tenant-scoped aggregate endpoint for Collections, document states, Roots/Leaves,
 24-hour query count/P95/error rate, and recent ingestion/evaluation activity, alongside six doctor-backed
@@ -263,8 +298,8 @@ and anonymous users cannot see VPS resources or cross-tenant operations.
 Documents, multipart upload, detail, and idempotent deletion. `/workspace/ingestion` exposes status filters,
 stage, progress, attempts, heartbeat, and stable errors, polling only while an active job exists. Anonymous
 `demo_operator` users can complete this single-tenant business journey, while system routes and cross-tenant
-resources remain denied at both frontend and backend boundaries. A real Worker is still required to advance
-an uploaded job beyond queued.
+resources remain denied at both frontend and backend boundaries. The offline Compose composition includes a
+real ingestion Worker; the default composition root still requires deployments to provide a Worker process.
 
 `/workspace/traces/queries` shows persisted Query Traces for the current tenant with Standard/Deep, outcome,
 and degradation filters. A sanitized backend projection drives the end-to-end latency waterfall,
@@ -371,7 +406,7 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
-M1 through M6 are complete and 7/8 M7 frontend slices are done. The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, and the Vue3/TypeScript shell, dual identity sessions, public chat, tenant overview, document/ingestion management, Query/Ingestion Trace inspectors, and a budgeted evaluation workspace. A concrete production QueryRunner/Provider composition entry point is not wired yet, so the default entry point does not pretend to be a usable complete query product.
+M1 through M7 are complete (52/64 slices). The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, the complete Vue3/TypeScript workspace, and a reproducible Compose browser journey. A concrete production QueryRunner/Provider composition entry point remains later release work, so the default entry point does not present the offline acceptance adapter as a production model.
 
 The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for image enrichment. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. The Loader is wired into the background ingestion Pipeline; the HTTP upload endpoint arrives in M3-10.
 
@@ -394,7 +429,7 @@ The Embedding port has local multilingual and OpenAI-compatible implementations.
 
 The Sparse Encoder produces Milvus sparse vectors with stable multilingual lexical hashes, log-TF weights, and L2 normalization; it is not represented as BM25. The Projection Service writes Dense/Sparse records in `processing` batches, verifies their count, activates them as `ready`, and verifies again. Repeated runs overwrite the same Leaf IDs. A partial write or verification failure removes every vector for the version with bounded delete retries.
 
-The ingestion Pipeline creates or reuses its Job in the document-registration transaction, then executes Loader → image enrichment → Cleaner → Splitter → PostgreSQL → Milvus → final commit. Each checkpoint renews the lease, advances monotonic progress, and observes cancellation. Deterministic input errors fail immediately; transient failures retry up to the configured limit. Failure and cancellation compensate PostgreSQL content and Milvus projections for that version, and a document becomes `ready` only after both stores verify successfully. The service currently runs through `run_once(owner=...)`; the long-running Worker entry point is deferred to deployment work.
+The ingestion Pipeline creates or reuses its Job in the document-registration transaction, then executes Loader → image enrichment → Cleaner → Splitter → PostgreSQL → Milvus → final commit. Each checkpoint renews the lease, advances monotonic progress, and observes cancellation. Deterministic input errors fail immediately; transient failures retry up to the configured limit. Failure and cancellation compensate PostgreSQL content and Milvus projections for that version, and a document becomes `ready` only after both stores verify successfully. The service runs through `run_once(owner=...)`; the M7-08 offline composition now includes a single-process polling Worker, while M8 still owns the production process and resource constraints.
 
 The anonymous workspace API uses server-side sessions to bind every request to one fixed demo tenant. Anonymous `demo_operator` sessions can manage collections and documents inside that tenant but cannot access the system administration surface; writes require a rotating CSRF token. Administrators use separate database sessions, Argon2id passwords, and system roles; frontend guards improve UX while the backend still authorizes every system request. Collection CRUD, streaming upload, document cursor pagination, details, job lookup, and idempotent asynchronous deletion all use the unified error model and request IDs. Cross-tenant identifiers always appear as 404.
 

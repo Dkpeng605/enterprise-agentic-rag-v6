@@ -33,6 +33,27 @@ uv sync --project backend --locked
 pnpm install --frozen-lockfile
 ```
 
+若要直接启动当前可交互的离线演示全链路（PostgreSQL、迁移、FastAPI+Worker、Vue），无需模型
+密钥：
+
+```bash
+docker compose -f infra/compose/compose.e2e.yml up --build postgres backend frontend
+```
+
+若 macOS Docker Desktop 在包含中文的仓库路径下报
+`x-docker-expose-session-sharedkey ... non-printable ASCII`，这是 BuildKit 尚未读取 Dockerfile 前的
+路径兼容错误；可在同一命令前加 `DOCKER_BUILDKIT=0`，或把仓库克隆到纯 ASCII 路径。本仓库已验证
+该兼容命令可以从当前中文路径完成镜像构建。
+
+浏览器打开 `http://127.0.0.1:4173`。这个组合使用确定性 hashing Dense/Sparse 检索和摘录式回答，
+用于本地演示与验收，不代表生产语义模型质量。匿名会话拥有 Demo Tenant 的全部业务权限；如需测试
+隔离的管理端，请使用仅供该 Compose 验收环境使用的 `admin@example.com` / `local-e2e-password`。
+停止并清除演示数据：
+
+```bash
+docker compose -f infra/compose/compose.e2e.yml down --volumes --remove-orphans
+```
+
 安装 PDF/OCR 所需系统依赖：
 
 ```bash
@@ -181,7 +202,17 @@ pnpm --dir=frontend typecheck
 pnpm --dir=frontend build
 ```
 
-每个 GitHub Pull Request 都会执行相同命令。合并前必须通过 `backend-quality` 和 `frontend-quality` 两项检查。
+完整浏览器验收（首次运行会下载固定 Playwright 镜像）：
+
+```bash
+docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
+  up --build --abort-on-container-exit --exit-code-from e2e
+docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
+  down --volumes --remove-orphans
+```
+
+每个 GitHub Pull Request 都会执行相同命令。合并前必须通过 `backend-quality`、`frontend-quality`
+和 `browser-e2e` 检查。
 
 ## 贡献流程
 
@@ -252,14 +283,17 @@ pnpm --dir=frontend build
 - M7-05 Query Trace：已完成
 - M7-06 Ingestion Trace：已完成
 - M7-07 Evaluation UI：已完成
-- 下一项：M7-08 Browser E2E
+- M7-08 Browser E2E：已完成
+- M7 Vue3/TypeScript 公共端与管理端里程碑：已完成
+- 下一项：M8-01 Images
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
 `/chat` 公共问答页已接入该 SSE 契约，支持 Standard/Deep、Collection 范围、公开阶段状态、
 可展开引用、主动停止、429 `Retry-After` 和有边界拒答。断线会保留 Query ID，不会自动无限
-重连；公共页面不展示内部 diagnostics 或隐藏推理。当前默认后端仍未组合生产 QueryRunner，
-因此页面会诚实展示服务不可用，而不会用 fixture 生成假答案。
+重连；公共页面不展示内部 diagnostics 或隐藏推理。默认 `enterprise_rag.main:app` 仍未组合生产
+QueryRunner；M7-08 另提供显式 `enterprise_rag.local_runtime:app`，以真实 PostgreSQL/Milvus/Worker
+链路和标记为 E2E 的确定性摘录适配器支持离线演示，不用 fixture 生成假答案。
 
 `/workspace/overview` 通过 tenant-scoped 聚合接口展示 Collection、文档状态、Root/Leaf、过去
 24 小时 Query/P95/错误率与最近摄取/评测任务，并同时读取 doctor 的六类 Provider 能力位。
@@ -269,7 +303,8 @@ pnpm --dir=frontend build
 `/workspace/documents` 现在支持 Collection 新建/编辑/名称确认删除、seed 保护、Document cursor
 筛选、multipart 上传、详情和幂等删除；`/workspace/ingestion` 提供任务状态筛选、阶段、进度、
 attempt、heartbeat 与稳定错误，只在存在活跃任务时轮询。匿名 `demo_operator` 可完成单租户业务
-旅程，但系统路由和跨租户资源仍由前后端双重拒绝。上传后端仍需实际 Worker 才会从 queued 推进。
+旅程，但系统路由和跨租户资源仍由前后端双重拒绝。离线 Compose 组合包含实际摄取 Worker；默认
+组合根仍要求部署方显式提供 Worker 进程。
 
 `/workspace/traces/queries` 展示当前 tenant 的持久化 Query Trace，可按 Standard/Deep、结果和降级
 状态筛选。详情使用后端净化投影显示全链路耗时瀑布、Dense/Sparse→RRF→Rerank 排名变化、Deep
@@ -372,7 +407,7 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 
 Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
-M1～M6 已完成，M7 前端里程碑已完成 7/8。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、EDD 评测闭环、公开 Benchmark Adapter，以及 Vue3/TypeScript Shell、双身份会话、公共问答、租户总览、文档/摄取管理、Query/Ingestion Trace 检查器和预算评测中心。具体生产 QueryRunner 与 Provider 的组合入口尚未接入，因此当前默认启动入口不会伪装成可用的完整查询产品。
+M1～M7 已完成（52/64 Slice）。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、EDD 评测闭环、公开 Benchmark Adapter、完整 Vue3/TypeScript 工作区，以及 Compose 中可复现的浏览器全旅程。具体生产 QueryRunner 与 Provider 的组合入口仍属于后续发布工作，因此默认启动入口不会把离线验收适配器伪装成生产模型。
 
 PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供图片增强阶段使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。Loader 已接入后台摄取 Pipeline；HTTP 上传接口在 M3-10 交付。
 
@@ -395,7 +430,7 @@ Embedding 端口提供本地多语和 OpenAI-compatible 两种实现。本地默
 
 Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化生成 Milvus 稀疏向量；它不等同于 BM25。Projection Service 将 Dense/Sparse 结果分批写为 `processing`，核对数量后激活为 `ready` 并再次核对。重复运行覆盖相同 Leaf ID；部分写入或核验失败会删除该版本全部向量，并对删除执行有界重试。
 
-摄取 Pipeline 在文档注册事务内创建或复用 Job，按 Loader → 图片增强 → Cleaner → Splitter → PostgreSQL → Milvus → 最终提交的顺序运行。每个 checkpoint 同时续租、更新单调进度并确认取消；确定性输入错误直接失败，瞬时错误按上限重试。失败或取消会补偿该版本的 PostgreSQL 内容和 Milvus 投影，只有双存储核验完成后文档才进入 `ready`。当前通过服务层 `run_once(owner=...)` 驱动；常驻 Worker 入口将在部署阶段补齐。
+摄取 Pipeline 在文档注册事务内创建或复用 Job，按 Loader → 图片增强 → Cleaner → Splitter → PostgreSQL → Milvus → 最终提交的顺序运行。每个 checkpoint 同时续租、更新单调进度并确认取消；确定性输入错误直接失败，瞬时错误按上限重试。失败或取消会补偿该版本的 PostgreSQL 内容和 Milvus 投影，只有双存储核验完成后文档才进入 `ready`。服务层通过 `run_once(owner=...)` 驱动；M7-08 离线组合已提供单进程轮询 Worker，M8 仍需交付生产进程与资源约束。
 
 匿名工作区 API 使用服务端 session 将所有请求强制绑定到固定 demo tenant。匿名 `demo_operator` 拥有该租户内的集合和文档管理权限，但不能进入系统管理面；写操作需要轮换的 CSRF token。管理员使用独立数据库 session、Argon2id 密码与系统角色，前端路由守卫只改善体验，后端仍会对每个系统请求鉴权。集合 CRUD、流式上传、文档 cursor 分页、详情、任务查询和幂等异步删除均使用统一错误模型与 request ID，跨租户 ID 一律表现为 404。
 

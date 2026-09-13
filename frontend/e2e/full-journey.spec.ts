@@ -1,0 +1,67 @@
+import { expect, test } from '@playwright/test'
+
+const adminEmail = process.env.E2E_ADMIN_EMAIL ?? 'admin@example.com'
+const adminPassword = process.env.E2E_ADMIN_PASSWORD ?? 'local-e2e-password'
+
+test('anonymous full journey and isolated administrator login', async ({ page }) => {
+  const suffix = Date.now().toString(36)
+  const collectionName = `M7 浏览器验收 ${suffix}`
+
+  await page.goto('/workspace/documents')
+  await expect(page.getByRole('heading', { name: '文档管理' })).toBeVisible()
+
+  await page.getByRole('button', { name: '新建集合' }).click()
+  const collectionDialog = page.getByRole('dialog')
+  await collectionDialog.getByLabel('集合名称').fill(collectionName)
+  await collectionDialog.getByLabel('描述').fill('Playwright M7-08 可回收验收集合')
+  await collectionDialog.getByRole('button', { name: '保存集合' }).click()
+  await expect(page.getByRole('status')).toHaveText('集合已创建，可立即上传文档。')
+
+  await page.getByRole('button', { name: collectionName, exact: false }).first().click()
+  await page.getByRole('button', { name: '上传文档' }).click()
+  const uploadDialog = page.getByRole('dialog')
+  await uploadDialog.locator('input[type="file"]').setInputFiles(
+    'e2e/fixtures/e2e-knowledge.md',
+  )
+  await uploadDialog.getByLabel('标题').fill('Atlas 发布手册')
+  await uploadDialog.getByLabel('组织').fill('M7 E2E')
+  await uploadDialog.getByRole('button', { name: '上传并创建任务' }).click()
+  await expect(uploadDialog.getByText('查看摄取进度')).toBeVisible()
+  await uploadDialog.getByText('查看摄取进度').click()
+  const selectedJob = page.getByTestId('selected-job')
+  await expect(selectedJob.getByText('已完成')).toBeVisible({ timeout: 45_000 })
+  await expect(selectedJob).toContainText('100%')
+
+  await page.getByRole('link', { name: '知识问答' }).click()
+  const collectionScope = page.getByRole('checkbox', { name: collectionName, exact: false })
+  await expect(collectionScope.locator('..')).toContainText('1 个可查询文档')
+  await collectionScope.check()
+  await page.getByLabel('问题').fill('Atlas 项目的部署验证口令是什么？')
+  await page.getByRole('button', { name: '发送', exact: false }).click()
+  await expect(page.getByText('已通过证据核验')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('.chat-turn--assistant')).toContainText('蓝鲸-7429')
+  await expect(page.getByTestId('citations')).toContainText('Atlas 发布手册')
+  await expect(page.getByTestId('citations')).toContainText('蓝鲸-7429')
+
+  await page.getByRole('link', { name: 'Query Trace' }).click()
+  await expect(page.getByTestId('waterfall')).toBeVisible()
+  await expect(page.getByTestId('rank-table')).toContainText('leaf_')
+
+  await page.getByRole('link', { name: 'Ingestion Trace' }).click()
+  await expect(page.getByTestId('ingestion-waterfall')).toBeVisible()
+  await expect(page.getByTestId('ingestion-batches')).toBeVisible()
+
+  await page.getByRole('link', { name: '评测中心' }).click()
+  await page.getByLabel('最大 Case').fill('3')
+  await page.getByRole('button', { name: '启动评测' }).click()
+  await expect(page.getByTestId('evaluation-metrics')).toBeVisible({ timeout: 45_000 })
+  await expect(page.getByTestId('evaluation-run-list')).toContainText('已完成')
+
+  await page.getByRole('link', { name: '管理员登录' }).click()
+  await page.getByLabel('邮箱').fill(adminEmail)
+  await page.getByLabel('密码').fill(adminPassword)
+  await page.getByRole('button', { name: '安全登录' }).click()
+  await expect(page).toHaveURL(/\/admin\/providers$/)
+  await expect(page.getByRole('heading', { name: 'Provider 管理' })).toBeVisible()
+  await expect(page.getByText('管理员', { exact: true })).toBeVisible()
+})

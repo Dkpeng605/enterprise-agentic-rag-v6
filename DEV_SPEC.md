@@ -1671,10 +1671,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 完成 |
-| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 7/8 完成 |
+| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 完成 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 51/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 52/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2432,8 +2432,38 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-08 Browser E2E
 
-- Playwright 匿名建集合、上传、查询、Trace、评测及管理员登录；
-- 验收：Compose 中全流程通过。
+- 状态：已完成；
+- 可运行组合：新增显式 `enterprise_rag.local_runtime:app`，只用于本地演示与浏览器验收；单个
+  FastAPI 进程同时装配 PostgreSQL、Local ObjectStore、Milvus Lite、真实多格式 Ingestion Pipeline、
+  轮询 Worker、QueryRunner、持久化 Trace 和评测服务。ASGI lifespan 有界启动并在退出时先取消
+  Worker，再逆序关闭 Provider、Tracer、ObjectStore 与数据库；Milvus Lite 始终只有一个进程打开；
+- 离线 Provider：新增固定维度、L2 归一的 signed hashing Dense Embedding，与既有
+  `HashingSparseEncoder`、RRF、PostgreSQL 二次授权回源和 Noop Rerank 组成零网络检索；回答只拼接
+  实际恢复的 Root 摘录并生成真实 Citation，缺少证据返回 `no_results`。该适配器名称、能力和 README
+  均标记 `e2e/offline/extractive`，不声称具备生产语义模型或生成质量，默认生产入口仍不自动启用；
+- 可观测性：本地 Runner 发出严格递增的 planning/retrieving/reranking/recovering/answering SSE
+  progress，并沿用 `rag.dense_retrieval`、`rag.sparse_retrieval`、`rag.rrf_fusion`、`rag.rerank` 与
+  Root 恢复 Span/候选事件；上传 Worker 使用 M7-06 的真实阶段和向量批次 Span，因此浏览器中的 Query
+  与 Ingestion Trace 不是 fixture 或前端推测；
+- Compose：独立 `compose.e2e.yml` 使用一次性 PostgreSQL；后端先执行 Alembic migrate，成功后才启动
+  单进程 API，Vite 提供同源代理前端，并固定 Playwright 1.63.0；健康依赖按
+  Postgres→backend（migration + API）→frontend→e2e 排序，运行数据使用命名卷，PostgreSQL 使用
+  tmpfs，前端依赖由根级 workspace 锁文件冻结进镜像，退出后可用 `down --volumes`
+  完整清理。Dockerfile 明确位于 `infra/e2e`，仅是验收构建，不提前冒充 M8 的非 root 生产镜像；
+- Browser Journey：一个串行测试从全新匿名 Cookie 开始，新建唯一 Collection、上传版本化 Markdown
+  fixture、等待真实 Job `succeeded/100%`，提出可由唯一口令核验的问题，断言回答与 Citation；随后
+  检查 Query Waterfall/Rank、Ingestion Waterfall/Projection Batch、运行 3 Case 零 LLM Golden
+  评测并等待指标，最后使用部署注入的 bootstrap 凭据登录并确认进入受保护的 Provider 管理路由；
+- CI：新增独立 `browser-e2e` check，在 PR/main 上执行完整 Compose journey；失败上传 Playwright
+  trace、截图、video 与 HTML report 7 天，`always()` 清理容器和卷。Vitest 显式排除 E2E 目录，避免
+  两种 runner 互相收集；Playwright 单 worker、CI 仅一次重试，不用重试掩盖首次失败诊断；
+- 安全与数据：管理员凭据仅由 Compose/CI 环境注入，fixture 明示不是真实密码；浏览器继续使用同源
+  HttpOnly Cookie/CSRF，tenant/actor 不进请求体；检索先在 Milvus 强制 tenant filter，再经
+  PostgreSQL ready/active-version/metadata scope 复核。测试不连接公网模型，失败产物不包含密钥；
+- 验收：Hashing Dense 单测覆盖确定性、归一、非法输入和关闭；PostgreSQL+Milvus 集成测试覆盖从
+  上传 Pipeline 到带引用 Query 及五阶段进度；后端 Ruff/Mypy/完整 Pytest/质量门禁、前端 Vitest、
+  typecheck/build、Compose 配置和全新卷 Playwright 全旅程全部通过；
+- PR：`test/m7-browser-e2e`。
 
 ### M8：首次公网发布
 

@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx2
 import pytest
 
@@ -51,3 +53,38 @@ async def test_unconfigured_query_runner_returns_service_unavailable(path: str) 
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
+
+
+@pytest.mark.anyio
+async def test_lifespan_cancels_workers_before_reverse_order_resource_close() -> None:
+    events: list[str] = []
+    started = asyncio.Event()
+
+    async def worker() -> None:
+        events.append("worker-started")
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            events.append("worker-stopped")
+
+    async def close_first() -> None:
+        events.append("first-closed")
+
+    async def close_second() -> None:
+        events.append("second-closed")
+
+    application = create_app(
+        background_tasks=(worker,),
+        resource_closers=(close_first, close_second),
+    )
+    async with application.router.lifespan_context(application):
+        await started.wait()
+        assert events == ["worker-started"]
+
+    assert events == [
+        "worker-started",
+        "worker-stopped",
+        "second-closed",
+        "first-closed",
+    ]

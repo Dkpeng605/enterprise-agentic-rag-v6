@@ -16,4 +16,5 @@ htmlcov/
 data/uploads/
 data/runtime/
 artifacts/
-
+frontend/playwright-report/
+frontend/test-results/
