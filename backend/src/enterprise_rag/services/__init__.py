@@ -72,6 +72,11 @@ from enterprise_rag.services.llm_judge import (
     LanguageModelJudge,
     configure_optional_llm_judge,
 )
+from enterprise_rag.services.overview import (
+    OverviewActivity,
+    WorkspaceOverview,
+    WorkspaceOverviewService,
+)
 from enterprise_rag.services.projection import (
     ProjectionError,
     ProjectionRequest,
@@ -171,6 +176,7 @@ __all__ = [
     "PlannerOutcome",
     "McpApplicationService",
     "MemoryEvaluationResultCache",
+    "OverviewActivity",
     "Principal",
     "ProjectionError",
     "ProjectionRequest",
@@ -220,6 +226,8 @@ __all__ = [
     "StandardQueryResult",
     "VerificationIssue",
     "WorkspaceService",
+    "WorkspaceOverview",
+    "WorkspaceOverviewService",
     "TraceService",
     "build_persistent_tracing",
     "configure_optional_llm_judge",

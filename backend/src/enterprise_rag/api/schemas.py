@@ -256,3 +256,33 @@ class HealthReportResponse(ApiModel):
     ready: bool
     checks: list[HealthCheckResponse]
     providers: list[ProviderDiagnosticResponse]
+
+
+class DocumentCountsResponse(ApiModel):
+    pending: int
+    processing: int
+    ready: int
+    failed: int
+    deleting: int
+
+
+class OverviewActivityResponse(ApiModel):
+    id: str
+    kind: Literal["ingestion", "evaluation"]
+    status: str
+    label: str
+    started_at: datetime
+    progress: int | None
+
+
+class WorkspaceOverviewResponse(ApiModel):
+    generated_at: datetime
+    collection_count: int
+    document_counts: DocumentCountsResponse
+    root_count: int
+    leaf_count: int
+    queries_24h: int
+    query_errors_24h: int
+    query_error_rate: float | None
+    query_p95_ms: float | None
+    recent_activity: list[OverviewActivityResponse]
