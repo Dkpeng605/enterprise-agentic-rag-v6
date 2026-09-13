@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import AsyncIterator, Callable
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -40,6 +41,7 @@ from enterprise_rag.api.schemas import (
     LoginRequest,
     QueryRequestModel,
     QueryResponseModel,
+    QueryTraceViewResponse,
     TenantModel,
     TraceDetailResponse,
     TraceListResponse,
@@ -58,6 +60,7 @@ from enterprise_rag.ports.traces import StoredSpan, TraceDetail, TraceSummary
 from enterprise_rag.services.auth import SESSION_COOKIE, AnonymousSessionService, Principal
 from enterprise_rag.services.knowledge import KnowledgeApplication, KnowledgeQuery
 from enterprise_rag.services.overview import WorkspaceOverviewService
+from enterprise_rag.services.query_trace import QueryTraceView
 from enterprise_rag.services.traces import TraceService
 from enterprise_rag.services.workspace import (
     CollectionSnapshot,
@@ -527,6 +530,12 @@ def create_api_router(
     )
     async def list_query_traces(
         principal: Annotated[Principal, Depends(reader)],
+        mode: Annotated[Literal["standard", "deep"] | None, Query()] = None,
+        trace_status: Annotated[
+            Literal["answered", "abstained", "no_results", "error", "cancelled"] | None,
+            Query(alias="status"),
+        ] = None,
+        degraded: Annotated[bool | None, Query()] = None,
         cursor: Annotated[str | None, Query(max_length=1_000)] = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
     ) -> TraceListResponse:
@@ -535,10 +544,26 @@ def create_api_router(
             trace_type="query",
             cursor=cursor,
             limit=limit,
+            mode=mode,
+            status=trace_status,
+            degraded=degraded,
         )
         return TraceListResponse(
             items=[_trace_summary(item) for item in page.items],
             next_cursor=page.next_cursor,
+        )
+
+    @router.get(
+        "/traces/query/{trace_id}",
+        response_model=QueryTraceViewResponse,
+        tags=["traces"],
+    )
+    async def get_query_trace(
+        trace_id: str,
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> QueryTraceViewResponse:
+        return _query_trace_view(
+            await _traces().get_query_trace(principal.tenant_id, trace_id)
         )
 
     @router.get(
@@ -657,6 +682,10 @@ def _trace_detail(item: TraceDetail) -> TraceDetailResponse:
         attributes=dict(item.attributes),
         spans=[_trace_span(span) for span in item.spans],
     )
+
+
+def _query_trace_view(item: QueryTraceView) -> QueryTraceViewResponse:
+    return QueryTraceViewResponse.model_validate(asdict(item))
 
 
 def _knowledge_query(body: QueryRequestModel) -> KnowledgeQuery:

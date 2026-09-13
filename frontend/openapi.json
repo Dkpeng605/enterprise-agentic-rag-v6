@@ -2526,6 +2526,65 @@
         ],
         "parameters": [
           {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "standard",
+                    "deep"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Mode"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "answered",
+                    "abstained",
+                    "no_results",
+                    "error",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "degraded",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Degraded"
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "required": false,
@@ -2562,6 +2621,133 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TraceListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or invalid CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant-scoped resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Upload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Schema validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demo quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/traces/query/{trace_id}": {
+      "get": {
+        "tags": [
+          "traces"
+        ],
+        "summary": "Get Query Trace",
+        "operationId": "get_query_trace_api_v1_traces_query__trace_id__get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "trace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryTraceViewResponse"
                 }
               }
             }
@@ -4320,6 +4506,32 @@
         ],
         "title": "QueryCitationResponse"
       },
+      "QueryDegradationResponse": {
+        "properties": {
+          "component": {
+            "type": "string",
+            "title": "Component"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "component",
+          "provider"
+        ],
+        "title": "QueryDegradationResponse"
+      },
       "QueryHistoryTurn": {
         "properties": {
           "role": {
@@ -4344,6 +4556,172 @@
           "content"
         ],
         "title": "QueryHistoryTurn"
+      },
+      "QueryRankChangeResponse": {
+        "properties": {
+          "leaf_id": {
+            "type": "string",
+            "title": "Leaf Id"
+          },
+          "root_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Id"
+          },
+          "dense_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dense Rank"
+          },
+          "sparse_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sparse Rank"
+          },
+          "rrf_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rrf Rank"
+          },
+          "rerank_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Rank"
+          },
+          "dense_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dense Score"
+          },
+          "sparse_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sparse Score"
+          },
+          "rrf_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rrf Score"
+          },
+          "rerank_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Score"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "leaf_id",
+          "root_id",
+          "dense_rank",
+          "sparse_rank",
+          "rrf_rank",
+          "rerank_rank",
+          "dense_score",
+          "sparse_score",
+          "rrf_score",
+          "rerank_score"
+        ],
+        "title": "QueryRankChangeResponse"
+      },
+      "QueryRecoveryRoundResponse": {
+        "properties": {
+          "round_number": {
+            "type": "integer",
+            "title": "Round Number"
+          },
+          "route": {
+            "type": "string",
+            "title": "Route"
+          },
+          "retrieval_mode": {
+            "type": "string",
+            "title": "Retrieval Mode"
+          },
+          "target_count": {
+            "type": "integer",
+            "title": "Target Count"
+          },
+          "returned_count": {
+            "type": "integer",
+            "title": "Returned Count"
+          },
+          "added_count": {
+            "type": "integer",
+            "title": "Added Count"
+          },
+          "duplicate_count": {
+            "type": "integer",
+            "title": "Duplicate Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "round_number",
+          "route",
+          "retrieval_mode",
+          "target_count",
+          "returned_count",
+          "added_count",
+          "duplicate_count"
+        ],
+        "title": "QueryRecoveryRoundResponse"
       },
       "QueryRequestModel": {
         "properties": {
@@ -4507,6 +4885,118 @@
         "additionalProperties": false,
         "type": "object",
         "title": "QueryScopeRequest"
+      },
+      "QueryTraceViewResponse": {
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/TraceSummaryResponse"
+          },
+          "usage": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Usage"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/QueryWaterfallStageResponse"
+            },
+            "type": "array",
+            "title": "Stages"
+          },
+          "rankings": {
+            "items": {
+              "$ref": "#/components/schemas/QueryRankChangeResponse"
+            },
+            "type": "array",
+            "title": "Rankings"
+          },
+          "recovery_rounds": {
+            "items": {
+              "$ref": "#/components/schemas/QueryRecoveryRoundResponse"
+            },
+            "type": "array",
+            "title": "Recovery Rounds"
+          },
+          "degradations": {
+            "items": {
+              "$ref": "#/components/schemas/QueryDegradationResponse"
+            },
+            "type": "array",
+            "title": "Degradations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "summary",
+          "usage",
+          "stages",
+          "rankings",
+          "recovery_rounds",
+          "degradations"
+        ],
+        "title": "QueryTraceViewResponse"
+      },
+      "QueryWaterfallStageResponse": {
+        "properties": {
+          "span_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$",
+            "title": "Span Id"
+          },
+          "parent_span_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Span Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "offset_ms": {
+            "type": "number",
+            "title": "Offset Ms"
+          },
+          "duration_ms": {
+            "type": "number",
+            "title": "Duration Ms"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "span_id",
+          "name",
+          "offset_ms",
+          "duration_ms",
+          "status",
+          "degraded"
+        ],
+        "title": "QueryWaterfallStageResponse"
       },
       "TenantModel": {
         "properties": {
