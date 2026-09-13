@@ -71,7 +71,8 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `GET /api/v1/workspace/overview` — 当前租户的业务指标与最近任务聚合
 - `/api/v1/collections` — demo tenant 集合 CRUD
 - `/api/v1/documents` — 流式上传、筛选与 cursor 分页
-- `/api/v1/documents/{id}`、`/api/v1/ingestion-jobs/{id}` — 文档和摄取状态
+- `/api/v1/documents/{id}` — 文档详情与幂等删除
+- `GET /api/v1/ingestion-jobs`、`GET /api/v1/ingestion-jobs/{id}` — 摄取任务 cursor 列表、筛选与详情
 - `POST /api/v1/queries`、`POST /api/v1/queries/stream` — 同步与 SSE 查询契约；未注入 QueryRunner 的当前启动入口会返回 503
 - `GET /api/v1/traces`、`/api/v1/traces/query`、`/api/v1/traces/ingestion` — 租户内 Trace 筛选与 cursor 分页
 - `GET /api/v1/traces/{trace_id}` — 阶段耗时、候选排名、分数和降级详情
@@ -108,10 +109,12 @@ pnpm --dir=frontend dev
 ```
 
 Vite 会把 `/api` 与 `/health` 同源代理到 `127.0.0.1:8000`。当前前端包含响应式 Shell、
-完整路由表、匿名 session、管理员登录、system route guard、公共 SSE 问答，以及租户总览。
+完整路由表、匿名 session、管理员登录、system route guard、公共 SSE 问答、租户总览、
+Collection/Document 管理，以及摄取任务监控。
 匿名用户无需登录即可进入 `/workspace/*`；`/workspace/overview` 会读取当前 tenant 的集合、文档、
-索引、24 小时 Query 与最近任务聚合，并并列显示 `/health/doctor` 的 Provider 状态；`/admin/*`
-仍需系统管理员身份。若需要重新生成锁定的 OpenAPI 类型：
+索引、24 小时 Query 与最近任务聚合，并并列显示 `/health/doctor` 的 Provider 状态；
+`/workspace/documents` 支持集合 CRUD、筛选、上传、详情和安全删除，`/workspace/ingestion` 展示
+后台任务真实进度；`/admin/*` 仍需系统管理员身份。若需要重新生成锁定的 OpenAPI 类型：
 
 ```bash
 pnpm --dir=frontend generate:api
@@ -242,7 +245,8 @@ pnpm --dir=frontend build
 - M7-01 Shell/Auth：已完成
 - M7-02 Public Chat：已完成
 - M7-03 Overview：已完成
-- 下一项：M7-04 Documents/Ingestion
+- M7-04 Documents/Ingestion：已完成
+- 下一项：M7-05 Query Trace
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -255,6 +259,11 @@ pnpm --dir=frontend build
 24 小时 Query/P95/错误率与最近摄取/评测任务，并同时读取 doctor 的六类 Provider 能力位。
 空工作区、未注册 Provider 和 null 指标均保持真实语义；loading、empty、degraded、error/retry
 拥有独立状态，错误可携带 Request ID。匿名用户看不到 VPS 资源或跨租户运行数据。
+
+`/workspace/documents` 现在支持 Collection 新建/编辑/名称确认删除、seed 保护、Document cursor
+筛选、multipart 上传、详情和幂等删除；`/workspace/ingestion` 提供任务状态筛选、阶段、进度、
+attempt、heartbeat 与稳定错误，只在存在活跃任务时轮询。匿名 `demo_operator` 可完成单租户业务
+旅程，但系统路由和跨租户资源仍由前后端双重拒绝。上传后端仍需实际 Worker 才会从 queued 推进。
 
 Cost Guard 在 QueryRunner 进入任何 Provider 逻辑前，通过 PostgreSQL 条件 UPSERT 原子预留分钟 Query 名额和最坏调用/token 额度。分钟限额按匿名 session 隔离，UTC 日额度由所有匿名 session 共享；Standard/Deep 使用不同权重。成功后按可信 usage 退回未使用额度，异常或无法验证的 usage 保守扣除预留，429 同时返回 `Retry-After`。LLM 装饰器提供可配置单次超时、仅瞬时错误的有界重试和 retry count。新增数据库表需要先执行 README 上方的 `alembic upgrade head`。
 
@@ -341,7 +350,7 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 
 Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
-M1～M6 已完成，M7 前端里程碑已完成 3/8。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、EDD 评测闭环、公开 Benchmark Adapter，以及 Vue3/TypeScript Shell、双身份会话、公共问答与租户总览。具体生产 QueryRunner 与 Provider 的组合入口尚未接入，因此当前默认启动入口不会伪装成可用的完整查询产品。
+M1～M6 已完成，M7 前端里程碑已完成 4/8。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、EDD 评测闭环、公开 Benchmark Adapter，以及 Vue3/TypeScript Shell、双身份会话、公共问答、租户总览和文档/摄取管理。具体生产 QueryRunner 与 Provider 的组合入口尚未接入，因此当前默认启动入口不会伪装成可用的完整查询产品。
 
 PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供图片增强阶段使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。Loader 已接入后台摄取 Pipeline；HTTP 上传接口在 M3-10 交付。
 

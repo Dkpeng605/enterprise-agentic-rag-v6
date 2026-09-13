@@ -474,6 +474,21 @@ async def test_upload_list_cursor_detail_job_and_idempotent_delete(
     assert job.json()["progress"] == 0
     assert "lease_owner" not in job.json()
 
+    jobs_page = await api.get("/api/v1/ingestion-jobs", params={"limit": 1})
+    assert jobs_page.status_code == 200
+    assert len(jobs_page.json()["items"]) == 1
+    assert jobs_page.json()["items"][0]["status"] == "queued"
+    assert jobs_page.json()["items"][0]["created_at"]
+    assert jobs_page.json()["next_cursor"]
+    next_jobs = await api.get(
+        "/api/v1/ingestion-jobs",
+        params={"limit": 1, "cursor": jobs_page.json()["next_cursor"]},
+    )
+    assert len(next_jobs.json()["items"]) == 1
+    assert next_jobs.json()["items"][0]["id"] != jobs_page.json()["items"][0]["id"]
+    queued_jobs = await api.get("/api/v1/ingestion-jobs", params={"status": "queued"})
+    assert len(queued_jobs.json()["items"]) == 2
+
     first_delete = await api.delete(f"/api/v1/documents/{document_id}", headers=csrf_headers(csrf))
     repeated_delete = await api.delete(
         f"/api/v1/documents/{document_id}", headers=csrf_headers(csrf)
@@ -553,6 +568,7 @@ async def test_openapi_describes_workspace_security_pagination_and_errors(
         "/api/v1/collections",
         "/api/v1/documents",
         "/api/v1/documents/{document_id}",
+        "/api/v1/ingestion-jobs",
         "/api/v1/ingestion-jobs/{job_id}",
     ):
         assert path in paths

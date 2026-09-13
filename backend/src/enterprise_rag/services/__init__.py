@@ -124,7 +124,7 @@ from enterprise_rag.services.standard_graph import (
     StandardQueryResult,
 )
 from enterprise_rag.services.traces import TraceService, build_persistent_tracing
-from enterprise_rag.services.workspace import WorkspaceService
+from enterprise_rag.services.workspace import JobListItem, JobPage, WorkspaceService
 
 __all__ = [
     "AnswerDraft",
@@ -170,6 +170,8 @@ __all__ = [
     "KnowledgeApplication",
     "KnowledgeQuery",
     "JudgeResponseError",
+    "JobListItem",
+    "JobPage",
     "LanguageModelJudge",
     "AnonymousSessionService",
     "PipelineRunResult",

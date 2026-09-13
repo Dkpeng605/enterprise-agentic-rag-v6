@@ -34,6 +34,8 @@ from enterprise_rag.api.schemas import (
     DocumentListResponse,
     DocumentResponse,
     ErrorResponseModel,
+    JobListItemResponse,
+    JobListResponse,
     JobResponse,
     LoginRequest,
     QueryRequestModel,
@@ -49,7 +51,7 @@ from enterprise_rag.api.schemas import (
 from enterprise_rag.domain.common import to_json_value
 from enterprise_rag.domain.documents import DocumentStatus, DocumentVisibility
 from enterprise_rag.domain.errors import AppError, ErrorCode
-from enterprise_rag.domain.jobs import JobSnapshot
+from enterprise_rag.domain.jobs import JobSnapshot, JobStatus
 from enterprise_rag.domain.retrieval import QueryMode, QueryScope
 from enterprise_rag.ports.planner import ConversationRole, ConversationTurn
 from enterprise_rag.ports.traces import StoredSpan, TraceDetail, TraceSummary
@@ -61,6 +63,7 @@ from enterprise_rag.services.workspace import (
     CollectionSnapshot,
     DocumentDetail,
     DocumentSummary,
+    JobListItem,
     WorkspaceService,
 )
 
@@ -419,6 +422,28 @@ def create_api_router(
         )
 
     @router.get(
+        "/ingestion-jobs",
+        response_model=JobListResponse,
+        tags=["ingestion"],
+    )
+    async def list_ingestion_jobs(
+        principal: Annotated[Principal, Depends(reader)],
+        job_status: Annotated[JobStatus | None, Query(alias="status")] = None,
+        cursor: Annotated[str | None, Query(max_length=1_000)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    ) -> JobListResponse:
+        page = await _workspace().list_jobs(
+            principal.tenant_id,
+            status=job_status.value if job_status is not None else None,
+            cursor=cursor,
+            limit=limit,
+        )
+        return JobListResponse(
+            items=[_job_list_item(item) for item in page.items],
+            next_cursor=page.next_cursor,
+        )
+
+    @router.get(
         "/ingestion-jobs/{job_id}",
         response_model=JobResponse,
         tags=["ingestion"],
@@ -693,6 +718,10 @@ def _job(item: JobSnapshot) -> JobResponse:
         error_message=item.error_message,
         cancel_requested=item.cancel_requested,
     )
+
+
+def _job_list_item(item: JobListItem) -> JobListItemResponse:
+    return JobListItemResponse(**_job(item.snapshot).model_dump(), created_at=item.created_at)
 
 
 def _document_detail(item: DocumentDetail) -> DocumentDetailResponse:

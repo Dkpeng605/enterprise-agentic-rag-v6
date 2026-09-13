@@ -1671,10 +1671,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 完成 |
-| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 3/8 完成 |
+| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 4/8 完成 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 47/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 48/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2300,8 +2300,37 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-04 Documents/Ingestion
 
-- 集合 CRUD、上传、列表、详情、删除、任务进度；
-- 验收：完整匿名 demo_operator 旅程和系统越权拒绝。
+- 状态：已完成；
+- API 补全：保留 M3-10 的 Collection CRUD、multipart 上传、Document cursor 列表/筛选、详情、
+  幂等删除和单 Job 查询契约；新增 `GET /api/v1/ingestion-jobs`，支持 JobStatus、limit 和不透明
+  cursor，按 `created_at/id` 稳定倒序；响应公开 created_at 但继续隐藏 lease owner/until；所有查询
+  强制绑定 Principal tenant，跨租户 ID 与不存在统一 404；
+- 生成 Client：`workspaceApi` 是 Collection、Document、Upload 和 Job 的唯一前端 HTTP 边界，
+  继续使用生成 Schema 与全局 Cookie/CSRF/request-ID middleware；multipart 使用浏览器 FormData，
+  不手写 Content-Type boundary；组件不直接 `fetch`，上传后的 document/version/job ID 全部取服务端
+  响应；
+- Collection：侧栏展示 seed、visibility、文档总数/ready 数，支持全量/单集合切换；新建后自动选中，
+  编辑 name/description/visibility；删除要求逐字输入名称，seed 删除按钮禁用且服务端再次拒绝；有文档
+  的集合删除明确说明进入后台 Saga，不宣称同步清理完成；
+- Document：按 collection/status/keyword 筛选并 cursor 加载更多；列表展示真实状态、来源、组织、
+  hash 前缀、大小与时间；详情从 API 读取 version、Root/Leaf、最近 Job 和稳定错误；上传接受
+  PDF/DOCX/HTML/TXT/Markdown/XLSX/XLS/CSV，服务端继续校验扩展名、MIME、流大小和配额；删除只
+  创建/复用幂等 Job，页面即时展示 deleting；
+- Ingestion：独立任务页展示 active/succeeded/failed 计数、状态筛选、进度、stage、attempt、
+  heartbeat、文档/版本 ID 与稳定错误；只在当前结果包含 queued/leased/running/retry_wait 时每 5 秒
+  轮询，终态停止轮询，失败任务不会由浏览器自动重启；上传/详情可携带 `?job=` 定位任务；
+- 状态与布局：文档和任务均有 loading/empty/error/retry，任务有 failed/cancelled，上传有
+  deduplicated；桌面 1280×720 使用列表/Inspector 双栏，390×844 收敛为单栏且无水平溢出；抽屉
+  用可访问 dialog 语义；
+- 安全：匿名 `demo_operator` 可完成当前单租户业务旅程，但 `/admin/*` 仍由 router guard 跳转到
+  带本站 redirect 的管理员登录，`/system/status` 后端固定 403；前端不显示系统 Provider 配置、
+  其他 tenant、对象路径或 lease owner；
+- 验收：PostgreSQL 集成测试覆盖 Collection CRUD/seed 保护、两页 Document 与 Job cursor、筛选、
+  上传/详情/删除幂等、跨租户 404、MIME/扩展名/大小错误、CSRF 和 system 403；Vitest 覆盖前端
+  新建/编辑/确认删除、File multipart boundary、筛选/详情、上传 Job 链接、Document 删除、Job
+  失败详情和活跃轮询停止；真实 FastAPI/PostgreSQL 浏览器完成新建集合→上传 Markdown→查看 Job→
+  删除 Document→确认删除 Collection，并验证匿名访问 `/admin/providers` 被拒绝；
+- PR：`feat/m7-documents-ingestion`。
 
 #### M7-05 Query Trace
 

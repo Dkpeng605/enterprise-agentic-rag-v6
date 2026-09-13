@@ -213,6 +213,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ingestion-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Ingestion Jobs */
+        get: operations["list_ingestion_jobs_api_v1_ingestion_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ingestion-jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -656,6 +673,61 @@ export interface components {
             /** Providers */
             providers: components["schemas"]["ProviderDiagnosticResponse"][];
         };
+        /** JobListItemResponse */
+        JobListItemResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /** Type */
+            type: string;
+            /** Status */
+            status: string;
+            /** Attempts */
+            attempts: number;
+            /** Max Attempts */
+            max_attempts: number;
+            /**
+             * Available At
+             * Format: date-time
+             */
+            available_at: string;
+            /** Heartbeat At */
+            heartbeat_at: string | null;
+            /** Progress */
+            progress: number;
+            /** Stage */
+            stage: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Error Message */
+            error_message: string | null;
+            /** Cancel Requested */
+            cancel_requested: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** JobListResponse */
+        JobListResponse: {
+            /** Items */
+            items: components["schemas"]["JobListItemResponse"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
         /** JobResponse */
         JobResponse: {
             /**
@@ -699,6 +771,11 @@ export interface components {
             /** Cancel Requested */
             cancel_requested: boolean;
         };
+        /**
+         * JobStatus
+         * @enum {string}
+         */
+        JobStatus: "queued" | "leased" | "running" | "retry_wait" | "succeeded" | "failed" | "cancelled";
         /** LivenessResponse */
         LivenessResponse: {
             /**
@@ -2350,6 +2427,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDeleteResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    list_ingestion_jobs_api_v1_ingestion_jobs_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["JobStatus"] | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobListResponse"];
                 };
             };
             /** @description Invalid request */
