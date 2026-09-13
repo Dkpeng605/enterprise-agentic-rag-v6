@@ -1671,10 +1671,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 完成 |
-| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 4/8 完成 |
+| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 5/8 完成 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 48/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 49/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2334,8 +2334,33 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-05 Query Trace
 
-- 瀑布图和排名变化；
-- 验收：Standard/Deep/degraded Trace。
+- 状态：已完成；
+- 查询边界：`GET /api/v1/traces/query` 新增 `mode`、稳定 query status、`degraded`、limit 和
+  不透明 cursor 服务端筛选；所有条件与 cursor 均在 PostgreSQL tenant predicate 内执行，tenant
+  只能来自 Principal。`GET /api/v1/traces/query/{trace_id}` 对非 query 或跨租户 ID 统一 404；
+- 展示投影：新增后端 `QueryTraceView`，只从已持久化 Trace 生成 summary、数值 usage、Span
+  offset/duration、候选排名、Recovery 轮次和稳定降级组件；Vue 不解析任意内部 Attribute/Event，
+  API 不返回问题正文、Prompt、Root 正文、鉴权数据、异常 message/stack 或隐藏推理；
+- Deep 遥测：`DeepRecoveryController` 写入根、Evidence Assess 与实际 Recovery Round 子 Span；
+  Round 只记录序号、四类稳定 route、retrieval mode、target/returned/added/duplicate 计数，保持
+  `max_rounds` 有界且不记录改写 query、requirement 或 assessor reason；
+- 排名变化：后端按 Leaf ID 合并 `rag.retrieval.candidate`、`rag.fusion.candidate` 与
+  `rag.rerank.candidate`，输出 Dense/Sparse rank+score、RRF rank+score、Rerank rank+score 和 Root
+  ID；缺失事件保持 null，前端显示 `—`，不得从最终顺序反推未记录阶段；候选按 Rerank→RRF→首次
+  观测稳定排列；
+- 瀑布与降级：瀑布以 Trace `started_at/duration_ms` 为同一时间轴，逐 Span 显示真实 offset、耗时、
+  parent ID 关系和稳定状态，Deep 阶段与 `rag.degraded` 使用独立颜色；总览降级只由完成记录的
+  `*_degraded=true` 派生，详情仅展示组件及可选公开 Provider 名，不泄露原始异常；
+- 交互：列表自动选中最新 Trace，支持 Standard/Deep、结果和健康状态筛选、cursor 加载更多、手动
+  刷新；详情分别展示元数据、瀑布、排名和仅 Deep 可见的 Recovery；loading、empty、detail loading、
+  error/request-ID/retry 以及旧 Trace 缺 Span/候选/Recovery 均有诚实状态；
+- 响应式：桌面为 Trace 列表/Inspector 双栏；390×844 下列表横向局部滚动、详情单栏，宽排名表只在
+  自身容器滚动，文档根节点无水平溢出；
+- 验收：PostgreSQL/FastAPI 测试覆盖 Standard+degraded 排名投影、Deep+abstained Recovery、组合
+  筛选和 tenant 隔离；OpenTelemetry 单测证明 Recovery 字段有界且问题正文未落库；Vitest 覆盖
+  Standard 排名、Deep Recovery、degraded、loading/empty/error；真实 1280×720 与 390×844
+  浏览器检查 Standard/Deep/degraded、根节点零水平溢出且控制台无 warning/error；
+- PR：`feat/m7-query-trace`。
 
 #### M7-06 Ingestion Trace
 

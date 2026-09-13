@@ -10,6 +10,7 @@ from enterprise_rag.adapters.database.traces import PostgreSQLTraceStore
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.observability.exporter import BufferedSpanExporter
 from enterprise_rag.ports.traces import TraceCompletion, TraceDetail, TracePage, TraceStore
+from enterprise_rag.services.query_trace import QueryTraceView, project_query_trace
 
 
 class TraceService:
@@ -28,9 +29,18 @@ class TraceService:
         trace_type: str | None,
         cursor: str | None,
         limit: int,
+        mode: str | None = None,
+        status: str | None = None,
+        degraded: bool | None = None,
     ) -> TracePage:
         return await self._store.list(
-            tenant_id, trace_type=trace_type, cursor=cursor, limit=limit
+            tenant_id,
+            trace_type=trace_type,
+            cursor=cursor,
+            limit=limit,
+            mode=mode,
+            status=status,
+            degraded=degraded,
         )
 
     async def get_trace(self, tenant_id: UUID, trace_id: str) -> TraceDetail:
@@ -43,6 +53,12 @@ class TraceService:
         if detail is None:
             raise AppError(ErrorCode.NOT_FOUND, "The trace was not found.")
         return detail
+
+    async def get_query_trace(self, tenant_id: UUID, trace_id: str) -> QueryTraceView:
+        detail = await self.get_trace(tenant_id, trace_id)
+        if detail.summary.trace_type != "query":
+            raise AppError(ErrorCode.NOT_FOUND, "The query trace was not found.")
+        return project_query_trace(detail)
 
 
 def build_persistent_tracing(

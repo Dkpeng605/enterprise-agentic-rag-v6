@@ -315,6 +315,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/traces/query/{trace_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Query Trace */
+        get: operations["get_query_trace_api_v1_traces_query__trace_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/traces/ingestion": {
         parameters: {
             query?: never;
@@ -857,6 +874,13 @@ export interface components {
             /** Score */
             score: number | null;
         };
+        /** QueryDegradationResponse */
+        QueryDegradationResponse: {
+            /** Component */
+            component: string;
+            /** Provider */
+            provider: string | null;
+        };
         /** QueryHistoryTurn */
         QueryHistoryTurn: {
             /**
@@ -866,6 +890,46 @@ export interface components {
             role: "user" | "assistant";
             /** Content */
             content: string;
+        };
+        /** QueryRankChangeResponse */
+        QueryRankChangeResponse: {
+            /** Leaf Id */
+            leaf_id: string;
+            /** Root Id */
+            root_id: string | null;
+            /** Dense Rank */
+            dense_rank: number | null;
+            /** Sparse Rank */
+            sparse_rank: number | null;
+            /** Rrf Rank */
+            rrf_rank: number | null;
+            /** Rerank Rank */
+            rerank_rank: number | null;
+            /** Dense Score */
+            dense_score: number | null;
+            /** Sparse Score */
+            sparse_score: number | null;
+            /** Rrf Score */
+            rrf_score: number | null;
+            /** Rerank Score */
+            rerank_score: number | null;
+        };
+        /** QueryRecoveryRoundResponse */
+        QueryRecoveryRoundResponse: {
+            /** Round Number */
+            round_number: number;
+            /** Route */
+            route: string;
+            /** Retrieval Mode */
+            retrieval_mode: string;
+            /** Target Count */
+            target_count: number;
+            /** Returned Count */
+            returned_count: number;
+            /** Added Count */
+            added_count: number;
+            /** Duplicate Count */
+            duplicate_count: number;
         };
         /** QueryRequestModel */
         QueryRequestModel: {
@@ -924,6 +988,39 @@ export interface components {
             versions?: string[];
             /** Sections */
             sections?: string[];
+        };
+        /** QueryTraceViewResponse */
+        QueryTraceViewResponse: {
+            summary: components["schemas"]["TraceSummaryResponse"];
+            /** Usage */
+            usage: {
+                [key: string]: number;
+            };
+            /** Stages */
+            stages: components["schemas"]["QueryWaterfallStageResponse"][];
+            /** Rankings */
+            rankings: components["schemas"]["QueryRankChangeResponse"][];
+            /** Recovery Rounds */
+            recovery_rounds: components["schemas"]["QueryRecoveryRoundResponse"][];
+            /** Degradations */
+            degradations: components["schemas"]["QueryDegradationResponse"][];
+        };
+        /** QueryWaterfallStageResponse */
+        QueryWaterfallStageResponse: {
+            /** Span Id */
+            span_id: string;
+            /** Parent Span Id */
+            parent_span_id?: string | null;
+            /** Name */
+            name: string;
+            /** Offset Ms */
+            offset_ms: number;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Status */
+            status: string;
+            /** Degraded */
+            degraded: boolean;
         };
         /** TenantModel */
         TenantModel: {
@@ -3038,6 +3135,9 @@ export interface operations {
     list_query_traces_api_v1_traces_query_get: {
         parameters: {
             query?: {
+                mode?: ("standard" | "deep") | null;
+                status?: ("answered" | "abstained" | "no_results" | "error" | "cancelled") | null;
+                degraded?: boolean | null;
                 cursor?: string | null;
                 limit?: number;
             };
@@ -3054,6 +3154,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TraceListResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    get_query_trace_api_v1_traces_query__trace_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryTraceViewResponse"];
                 };
             };
             /** @description Invalid request */

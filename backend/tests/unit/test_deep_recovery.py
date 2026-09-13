@@ -1,8 +1,11 @@
 from collections.abc import Sequence
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
 from enterprise_rag.domain import QueryScope
+from enterprise_rag.observability import BufferedSpanExporter, start_span
 from enterprise_rag.services import (
     DeepRecoveryController,
     DeepRecoveryRequest,
@@ -218,3 +221,37 @@ async def test_low_evidence_stops_after_two_rounds_and_deduplicates() -> None:
     assert result.duplicate_count == 2
     assert len({item.leaf_id for item in result.evidence}) == len(result.evidence)
     assert result.assessor_calls == 0
+
+
+@pytest.mark.anyio
+async def test_recovery_emits_bounded_safe_round_diagnostics() -> None:
+    exporter = BufferedSpanExporter(max_traces=2, max_spans_per_trace=20)
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    request = DeepRecoveryRequest(
+        "private question must not be persisted",
+        ("这个概念是什么",),
+        QueryScope(),
+        (),
+    )
+
+    with start_span("rag.query", tracer_provider=provider) as root_span:
+        trace_id = f"{root_span.get_span_context().trace_id:032x}"
+        await DeepRecoveryController(
+            assessor=FakeAssessor(), executor=FakeExecutor(), max_rounds=1
+        ).run(request)
+
+    spans = exporter.take(trace_id)
+    round_span = next(span for span in spans if span.name == "rag.deep_recovery.round")
+    assert round_span.attributes == {
+        "app.operation": "rag.deep_recovery.round",
+        "rag.recovery.round": 1,
+        "rag.recovery.route": "hyde_dense",
+        "rag.recovery.retrieval_mode": "dense_only",
+        "rag.recovery.target_count": 1,
+        "rag.recovery.repaired_scope_count": 0,
+        "rag.recovery.returned_count": 1,
+        "rag.recovery.added_count": 1,
+        "rag.recovery.duplicate_count": 0,
+    }
+    assert "private question" not in repr(spans)

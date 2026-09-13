@@ -64,8 +64,16 @@ async def test_trace_store_is_idempotent_paginated_and_tenant_scoped() -> None:
         await store.persist(first, spans)
         await store.persist(first, spans)
         await store.persist(
-            _completion(TRACE_A_2, TENANT_A, ACTOR_A, QUERY_A_2, NOW + timedelta(minutes=1)),
-            (),
+            _completion(
+                TRACE_A_2,
+                TENANT_A,
+                ACTOR_A,
+                QUERY_A_2,
+                NOW + timedelta(minutes=1),
+                mode="deep",
+                status="abstained",
+            ),
+            _deep_spans(TRACE_A_2, NOW + timedelta(minutes=1)),
         )
         await store.persist(
             _completion(TRACE_B, TENANT_B, ACTOR_B, QUERY_B, NOW + timedelta(minutes=2)),
@@ -76,7 +84,7 @@ async def test_trace_store_is_idempotent_paginated_and_tenant_scoped() -> None:
             run_count = await session.scalar(select(func.count()).select_from(TraceRunModel))
             span_count = await session.scalar(select(func.count()).select_from(TraceSpanModel))
         assert run_count == 3
-        assert span_count == 3
+        assert span_count == 6
 
         newest = await store.list(TENANT_A, trace_type="query", cursor=None, limit=1)
         assert [item.trace_id for item in newest.items] == [TRACE_A_2]
@@ -98,6 +106,7 @@ async def test_trace_store_is_idempotent_paginated_and_tenant_scoped() -> None:
         assert detail.summary.degraded is True
         assert [span.name for span in detail.spans] == [
             "rag.dense_retrieval",
+            "rag.sparse_retrieval",
             "rag.rrf_fusion",
             "rag.rerank",
         ]
@@ -145,24 +154,80 @@ async def test_anonymous_trace_api_lists_own_tenant_and_hides_other_tenant(
             assert auth_response.status_code == 200
             demo_tenant = UUID(auth_response.json()["tenant"]["id"])
             await trace_store.persist(
-                _completion(TRACE_A, demo_tenant, DEMO_ACTOR_ID, QUERY_A, NOW),
+                _completion(
+                    TRACE_A,
+                    demo_tenant,
+                    DEMO_ACTOR_ID,
+                    QUERY_A,
+                    NOW,
+                    attributes={
+                        "planner_degraded": True,
+                        "planner_provider": "fixture-planner",
+                    },
+                ),
                 _ranked_spans(TRACE_A, NOW),
+            )
+            await trace_store.persist(
+                _completion(
+                    TRACE_A_2,
+                    demo_tenant,
+                    DEMO_ACTOR_ID,
+                    QUERY_A_2,
+                    NOW + timedelta(minutes=1),
+                    mode="deep",
+                    status="abstained",
+                ),
+                _deep_spans(TRACE_A_2, NOW + timedelta(minutes=1)),
             )
             await _seed_other_trace(database)
 
-            listed = await client.get("/api/v1/traces?type=query&limit=1")
+            listed = await client.get("/api/v1/traces?type=query&limit=2")
             assert listed.status_code == 200
-            assert [item["trace_id"] for item in listed.json()["items"]] == [TRACE_A]
-            query_list = await client.get("/api/v1/traces/query?limit=1")
+            assert [item["trace_id"] for item in listed.json()["items"]] == [
+                TRACE_A_2,
+                TRACE_A,
+            ]
+            query_list = await client.get("/api/v1/traces/query?limit=2")
             assert query_list.status_code == 200
             assert query_list.json() == listed.json()
+            deep_list = await client.get(
+                "/api/v1/traces/query?mode=deep&status=abstained&degraded=false"
+            )
+            assert [item["trace_id"] for item in deep_list.json()["items"]] == [
+                TRACE_A_2
+            ]
+            degraded_list = await client.get(
+                "/api/v1/traces/query?mode=standard&degraded=true"
+            )
+            assert [item["trace_id"] for item in degraded_list.json()["items"]] == [
+                TRACE_A
+            ]
             ingestion_list = await client.get("/api/v1/traces/ingestion")
             assert ingestion_list.status_code == 200
             assert ingestion_list.json()["items"] == []
             detail = await client.get(f"/api/v1/traces/{TRACE_A}")
             assert detail.status_code == 200
             assert detail.json()["summary"]["subject_id"] == str(QUERY_A)
-            assert detail.json()["spans"][2]["events"][0]["attributes"]["rag.rank"] == 1
+            assert detail.json()["spans"][3]["events"][0]["attributes"]["rag.rank"] == 1
+            query_view = await client.get(f"/api/v1/traces/query/{TRACE_A}")
+            assert query_view.status_code == 200
+            assert query_view.json()["rankings"][0] == {
+                "leaf_id": "leaf_01",
+                "root_id": "root_01",
+                "dense_rank": 1,
+                "sparse_rank": 2,
+                "rrf_rank": 1,
+                "rerank_rank": 1,
+                "dense_score": 0.91,
+                "sparse_score": 0.81,
+                "rrf_score": 0.032,
+                "rerank_score": 0.97,
+            }
+            assert query_view.json()["degradations"] == [
+                {"component": "planner", "provider": "fixture-planner"}
+            ]
+            deep_view = await client.get(f"/api/v1/traces/query/{TRACE_A_2}")
+            assert deep_view.json()["recovery_rounds"][0]["route"] == "hyde_dense"
             hidden = await client.get(f"/api/v1/traces/{TRACE_B}")
             assert hidden.status_code == 404
             assert hidden.json()["error"]["code"] == "NOT_FOUND"
@@ -219,6 +284,8 @@ def _completion(
     started_at: datetime,
     *,
     attributes: dict[str, object] | None = None,
+    mode: str = "standard",
+    status: str = "answered",
 ) -> TraceCompletion:
     return TraceCompletion(
         trace_id,
@@ -228,8 +295,8 @@ def _completion(
         "anonymous",
         query_id,
         None,
-        "standard",
-        "answered",
+        mode,
+        status,
         started_at,
         started_at + timedelta(milliseconds=250),
         {"llm_calls": 1, "input_tokens": 12, "output_tokens": 4},
@@ -238,8 +305,14 @@ def _completion(
 
 
 def _ranked_spans(trace_id: str, started_at: datetime) -> tuple[StoredSpan, ...]:
-    names = ("rag.dense_retrieval", "rag.rrf_fusion", "rag.rerank")
+    names = (
+        "rag.dense_retrieval",
+        "rag.sparse_retrieval",
+        "rag.rrf_fusion",
+        "rag.rerank",
+    )
     event_names = (
+        "rag.retrieval.candidate",
         "rag.retrieval.candidate",
         "rag.fusion.candidate",
         "rag.rerank.candidate",
@@ -251,6 +324,13 @@ def _ranked_spans(trace_id: str, started_at: datetime) -> tuple[StoredSpan, ...]
             "rag.leaf_id": "leaf_01",
             "rag.root_id": "root_01",
             "rag.score": 0.91,
+        },
+        {
+            "rag.method": "sparse",
+            "rag.rank": 2,
+            "rag.leaf_id": "leaf_01",
+            "rag.root_id": "root_01",
+            "rag.score": 0.81,
         },
         {
             "rag.rank": 1,
@@ -288,4 +368,37 @@ def _ranked_spans(trace_id: str, started_at: datetime) -> tuple[StoredSpan, ...]
         for index, (name, event_name, attributes) in enumerate(
             zip(names, event_names, event_attributes, strict=True), start=1
         )
+    )
+
+
+def _deep_spans(trace_id: str, started_at: datetime) -> tuple[StoredSpan, ...]:
+    return (
+        StoredSpan(
+            trace_id,
+            "00000000000000a1",
+            None,
+            "rag.deep_recovery",
+            started_at + timedelta(milliseconds=30),
+            started_at + timedelta(milliseconds=80),
+            "UNSET",
+            {"rag.recovery.round_count": 1, "rag.recovery.decision": "abstain"},
+        ),
+        StoredSpan(
+            trace_id,
+            "00000000000000a2",
+            "00000000000000a1",
+            "rag.deep_recovery.round",
+            started_at + timedelta(milliseconds=40),
+            started_at + timedelta(milliseconds=70),
+            "UNSET",
+            {
+                "rag.recovery.round": 1,
+                "rag.recovery.route": "hyde_dense",
+                "rag.recovery.retrieval_mode": "dense_only",
+                "rag.recovery.target_count": 1,
+                "rag.recovery.returned_count": 2,
+                "rag.recovery.added_count": 1,
+                "rag.recovery.duplicate_count": 1,
+            },
+        ),
     )

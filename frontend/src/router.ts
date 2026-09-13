@@ -15,6 +15,7 @@ import LoginView from './views/LoginView.vue'
 import IngestionView from './views/IngestionView.vue'
 import OverviewView from './views/OverviewView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
+import QueryTraceView from './views/QueryTraceView.vue'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -52,8 +53,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/workspace/traces/queries',
     name: 'query-traces',
-    component: PlaceholderView,
-    props: { eyebrow: 'OBSERVABILITY', title: 'Query Trace', description: '检索瀑布图与排名变化将在 M7-05 接入。' },
+    component: QueryTraceView,
     meta: { access: 'workspace', title: 'Query Trace' },
   },
   {

@@ -8,7 +8,7 @@ from typing import Protocol
 
 from enterprise_rag.domain.common import require_non_empty
 from enterprise_rag.domain.retrieval import QueryScope
-from enterprise_rag.observability import current_metrics
+from enterprise_rag.observability import current_metrics, start_span
 
 
 class EvidenceDecision(StrEnum):
@@ -246,11 +246,41 @@ class DeepRecoveryController:
         self._max_rounds = max_rounds
 
     async def run(self, request: DeepRecoveryRequest) -> DeepRecoveryOutcome:
+        with start_span(
+            "rag.deep_recovery",
+            attributes={
+                "rag.recovery.max_rounds": self._max_rounds,
+                "rag.recovery.initial_evidence_count": len(request.initial_evidence),
+            },
+        ) as span:
+            outcome = await self._run_observed(request)
+            span.set_attribute("rag.recovery.round_count", outcome.recovery_rounds)
+            span.set_attribute("rag.recovery.decision", outcome.decision.value)
+            span.set_attribute("rag.recovery.duplicate_count", outcome.duplicate_count)
+            return outcome
+
+    async def _run_observed(self, request: DeepRecoveryRequest) -> DeepRecoveryOutcome:
         ledger = EvidenceLedger(request.initial_evidence)
         actions: list[RecoveryAction] = []
         assessor_calls = 0
         for round_number in range(self._max_rounds + 1):
-            assessment, used_assessor = await self._assess(request.requirements, ledger.all())
+            with start_span(
+                "rag.deep_recovery.assess",
+                attributes={
+                    "rag.recovery.round": round_number,
+                    "rag.recovery.evidence_count": len(ledger.all()),
+                },
+            ) as assessment_span:
+                assessment, used_assessor = await self._assess(
+                    request.requirements, ledger.all()
+                )
+                assessment_span.set_attribute("rag.recovery.score", assessment.score)
+                assessment_span.set_attribute(
+                    "rag.recovery.decision", assessment.decision.value
+                )
+                assessment_span.set_attribute(
+                    "rag.recovery.missing_count", len(assessment.missing_requirements)
+                )
             assessor_calls += int(used_assessor)
             if assessment.decision is not EvidenceDecision.RECOVER:
                 return _outcome(assessment, ledger, actions, assessor_calls)
@@ -265,13 +295,35 @@ class DeepRecoveryController:
             actions.append(action)
             if (metrics := current_metrics()) is not None:
                 metrics.observe_recovery(route=action.route.value)
-            recovered = tuple(await self._executor.execute(action))
-            if any(
-                item.round_number != action.round_number or item.route is not action.route
-                for item in recovered
-            ):
-                raise ValueError("Recovery evidence provenance does not match its action")
-            ledger.add(recovered)
+            with start_span(
+                "rag.deep_recovery.round",
+                attributes={
+                    "rag.recovery.round": action.round_number,
+                    "rag.recovery.route": action.route.value,
+                    "rag.recovery.retrieval_mode": action.retrieval_mode.value,
+                    "rag.recovery.target_count": len(action.target_requirements),
+                    "rag.recovery.repaired_scope_count": len(
+                        action.repaired_scope_fields
+                    ),
+                },
+            ) as recovery_span:
+                recovered = tuple(await self._executor.execute(action))
+                recovery_span.set_attribute(
+                    "rag.recovery.returned_count", len(recovered)
+                )
+                if any(
+                    item.round_number != action.round_number
+                    or item.route is not action.route
+                    for item in recovered
+                ):
+                    raise ValueError(
+                        "Recovery evidence provenance does not match its action"
+                    )
+                added = ledger.add(recovered)
+                recovery_span.set_attribute("rag.recovery.added_count", added)
+                recovery_span.set_attribute(
+                    "rag.recovery.duplicate_count", len(recovered) - added
+                )
         raise AssertionError("Deep Recovery loop did not terminate")
 
     async def _assess(

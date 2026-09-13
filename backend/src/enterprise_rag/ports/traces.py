@@ -136,6 +136,9 @@ class TraceStore(Protocol):
         trace_type: str | None,
         cursor: str | None,
         limit: int,
+        mode: str | None = None,
+        status: str | None = None,
+        degraded: bool | None = None,
     ) -> TracePage: ...
 
     async def get(self, tenant_id: UUID, trace_id: str) -> TraceDetail | None: ...

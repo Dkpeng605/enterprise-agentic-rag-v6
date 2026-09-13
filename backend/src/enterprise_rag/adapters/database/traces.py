@@ -85,6 +85,9 @@ class PostgreSQLTraceStore:
         trace_type: str | None,
         cursor: str | None,
         limit: int,
+        mode: str | None = None,
+        status: str | None = None,
+        degraded: bool | None = None,
     ) -> TracePage:
         if not 1 <= limit <= 100:
             raise AppError(ErrorCode.VALIDATION_ERROR, "The trace page size is invalid.")
@@ -103,6 +106,30 @@ class PostgreSQLTraceStore:
             if trace_type not in {"query", "ingestion", "evaluation"}:
                 raise AppError(ErrorCode.VALIDATION_ERROR, "The trace type is invalid.")
             statement = statement.where(TraceRunModel.trace_type == trace_type)
+        if mode is not None:
+            if mode not in {"standard", "deep"}:
+                raise AppError(ErrorCode.VALIDATION_ERROR, "The trace mode is invalid.")
+            statement = statement.where(TraceRunModel.mode == mode)
+        if status is not None:
+            statement = statement.where(TraceRunModel.status == status)
+        if degraded is not None:
+            degraded_expression = or_(
+                func.coalesce(
+                    TraceRunModel.attributes["planner_degraded"].as_boolean(), False
+                ),
+                func.coalesce(
+                    TraceRunModel.attributes["reranker_degraded"].as_boolean(), False
+                ),
+                func.coalesce(
+                    TraceRunModel.attributes["retrieval_degraded"].as_boolean(), False
+                ),
+                func.coalesce(
+                    TraceRunModel.attributes["generation_degraded"].as_boolean(), False
+                ),
+            )
+            statement = statement.where(
+                degraded_expression if degraded else ~degraded_expression
+            )
         if cursor_value is not None:
             started_at, trace_id = cursor_value
             statement = statement.where(

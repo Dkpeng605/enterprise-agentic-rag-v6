@@ -236,6 +236,53 @@ class TraceDetailResponse(ApiModel):
     spans: list[TraceSpanResponse]
 
 
+class QueryWaterfallStageResponse(ApiModel):
+    span_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    parent_span_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
+    name: str
+    offset_ms: float
+    duration_ms: float
+    status: str
+    degraded: bool
+
+
+class QueryRankChangeResponse(ApiModel):
+    leaf_id: str
+    root_id: str | None
+    dense_rank: int | None
+    sparse_rank: int | None
+    rrf_rank: int | None
+    rerank_rank: int | None
+    dense_score: float | None
+    sparse_score: float | None
+    rrf_score: float | None
+    rerank_score: float | None
+
+
+class QueryRecoveryRoundResponse(ApiModel):
+    round_number: int
+    route: str
+    retrieval_mode: str
+    target_count: int
+    returned_count: int
+    added_count: int
+    duplicate_count: int
+
+
+class QueryDegradationResponse(ApiModel):
+    component: str
+    provider: str | None
+
+
+class QueryTraceViewResponse(ApiModel):
+    summary: TraceSummaryResponse
+    usage: dict[str, int | float]
+    stages: list[QueryWaterfallStageResponse]
+    rankings: list[QueryRankChangeResponse]
+    recovery_rounds: list[QueryRecoveryRoundResponse]
+    degradations: list[QueryDegradationResponse]
+
+
 class LivenessResponse(ApiModel):
     status: Literal["live"]
     service: str

@@ -101,6 +101,14 @@ from enterprise_rag.services.query_api import (
     QueryStreamEvent,
 )
 from enterprise_rag.services.query_planner import PlannerOutcome, QueryPlanningService
+from enterprise_rag.services.query_trace import (
+    QueryDegradation,
+    QueryRankChange,
+    QueryRecoveryRound,
+    QueryTraceView,
+    QueryWaterfallStage,
+    project_query_trace,
+)
 from enterprise_rag.services.reranking import RerankingService, RerankItem, RerankOutcome
 from enterprise_rag.services.retrieval import (
     DualSearchResult,
@@ -191,6 +199,11 @@ __all__ = [
     "QueryPlanningService",
     "QueryGraphStage",
     "QueryGraphStatus",
+    "QueryDegradation",
+    "QueryRankChange",
+    "QueryRecoveryRound",
+    "QueryTraceView",
+    "QueryWaterfallStage",
     "QueryApiService",
     "QueryBudget",
     "QueryCommand",
@@ -236,5 +249,6 @@ __all__ = [
     "evaluation_report_dict",
     "evaluate_quality_gate",
     "load_quality_gate_policy",
+    "project_query_trace",
     "write_evaluation_report",
 ]
