@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.mac.example
 .venv/
 __pycache__/
 .pytest_cache/

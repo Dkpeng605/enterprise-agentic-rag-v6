@@ -210,3 +210,23 @@ async def test_real_local_cross_encoder_ranks_english_relevance(tmp_path: Path) 
     assert len(result) == 2
     assert result[0].candidate_id == candidates()[0].candidate_id
     assert all(math.isfinite(entry.score) for entry in result)
+
+
+@pytest.mark.model
+@pytest.mark.skipif(os.getenv("RUN_MODEL_TESTS") != "1", reason="real model test is opt-in")
+@pytest.mark.anyio
+async def test_real_multilingual_cross_encoder_ranks_chinese_relevance(
+    tmp_path: Path,
+) -> None:
+    provider = LocalFastEmbedReranker(
+        model_name="jinaai/jina-reranker-v2-base-multilingual",
+        cache_dir=tmp_path / "models",
+    )
+    values = (
+        RerankCandidate(f"leaf_{'d' * 64}", "系统支持上传和解析 PDF 文档。", 0.1),
+        RerankCandidate(f"leaf_{'e' * 64}", "香蕉面包需要成熟香蕉。", 0.2),
+    )
+    result = await provider.rerank("如何上传文档？", values, top_k=2)
+    assert len(result) == 2
+    assert result[0].candidate_id == values[0].candidate_id
+    assert all(math.isfinite(entry.score) for entry in result)

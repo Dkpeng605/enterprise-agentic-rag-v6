@@ -32,7 +32,15 @@ from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
 from enterprise_rag.adapters.vision import NoopVisionProvider
 from enterprise_rag.domain import ErrorCode, JobStatus, QueryMode, QueryScope
 from enterprise_rag.domain.common import new_uuid7
-from enterprise_rag.ports import ProviderHealth, ProviderInfo, ProviderKind
+from enterprise_rag.ports import (
+    CompletionRequest,
+    CompletionResult,
+    ProviderHealth,
+    ProviderInfo,
+    ProviderKind,
+    RerankCandidate,
+    RerankResult,
+)
 from enterprise_rag.services import (
     DeterministicLocalQueryRunner,
     DocumentRegistrationService,
@@ -40,6 +48,7 @@ from enterprise_rag.services import (
     IngestionPipeline,
     ProjectionService,
     RegisterDocument,
+    SemanticQueryRunner,
 )
 from enterprise_rag.services.query_api import QueryCommand, QueryProgress
 
@@ -73,6 +82,56 @@ class FakeEmbedding:
     async def embed_query(self, text: str) -> list[float]:
         del text
         return [1.0, 1.0, 0.5]
+
+    async def aclose(self) -> None:
+        return None
+
+
+class FakeReranker:
+    def info(self) -> ProviderInfo:
+        return ProviderInfo(
+            ProviderKind.RERANKER,
+            "fake_cross_encoder",
+            "1",
+            frozenset({"cross-encoder"}),
+            False,
+            ProviderHealth.HEALTHY,
+        )
+
+    async def rerank(
+        self,
+        query: str,
+        candidates: Sequence[RerankCandidate],
+        *,
+        top_k: int,
+    ) -> list[RerankResult]:
+        assert query
+        return [
+            RerankResult(candidate.candidate_id, float(len(candidates) - index))
+            for index, candidate in enumerate(candidates[:top_k])
+        ]
+
+    async def aclose(self) -> None:
+        return None
+
+
+class FakeLanguageModel:
+    def __init__(self) -> None:
+        self.requests: list[CompletionRequest] = []
+
+    def info(self) -> ProviderInfo:
+        return ProviderInfo(
+            ProviderKind.LLM,
+            "fake_openai_compatible",
+            "minimax-test",
+            frozenset({"chat-completions"}),
+            True,
+            ProviderHealth.HEALTHY,
+        )
+
+    async def complete(self, request: CompletionRequest) -> CompletionResult:
+        self.requests.append(request)
+        return CompletionResult("企业知识库策略来自已上传文档 [1]。", 81, 17)
 
     async def aclose(self) -> None:
         return None
@@ -281,6 +340,55 @@ async def test_pipeline_output_is_queryable_with_citations_and_ordered_progress(
         assert result.citations and result.citations[0].document_id == document_id
         assert result.usage == {"llm_calls": 0, "input_tokens": 0, "output_tokens": 0}
         assert [item.stage.value for item in progress] == [
+            "planning",
+            "retrieving",
+            "reranking",
+            "recovering",
+            "answering",
+        ]
+
+        language_model = FakeLanguageModel()
+        semantic_runner = SemanticQueryRunner(
+            database=database,
+            embedding=embedding,
+            sparse=sparse,
+            vector_store=vector_store,
+            reranker=FakeReranker(),
+            language_model=language_model,
+            index_revision="local-query-v1",
+            dense_top_k=10,
+            sparse_top_k=10,
+            fused_top_k=10,
+            rerank_candidates=10,
+            selected_leaf_k=3,
+        )
+        semantic_progress: list[QueryProgress] = []
+
+        async def emit_semantic(item: QueryProgress) -> None:
+            semantic_progress.append(item)
+
+        semantic = await semantic_runner.run(
+            QueryCommand(
+                new_uuid7(),
+                TENANT_ID,
+                USER_ID,
+                "企业知识库策略是什么？",
+                QueryMode.DEEP,
+                QueryScope(document_ids=(document_id,)),
+                (),
+            ),
+            emit=emit_semantic,
+        )
+
+        assert semantic.status.value == "answered"
+        assert semantic.answer.endswith("[1]。")
+        assert semantic.citations[0].document_id == document_id
+        assert semantic.usage == {"llm_calls": 1, "input_tokens": 81, "output_tokens": 17}
+        assert semantic.diagnostics["mode"] == "deep"
+        assert semantic.diagnostics["reranker_provider"] == "fake_cross_encoder"
+        assert language_model.requests
+        assert "[证据 1]" in language_model.requests[0].user_prompt
+        assert [item.stage.value for item in semantic_progress] == [
             "planning",
             "retrieving",
             "reranking",

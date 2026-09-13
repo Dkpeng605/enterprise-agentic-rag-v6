@@ -2465,6 +2465,48 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   typecheck/build、Compose 配置和全新卷 Playwright 全旅程全部通过；
 - PR：`test/m7-browser-e2e`。
 
+#### M7-R1 macOS Real Provider Runtime（M7 验收增强，不计入 64 个发布 Slice）
+
+- 状态：已完成；目标是在 M8 公网发布前，让仓库在开发者 Mac 上以真实语义模型完整展示，不改变
+  M7-08 零网络、可复现的 required Browser E2E，也不把开发组合冒充生产部署；
+- 启动边界：新增显式 `enterprise_rag.mac_runtime:app`。单进程装配 PostgreSQL、Local
+  ObjectStore、Milvus Lite、多格式 Loader、Tesseract OCR、Cleaner、Root/Leaf Splitter、Projection、
+  后台摄取 Worker、QueryRunner、Trace Store 与 Provider Registry；运行数据、模型缓存和密钥文件
+  均位于 Git 忽略路径。Milvus Lite 仍只允许一个应用进程打开，不启用 Uvicorn 多 Worker；
+- Provider 选择：Dense Embedding 固定使用 FastEmbed ONNX
+  `paraphrase-multilingual-MiniLM-L12-v2` 及 384 维索引；Sparse 继续使用明确标注的 Hashing Lexical；
+  Reranker 显式改为 `jina-reranker-v2-base-multilingual`，避免将 M4-03 的英文默认模型用于中文演示；
+  LLM 使用 OpenAI-compatible `POST /chat/completions`，base URL、token 和模型只从环境读取；
+- LLM Adapter：请求仅包含 system/user messages、`max_tokens`、temperature 和非流式标记；响应必须
+  恰有一个非空 message、非负整数 prompt/completion usage。429、5xx 和网络错误映射为可重试的
+  `LLM_UNAVAILABLE`，4xx 不重试，畸形响应映射为 `LLM_INVALID_RESPONSE`；供应商 body、token、Prompt
+  不进入客户端错误或日志。外层统一执行 timeout、指数退避和最大重试次数；实际重试计入 Query usage；
+- MiniMax 兼容：以 TokenHub `/models` 返回的大小写敏感 ID `MiniMax-M3` 为准。该模型可能把推理过程
+  放进 `<think>...</think>`，Adapter 只返回标签之后的最终回答；未闭合标签或只有推理而无最终文本
+  视为坏响应，不能把隐藏推理展示到 UI；
+- Query 链路：每次查询严格执行服务端 Scope 校验、Dense/Sparse、RRF、PostgreSQL 二次授权、
+  CrossEncoder、Root 恢复、grounded LLM answer 和领域 Citation；无 Root 时跳过 LLM 并返回
+  `no_results`。LLM Prompt 明确只能使用编号证据并要求 `[n]` 引用；UI Citation 的 quote 仍直接截取
+  已授权 Root，不能信任模型伪造引用。Standard 最多使用 3 个 Root，Deep 最多使用 5 个 Root；
+- Deep 限制：此增强入口的 Deep 只扩大综合证据窗口，尚未装配 M4-07 多轮 Recovery Controller，
+  README 与 UI/验收不得宣称已经执行多轮 Recovery。该差距应在后续独立 Slice 接入，而不是隐式补齐；
+- 本地安全：`.env.mac.example` 只能包含占位 token；真实 `.env` 必须被 Git 忽略。文档和 query 在
+  Embedding/Rerank 阶段不离开 Mac，只有授权后的有限 Root 证据发送给远程 LLM。由于 token 曾在聊天
+  渠道出现，完成本机验收后应轮换；公网发布不得复用开发 token 或 session secret；
+- 可操作性：`scripts/mac-backend.sh` 检查 `.env`、Docker 和 uv，启动开发 PostgreSQL、执行锁定依赖
+  同步与 Alembic migration，再以前台单进程启动完整 FastAPI+Worker。README 中文默认、英文镜像维护
+  精确的两个终端命令、首次模型下载位置、支持格式、Provider 状态入口、停止方式与已知 Deep 限制；
+- EDD 验收：LLM 契约测试覆盖 payload、usage、错误净化、关闭和 think 标签；PostgreSQL+Milvus
+  集成测试覆盖真实摄取输出经可注入 Reranker/LLM 生成回答、Citation、usage 和五阶段 SSE；真实模型
+  smoke 分别验证中英 Embedding 与中文 Reranker；TokenHub smoke 只做有界最小调用且不进入 required
+  CI。已从空本地数据执行新建集合→上传→摄取成功→问答→引用→Provider doctor 全旅程，并在应用
+  重启后重复查询，验证 Milvus revision 会重新加载；required 离线 Compose Playwright 全旅程继续通过；
+- 完成证据：后端 Ruff、Mypy（202 个源码/测试/迁移文件）、`283 passed, 3 skipped`、30 案例 EDD
+  Quality Gate 和 sdist/wheel 构建通过；前端 API 生成一致性、`40 passed`、typecheck、production build
+  通过；隔离 Compose Playwright `1 passed`。3 个 skipped 均为需显式启用下载的真实模型测试，本机
+  smoke 已实际运行对应多语 Embedding/Reranker；
+- PR：`feat/mac-real-provider-runtime`。
+
 ### M8：首次公网发布
 
 #### M8-01 Images

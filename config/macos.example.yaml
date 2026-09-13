@@ -1,0 +1,55 @@
+app:
+  environment: development
+  public_base_url: http://127.0.0.1:5173
+  commit_sha: mac-local
+
+providers:
+  llm: openai_compatible
+  embedding: local_multilingual_minilm
+  reranker: local_cross_encoder
+  vector_store: milvus_lite
+  vision: none
+  sparse_encoder: hashing_lexical
+
+ingestion:
+  object_store_root: data/runtime/mac/object-store
+  pdf_ocr_min_chars: 20
+  pdf_render_scale: 2.5
+  pdf_ocr_languages: [chi_sim, eng]
+  spreadsheet_rows_per_root: 60
+  csv_fallback_encoding: null
+  embedding_batch_size: 16
+  embedding_batch_tokens: 4096
+  embedding_dimension: 384
+  embedding_timeout_seconds: 60.0
+  embedding_max_retries: 2
+
+deep:
+  low_threshold: 0.45
+  high_threshold: 0.80
+
+cost_guard:
+  query_timeout_seconds: 180.0
+  provider_timeout_seconds: 90.0
+  provider_max_retries: 1
+  provider_retry_backoff_seconds: 0.5
+  standard_reserved_llm_calls: 2
+  standard_reserved_input_tokens: 30000
+  standard_reserved_output_tokens: 2000
+  deep_reserved_llm_calls: 2
+  deep_reserved_input_tokens: 50000
+  deep_reserved_output_tokens: 2000
+
+security:
+  anonymous_demo_full_access: true
+  anonymous_queries_per_minute: 10
+  anonymous_daily_llm_calls: 500
+  anonymous_daily_input_tokens: 10000000
+  anonymous_daily_output_tokens: 1000000
+
+evaluation:
+  max_cases: 30
+  max_llm_calls: 0
+  llm_judge_enabled: false
+  llm_judge_max_output_tokens: 128
+  golden_manifest: evals/golden/v1/manifest.yaml
