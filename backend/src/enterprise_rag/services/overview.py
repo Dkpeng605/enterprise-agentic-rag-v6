@@ -10,6 +10,7 @@ from enterprise_rag.adapters.database.engine import Database
 from enterprise_rag.adapters.database.models import (
     CollectionModel,
     DocumentModel,
+    EvaluationRunModel,
     IngestionJobModel,
     LeafModel,
     RootModel,
@@ -139,12 +140,27 @@ class WorkspaceOverviewService:
             evaluation_rows = list(
                 (
                     await session.scalars(
+                        select(EvaluationRunModel)
+                        .where(EvaluationRunModel.tenant_id == tenant_id)
+                        .order_by(
+                            EvaluationRunModel.created_at.desc(),
+                            EvaluationRunModel.id.desc(),
+                        )
+                        .limit(6)
+                    )
+                ).all()
+            )
+            legacy_evaluation_rows = list(
+                (
+                    await session.scalars(
                         select(TraceRunModel)
                         .where(
                             TraceRunModel.tenant_id == tenant_id,
                             TraceRunModel.trace_type == "evaluation",
                         )
-                        .order_by(TraceRunModel.started_at.desc(), TraceRunModel.trace_id.desc())
+                        .order_by(
+                            TraceRunModel.started_at.desc(), TraceRunModel.trace_id.desc()
+                        )
                         .limit(6)
                     )
                 ).all()
@@ -168,13 +184,23 @@ class WorkspaceOverviewService:
             for job in job_rows
         ] + [
             OverviewActivity(
+                str(run.id),
+                "evaluation",
+                run.status,
+                run.mode,
+                run.started_at or run.created_at,
+                round(run.completed_cases / run.total_cases * 100),
+            )
+            for run in evaluation_rows
+        ] + [
+            OverviewActivity(
                 trace.trace_id,
                 "evaluation",
                 trace.status,
                 trace.mode or "evaluation",
                 trace.started_at,
             )
-            for trace in evaluation_rows
+            for trace in legacy_evaluation_rows
         ]
         activities.sort(key=lambda item: (item.started_at, item.id), reverse=True)
         return WorkspaceOverview(

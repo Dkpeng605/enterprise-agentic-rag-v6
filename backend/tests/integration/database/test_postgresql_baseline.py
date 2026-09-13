@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "document_content_claims",
     "document_versions",
     "documents",
+    "evaluation_runs",
     "index_revisions",
     "ingestion_jobs",
     "leaves",

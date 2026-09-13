@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -35,6 +36,11 @@ from enterprise_rag.api.schemas import (
     DocumentListResponse,
     DocumentResponse,
     ErrorResponseModel,
+    EvaluationCatalogResponse,
+    EvaluationComparisonResponse,
+    EvaluationRunCreate,
+    EvaluationRunListResponse,
+    EvaluationRunResponse,
     IngestionTraceViewResponse,
     JobListItemResponse,
     JobListResponse,
@@ -59,6 +65,7 @@ from enterprise_rag.domain.retrieval import QueryMode, QueryScope
 from enterprise_rag.ports.planner import ConversationRole, ConversationTurn
 from enterprise_rag.ports.traces import StoredSpan, TraceDetail, TraceSummary
 from enterprise_rag.services.auth import SESSION_COOKIE, AnonymousSessionService, Principal
+from enterprise_rag.services.evaluation_workspace import EvaluationWorkspaceService
 from enterprise_rag.services.ingestion_trace import IngestionTraceView
 from enterprise_rag.services.knowledge import KnowledgeApplication, KnowledgeQuery
 from enterprise_rag.services.overview import WorkspaceOverviewService
@@ -119,6 +126,7 @@ def create_api_router(
     clock: Clock,
     traces: TraceService | None = None,
     overview: WorkspaceOverviewService | None = None,
+    evaluations: EvaluationWorkspaceService | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1", responses=ERROR_RESPONSES)
     cookie_scheme = APIKeyCookie(name=SESSION_COOKIE, auto_error=False)
@@ -159,6 +167,11 @@ def create_api_router(
         if overview is None:
             raise _unavailable()
         return overview
+
+    def _evaluations() -> EvaluationWorkspaceService:
+        if evaluations is None:
+            raise _unavailable()
+        return evaluations
 
     @router.get("/auth/me", response_model=AuthMeResponse, tags=["auth"])
     async def auth_me(
@@ -608,6 +621,96 @@ def create_api_router(
         )
 
     @router.get(
+        "/evaluations/catalog",
+        response_model=EvaluationCatalogResponse,
+        tags=["evaluations"],
+    )
+    async def evaluation_catalog(
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> EvaluationCatalogResponse:
+        del principal
+        return EvaluationCatalogResponse.model_validate(_evaluations().catalog().to_dict())
+
+    @router.post(
+        "/evaluations/runs",
+        response_model=EvaluationRunResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["evaluations"],
+    )
+    async def create_evaluation_run(
+        body: EvaluationRunCreate,
+        background_tasks: BackgroundTasks,
+        principal: Annotated[Principal, Depends(writer)],
+    ) -> EvaluationRunResponse:
+        try:
+            run = await _evaluations().create_run(
+                tenant_id=principal.tenant_id,
+                actor_id=principal.actor_id,
+                dataset_revision=body.dataset_revision,
+                mode=body.mode,
+                provider_profile=body.provider_profile,
+                max_cases=body.max_cases,
+                max_llm_calls=body.max_llm_calls,
+            )
+        except ValueError as error:
+            raise AppError(ErrorCode.VALIDATION_ERROR, str(error)) from error
+        background_tasks.add_task(
+            _evaluations().execute_run, principal.tenant_id, run.id
+        )
+        return _evaluation_run(run, include_report=False)
+
+    @router.get(
+        "/evaluations/runs",
+        response_model=EvaluationRunListResponse,
+        tags=["evaluations"],
+    )
+    async def list_evaluation_runs(
+        principal: Annotated[Principal, Depends(reader)],
+        run_status: Annotated[
+            Literal["queued", "running", "succeeded", "failed"] | None,
+            Query(alias="status"),
+        ] = None,
+        cursor: Annotated[str | None, Query(max_length=1_000)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    ) -> EvaluationRunListResponse:
+        page = await _evaluations().list_runs(
+            principal.tenant_id, status=run_status, cursor=cursor, limit=limit
+        )
+        return EvaluationRunListResponse(
+            items=[_evaluation_run(run, include_report=False) for run in page.items],
+            next_cursor=page.next_cursor,
+        )
+
+    @router.get(
+        "/evaluations/runs/{run_id}",
+        response_model=EvaluationRunResponse,
+        tags=["evaluations"],
+    )
+    async def get_evaluation_run(
+        run_id: UUID,
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> EvaluationRunResponse:
+        return _evaluation_run(
+            await _evaluations().get_run(principal.tenant_id, run_id),
+            include_report=True,
+        )
+
+    @router.get(
+        "/evaluations/compare",
+        response_model=EvaluationComparisonResponse,
+        tags=["evaluations"],
+    )
+    async def compare_evaluation_runs(
+        base_run_id: Annotated[UUID, Query()],
+        candidate_run_id: Annotated[UUID, Query()],
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> EvaluationComparisonResponse:
+        comparison = await _evaluations().compare(
+            principal.tenant_id, base_run_id, candidate_run_id
+        )
+        return EvaluationComparisonResponse.model_validate(comparison.to_dict())
+
+    @router.get(
         "/traces/{trace_id}",
         response_model=TraceDetailResponse,
         tags=["traces"],
@@ -710,6 +813,37 @@ def _query_trace_view(item: QueryTraceView) -> QueryTraceViewResponse:
 
 def _ingestion_trace_view(item: IngestionTraceView) -> IngestionTraceViewResponse:
     return IngestionTraceViewResponse.model_validate(asdict(item))
+
+
+def _evaluation_run(item: Any, *, include_report: bool) -> EvaluationRunResponse:
+    report = item.report if isinstance(item.report, dict) else None
+    aggregate = report.get("aggregate_metrics") if report is not None else None
+    usage = report.get("usage") if report is not None else None
+    return EvaluationRunResponse(
+        id=item.id,
+        status=item.status,
+        dataset_revision=item.dataset_revision,
+        mode=item.mode,
+        provider_profile=item.provider_profile,
+        provider=item.provider,
+        model=item.model,
+        prompt_revision=item.prompt_revision,
+        index_revision=item.index_revision,
+        commit_sha=item.commit_sha,
+        max_cases=item.max_cases,
+        max_llm_calls=item.max_llm_calls,
+        estimated_llm_calls=item.estimated_llm_calls,
+        completed_cases=item.completed_cases,
+        total_cases=item.total_cases,
+        case_ids=list(item.case_ids),
+        aggregate_metrics=aggregate if isinstance(aggregate, dict) else {},
+        usage=usage if isinstance(usage, dict) else {},
+        error_code=item.error_code,
+        started_at=item.started_at,
+        finished_at=item.finished_at,
+        created_at=item.created_at,
+        report=report if include_report else None,
+    )
 
 
 def _knowledge_query(body: QueryRequestModel) -> KnowledgeQuery:

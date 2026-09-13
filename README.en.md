@@ -76,6 +76,7 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `POST /api/v1/queries` and `POST /api/v1/queries/stream` — synchronous and SSE query contracts; the current entry point returns 503 until a QueryRunner is injected
 - `GET /api/v1/traces`, `/api/v1/traces/query`, and `/api/v1/traces/ingestion` — tenant-scoped Trace filtering and cursor pagination; Query lists support mode/status/degraded
 - `GET /api/v1/traces/query/{trace_id}` — sanitized Query waterfall, rank movement, Recovery, and degradation projection
+- `/api/v1/evaluations/catalog`, `/api/v1/evaluations/runs`, and `/api/v1/evaluations/compare` — budget preflight, tenant run history, reports, and controlled comparison
 - `GET /api/v1/traces/{trace_id}` — stage timing, candidate ranks, scores, and degradation details
 - `GET /health/live`, `GET /health/ready`, and `GET /health/doctor` — liveness, readiness, and sanitized Provider diagnostics
 - `GET /metrics` — Prometheus text exposition; production requires a dedicated bearer token
@@ -109,7 +110,7 @@ Start the frontend in a second terminal:
 pnpm --dir=frontend dev
 ```
 
-Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, system route guards, public SSE chat, tenant overview, Collection/Document management, ingestion-job monitoring, a Query Trace waterfall/rank/Recovery inspector, and an Ingestion Trace stage/batch/stable-error inspector. Anonymous visitors may use `/workspace/*` without login; `/workspace/overview` reads current-tenant collection, document, index, 24-hour query, and recent activity aggregates alongside `/health/doctor` Provider states. `/workspace/documents` provides collection CRUD, filtering, upload, detail, and safe deletion, while `/workspace/ingestion` shows persisted job progress. `/admin/*` still requires a system administrator. Regenerate the committed OpenAPI types with:
+Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, system route guards, public SSE chat, tenant overview, Collection/Document management, ingestion-job monitoring, Query and Ingestion Trace inspectors, and the budgeted evaluation workspace. Anonymous visitors may use `/workspace/*` without login; `/workspace/overview` reads current-tenant collection, document, index, 24-hour query, and recent activity aggregates alongside `/health/doctor` Provider states. `/workspace/documents` provides collection CRUD, filtering, upload, detail, and safe deletion, while `/workspace/ingestion` shows persisted job progress. `/admin/*` still requires a system administrator. Regenerate the committed OpenAPI types with:
 
 ```bash
 pnpm --dir=frontend generate:api
@@ -241,7 +242,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-04 Documents/Ingestion: complete
 - M7-05 Query Trace: complete
 - M7-06 Ingestion Trace: complete
-- Next: M7-07 Evaluation UI
+- M7-07 Evaluation UI: complete
+- Next: M7-08 Browser E2E
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -275,6 +277,14 @@ retry-wait, and cancelled filters. A sanitized backend projection drives the act
 Root/Leaf and projection-verification counts, plus real staging/activation VectorStore batches. Failed jobs expose
 only a stable error code and a link back to the matching job. File content, object paths, exception messages/stacks,
 and lease owners never reach the API or page, while legacy traces without batch spans retain an honest empty state.
+
+`/workspace/evaluations` provides a server-owned catalog, preflight budget, per-case progress, persisted history,
+complete reports, and controlled comparisons. The current public profile uses 30 versioned Golden Cases, the real
+local Hashing Sparse Encoder, and deterministic metrics. It estimates zero LLM calls and is explicitly identified
+as a smoke evaluation rather than an online generation-quality claim. Each tenant may have one active Run. Only
+successful Runs with complete and identical Dataset, Mode, Case-set, Index, Prompt, and Provider snapshots receive
+Candidate − Base deltas; every other comparison shows the backend's specific incompatibility reasons. Reports can
+be exported as JSON or Markdown.
 
 The Cost Guard atomically reserves a per-minute query slot and worst-case call/token capacity with PostgreSQL conditional upserts before QueryRunner can enter Provider logic. Minute limits are isolated per anonymous session, UTC daily capacity is shared by all anonymous sessions, and Standard/Deep use different weights. Successful calls refund unused capacity from trustworthy usage; failures or unverifiable usage conservatively consume the reservation, and 429 responses include `Retry-After`. The LLM decorator adds configurable per-attempt timeout, bounded transient-only retries, and a retry count. Apply the new tables first with the `alembic upgrade head` command above.
 
@@ -361,7 +371,7 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
-M1 through M6 are complete and 6/8 M7 frontend slices are done. The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, and the Vue3/TypeScript shell, dual identity sessions, public chat, tenant overview, document/ingestion management, plus Query Trace and Ingestion Trace inspectors. A concrete production QueryRunner/Provider composition entry point is not wired yet, so the default entry point does not pretend to be a usable complete query product.
+M1 through M6 are complete and 7/8 M7 frontend slices are done. The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, and the Vue3/TypeScript shell, dual identity sessions, public chat, tenant overview, document/ingestion management, Query/Ingestion Trace inspectors, and a budgeted evaluation workspace. A concrete production QueryRunner/Provider composition entry point is not wired yet, so the default entry point does not pretend to be a usable complete query product.
 
 The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for image enrichment. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. The Loader is wired into the background ingestion Pipeline; the HTTP upload endpoint arrives in M3-10.
 

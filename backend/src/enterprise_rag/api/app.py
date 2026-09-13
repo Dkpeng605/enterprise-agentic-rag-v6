@@ -19,6 +19,7 @@ from opentelemetry.trace import Status, StatusCode, TracerProvider
 from enterprise_rag import __version__
 from enterprise_rag.adapters.database import (
     Database,
+    PostgreSQLEvaluationRunStore,
     PostgreSQLTraceStore,
     PostgreSQLUsageStore,
 )
@@ -40,6 +41,7 @@ from enterprise_rag.ports.registry import ProviderRegistry
 from enterprise_rag.ports.usage import UsageAmounts, UsageLimits, UsageStore
 from enterprise_rag.services.auth import AnonymousSessionService
 from enterprise_rag.services.cost_guard import BudgetedQueryRunner, CostGuard, QueryBudget
+from enterprise_rag.services.evaluation_workspace import EvaluationWorkspaceService
 from enterprise_rag.services.health import HealthService
 from enterprise_rag.services.knowledge import KnowledgeApplication
 from enterprise_rag.services.overview import WorkspaceOverviewService
@@ -84,6 +86,7 @@ def create_app(
     metrics: ApplicationMetrics | None = None,
     health_service: HealthService | None = None,
     provider_registry: ProviderRegistry | None = None,
+    evaluation_service: EvaluationWorkspaceService | None = None,
     clock: Clock = utc_now,
 ) -> FastAPI:
     """Build the ASGI application and optionally compose configured infrastructure."""
@@ -337,6 +340,19 @@ def create_app(
             ),
             traces=active_trace_service,
             overview=WorkspaceOverviewService(database) if database is not None else None,
+            evaluations=(
+                evaluation_service
+                or EvaluationWorkspaceService(
+                    PostgreSQLEvaluationRunStore(database),
+                    manifest=active_settings.evaluation.golden_manifest,
+                    max_cases=active_settings.evaluation.max_cases,
+                    max_llm_calls=active_settings.evaluation.max_llm_calls,
+                    commit_sha=active_settings.app.commit_sha,
+                    clock=clock,
+                )
+                if database is not None
+                else None
+            ),
             allowed_suffixes=active_settings.ingestion.allowed_suffixes,
             max_upload_bytes=min(
                 active_settings.ingestion.max_upload_bytes,

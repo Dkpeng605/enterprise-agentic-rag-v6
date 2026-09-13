@@ -320,6 +320,74 @@ class IngestionTraceViewResponse(ApiModel):
     batches: list[IngestionTraceBatchResponse]
 
 
+class EvaluationProfileResponse(ApiModel):
+    id: str
+    label: str
+    provider: str
+    model: str
+    prompt_revision: str
+    requires_remote: bool
+    estimated_llm_calls_per_case: int
+
+
+class EvaluationCatalogResponse(ApiModel):
+    dataset_revision: str
+    dataset_label: str
+    case_counts: dict[str, int]
+    profiles: list[EvaluationProfileResponse]
+    max_cases: int
+    max_llm_calls: int
+
+
+class EvaluationRunCreate(ApiModel):
+    dataset_revision: str = Field(min_length=1, max_length=100)
+    mode: Literal["all", "standard", "deep"] = "all"
+    provider_profile: str = Field(min_length=1, max_length=100)
+    max_cases: int = Field(ge=1, le=10_000)
+    max_llm_calls: int = Field(ge=0, le=100_000)
+
+
+class EvaluationRunResponse(ApiModel):
+    id: UUID
+    status: Literal["queued", "running", "succeeded", "failed"]
+    dataset_revision: str | None
+    mode: Literal["all", "standard", "deep"]
+    provider_profile: str | None
+    provider: str | None
+    model: str | None
+    prompt_revision: str | None
+    index_revision: str | None
+    commit_sha: str | None
+    max_cases: int
+    max_llm_calls: int
+    estimated_llm_calls: int
+    completed_cases: int
+    total_cases: int
+    case_ids: list[str]
+    aggregate_metrics: dict[str, float | None]
+    usage: dict[str, int]
+    error_code: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    report: dict[str, object] | None = None
+
+
+class EvaluationRunListResponse(ApiModel):
+    items: list[EvaluationRunResponse]
+    next_cursor: str | None
+
+
+class EvaluationComparisonResponse(ApiModel):
+    base_run_id: UUID
+    candidate_run_id: UUID
+    comparable: bool
+    reasons: list[str]
+    base_metrics: dict[str, float | None]
+    candidate_metrics: dict[str, float | None]
+    deltas: dict[str, float | None]
+
+
 class LivenessResponse(ApiModel):
     status: Literal["live"]
     service: str

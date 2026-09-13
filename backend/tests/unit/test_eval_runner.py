@@ -121,3 +121,18 @@ async def test_configuration_change_invalidates_request_hashes() -> None:
     assert {case.request_hash for case in first.cases}.isdisjoint(
         case.request_hash for case in changed.cases
     )
+
+
+@pytest.mark.anyio
+async def test_runner_reports_monotonic_case_progress() -> None:
+    golden_set = GoldenSetLoader().load(MANIFEST)
+    observed: list[tuple[int, int]] = []
+
+    async def progress(completed: int, total: int) -> None:
+        observed.append((completed, total))
+
+    await EvaluationRunner(
+        CountingFixtureSubject(), DeterministicEvaluator()
+    ).run(golden_set, config(), progress=progress)
+
+    assert observed == [(1, 3), (2, 3), (3, 3)]
