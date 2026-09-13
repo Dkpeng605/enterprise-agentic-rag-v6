@@ -23,21 +23,25 @@ from enterprise_rag.adapters.database.models import (
     TenantModel,
     UserModel,
 )
+from enterprise_rag.adapters.embeddings import HashingDenseEmbedding
 from enterprise_rag.adapters.loaders import TextDocumentLoader
 from enterprise_rag.adapters.object_store import LocalObjectStore
 from enterprise_rag.adapters.sparse import HashingSparseEncoder
 from enterprise_rag.adapters.splitters import StructureAwareSplitter
 from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
 from enterprise_rag.adapters.vision import NoopVisionProvider
-from enterprise_rag.domain import ErrorCode, JobStatus
+from enterprise_rag.domain import ErrorCode, JobStatus, QueryMode, QueryScope
+from enterprise_rag.domain.common import new_uuid7
 from enterprise_rag.ports import ProviderHealth, ProviderInfo, ProviderKind
 from enterprise_rag.services import (
+    DeterministicLocalQueryRunner,
     DocumentRegistrationService,
     ImageEnricher,
     IngestionPipeline,
     ProjectionService,
     RegisterDocument,
 )
+from enterprise_rag.services.query_api import QueryCommand, QueryProgress
 
 BACKEND_ROOT = Path(__file__).parents[3]
 DATABASE_URL = os.environ.get(
@@ -203,6 +207,86 @@ async def test_pipeline_runs_registered_object_to_ready_postgres_and_milvus(
         assert await vector_store.count_by_version(TENANT_ID, version_id) == leaf_count
         assert await pipeline.run_once(owner="worker-a") is None
         assert list((tmp_path / "temporary").iterdir()) == []
+    finally:
+        await vector_store.aclose()
+        await database.dispose()
+
+
+@pytest.mark.anyio
+async def test_pipeline_output_is_queryable_with_citations_and_ordered_progress(
+    tmp_path: Path,
+) -> None:
+    database = Database(DATABASE_URL)
+    store = LocalObjectStore(tmp_path / "objects")
+    vector_store = MilvusLiteVectorStore(tmp_path / "vectors.db")
+    embedding = HashingDenseEmbedding(dimension=64)
+    sparse = HashingSparseEncoder()
+    try:
+        await seed(database)
+        document_id, _, _ = await submit(database, store)
+        pipeline = IngestionPipeline(
+            database=database,
+            object_store=store,
+            loaders=(TextDocumentLoader(),),
+            cleaner=DeterministicCleaner(),
+            splitter=StructureAwareSplitter(target_tokens=20, max_tokens=28, overlap_tokens=4),
+            image_enricher=ImageEnricher(store, NoopVisionProvider()),
+            projection=ProjectionService(
+                embedding=embedding,
+                sparse=sparse,
+                vector_store=vector_store,
+                batch_size=2,
+            ),
+            vector_store=vector_store,
+            temporary_root=tmp_path / "temporary",
+            index_revision="local-query-v1",
+            retry_delay=timedelta(0),
+            clock=lambda: NOW,
+        )
+        completed = await pipeline.run_once(owner="query-worker")
+        assert completed is not None and completed.completed
+
+        runner = DeterministicLocalQueryRunner(
+            database=database,
+            embedding=embedding,
+            sparse=sparse,
+            vector_store=vector_store,
+            index_revision="local-query-v1",
+            dense_top_k=10,
+            sparse_top_k=10,
+            fused_top_k=10,
+            rerank_candidates=10,
+            selected_leaf_k=3,
+        )
+        progress: list[QueryProgress] = []
+
+        async def emit(item: QueryProgress) -> None:
+            progress.append(item)
+
+        result = await runner.run(
+            QueryCommand(
+                new_uuid7(),
+                TENANT_ID,
+                USER_ID,
+                "Enterprise RAG policy evidence",
+                QueryMode.STANDARD,
+                QueryScope(document_ids=(document_id,)),
+                (),
+            ),
+            emit=emit,
+        )
+
+        assert result.status.value == "answered"
+        assert "Enterprise RAG policy evidence" in result.answer
+        assert result.citations and result.citations[0].document_id == document_id
+        assert result.usage == {"llm_calls": 0, "input_tokens": 0, "output_tokens": 0}
+        assert [item.stage.value for item in progress] == [
+            "planning",
+            "retrieving",
+            "reranking",
+            "recovering",
+            "answering",
+        ]
     finally:
         await vector_store.aclose()
         await database.dispose()

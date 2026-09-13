@@ -1,8 +1,9 @@
 """FastAPI composition root, request boundary, and workspace routes."""
 
+import asyncio
 import hmac
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime
 from time import perf_counter
@@ -87,6 +88,8 @@ def create_app(
     health_service: HealthService | None = None,
     provider_registry: ProviderRegistry | None = None,
     evaluation_service: EvaluationWorkspaceService | None = None,
+    background_tasks: Sequence[Callable[[], Awaitable[None]]] = (),
+    resource_closers: Sequence[Callable[[], Awaitable[None]]] = (),
     clock: Clock = utc_now,
 ) -> FastAPI:
     """Build the ASGI application and optionally compose configured infrastructure."""
@@ -129,13 +132,24 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        yield
-        if owned_tracer_provider is not None:
-            owned_tracer_provider.shutdown()
-        if owns_database and database is not None:
-            await database.dispose()
-        if owns_database and object_store is not None:
-            await object_store.aclose()
+        running: list[asyncio.Future[None]] = [
+            asyncio.ensure_future(factory()) for factory in background_tasks
+        ]
+        try:
+            yield
+        finally:
+            for task in running:
+                task.cancel()
+            if running:
+                await asyncio.gather(*running, return_exceptions=True)
+            for closer in reversed(resource_closers):
+                await closer()
+            if owned_tracer_provider is not None:
+                owned_tracer_provider.shutdown()
+            if owns_database and database is not None:
+                await database.dispose()
+            if owns_database and object_store is not None:
+                await object_store.aclose()
 
     application = FastAPI(
         title="Enterprise Agentic RAG v6",

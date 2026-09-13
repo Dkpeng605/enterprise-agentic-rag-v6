@@ -84,6 +84,7 @@ from enterprise_rag.services.llm_judge import (
     LanguageModelJudge,
     configure_optional_llm_judge,
 )
+from enterprise_rag.services.local_query import DeterministicLocalQueryRunner
 from enterprise_rag.services.overview import (
     OverviewActivity,
     WorkspaceOverview,
@@ -168,6 +169,7 @@ __all__ = [
     "GoldenSetValidationError",
     "GoldenFixtureSubject",
     "DeterministicEvaluator",
+    "DeterministicLocalQueryRunner",
     "DeepRecoveryController",
     "DeepRecoveryOutcome",
     "DeepRecoveryRequest",
