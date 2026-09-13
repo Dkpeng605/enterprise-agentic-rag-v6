@@ -35,6 +35,7 @@ from enterprise_rag.api.schemas import (
     DocumentListResponse,
     DocumentResponse,
     ErrorResponseModel,
+    IngestionTraceViewResponse,
     JobListItemResponse,
     JobListResponse,
     JobResponse,
@@ -58,6 +59,7 @@ from enterprise_rag.domain.retrieval import QueryMode, QueryScope
 from enterprise_rag.ports.planner import ConversationRole, ConversationTurn
 from enterprise_rag.ports.traces import StoredSpan, TraceDetail, TraceSummary
 from enterprise_rag.services.auth import SESSION_COOKIE, AnonymousSessionService, Principal
+from enterprise_rag.services.ingestion_trace import IngestionTraceView
 from enterprise_rag.services.knowledge import KnowledgeApplication, KnowledgeQuery
 from enterprise_rag.services.overview import WorkspaceOverviewService
 from enterprise_rag.services.query_trace import QueryTraceView
@@ -573,6 +575,10 @@ def create_api_router(
     )
     async def list_ingestion_traces(
         principal: Annotated[Principal, Depends(reader)],
+        trace_status: Annotated[
+            Literal["succeeded", "failed", "retry_wait", "cancelled"] | None,
+            Query(alias="status"),
+        ] = None,
         cursor: Annotated[str | None, Query(max_length=1_000)] = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
     ) -> TraceListResponse:
@@ -581,10 +587,24 @@ def create_api_router(
             trace_type="ingestion",
             cursor=cursor,
             limit=limit,
+            status=trace_status,
         )
         return TraceListResponse(
             items=[_trace_summary(item) for item in page.items],
             next_cursor=page.next_cursor,
+        )
+
+    @router.get(
+        "/traces/ingestion/{trace_id}",
+        response_model=IngestionTraceViewResponse,
+        tags=["traces"],
+    )
+    async def get_ingestion_trace(
+        trace_id: str,
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> IngestionTraceViewResponse:
+        return _ingestion_trace_view(
+            await _traces().get_ingestion_trace(principal.tenant_id, trace_id)
         )
 
     @router.get(
@@ -686,6 +706,10 @@ def _trace_detail(item: TraceDetail) -> TraceDetailResponse:
 
 def _query_trace_view(item: QueryTraceView) -> QueryTraceViewResponse:
     return QueryTraceViewResponse.model_validate(asdict(item))
+
+
+def _ingestion_trace_view(item: IngestionTraceView) -> IngestionTraceViewResponse:
+    return IngestionTraceViewResponse.model_validate(asdict(item))
 
 
 def _knowledge_query(body: QueryRequestModel) -> KnowledgeQuery:

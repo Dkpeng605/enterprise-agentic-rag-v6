@@ -10,6 +10,10 @@ from enterprise_rag.adapters.database.traces import PostgreSQLTraceStore
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.observability.exporter import BufferedSpanExporter
 from enterprise_rag.ports.traces import TraceCompletion, TraceDetail, TracePage, TraceStore
+from enterprise_rag.services.ingestion_trace import (
+    IngestionTraceView,
+    project_ingestion_trace,
+)
 from enterprise_rag.services.query_trace import QueryTraceView, project_query_trace
 
 
@@ -59,6 +63,14 @@ class TraceService:
         if detail.summary.trace_type != "query":
             raise AppError(ErrorCode.NOT_FOUND, "The query trace was not found.")
         return project_query_trace(detail)
+
+    async def get_ingestion_trace(
+        self, tenant_id: UUID, trace_id: str
+    ) -> IngestionTraceView:
+        detail = await self.get_trace(tenant_id, trace_id)
+        if detail.summary.trace_type != "ingestion":
+            raise AppError(ErrorCode.NOT_FOUND, "The ingestion trace was not found.")
+        return project_ingestion_trace(detail)
 
 
 def build_persistent_tracing(

@@ -8,6 +8,7 @@ from uuid import UUID
 from enterprise_rag.domain.common import require_non_empty, require_uuid7
 from enterprise_rag.domain.documents import LeafChunk
 from enterprise_rag.domain.errors import AppError, ErrorCode
+from enterprise_rag.observability import start_span
 from enterprise_rag.ports.embedding import EmbeddingProvider
 from enterprise_rag.ports.sparse import SparseEncoder
 from enterprise_rag.ports.vector_store import IndexSchema, VectorRecord, VectorStore
@@ -98,7 +99,7 @@ class ProjectionService:
         staged = self._records(request, dense_vectors, sparse_vectors, status="processing")
         batches = (expected + self._batch_size - 1) // self._batch_size
         try:
-            staged_count = await self._upsert_all(staged)
+            staged_count = await self._upsert_all(staged, phase="staging")
             await self._verify_count(request, expected)
             ready = tuple(
                 VectorRecord(
@@ -116,7 +117,7 @@ class ProjectionService:
                 )
                 for record in staged
             )
-            activated_count = await self._upsert_all(ready)
+            activated_count = await self._upsert_all(ready, phase="activation")
             verified = await self._verify_count(request, expected)
             return ProjectionResult(expected, staged_count, activated_count, verified, batches)
         except BaseException as primary:
@@ -134,18 +135,33 @@ class ProjectionService:
                 "Vector projection failed and was compensated.",
             ) from primary
 
-    async def _upsert_all(self, records: Sequence[VectorRecord]) -> int:
+    async def _upsert_all(
+        self, records: Sequence[VectorRecord], *, phase: str
+    ) -> int:
         count = 0
-        for start in range(0, len(records), self._batch_size):
+        batch_count = (len(records) + self._batch_size - 1) // self._batch_size
+        for batch_index, start in enumerate(
+            range(0, len(records), self._batch_size), start=1
+        ):
             batch = records[start : start + self._batch_size]
-            result = await self._vector_store.upsert(batch)
-            if result.count != len(batch):
-                raise ProjectionError(
-                    ErrorCode.PROJECTION_UPSERT_FAILED,
-                    "VectorStore reported a partial projection upsert.",
-                    {"expected_count": len(batch), "actual_count": result.count},
-                )
-            count += result.count
+            with start_span(
+                "rag.ingestion.projection.batch",
+                attributes={
+                    "rag.ingestion.batch.phase": phase,
+                    "rag.ingestion.batch.index": batch_index,
+                    "rag.ingestion.batch.count": batch_count,
+                    "rag.ingestion.batch.item_count": len(batch),
+                },
+            ) as span:
+                result = await self._vector_store.upsert(batch)
+                span.set_attribute("rag.ingestion.batch.written_count", result.count)
+                if result.count != len(batch):
+                    raise ProjectionError(
+                        ErrorCode.PROJECTION_UPSERT_FAILED,
+                        "VectorStore reported a partial projection upsert.",
+                        {"expected_count": len(batch), "actual_count": result.count},
+                    )
+                count += result.count
         return count
 
     async def _verify_count(self, request: ProjectionRequest, expected: int) -> int:

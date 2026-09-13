@@ -2859,6 +2859,28 @@
         ],
         "parameters": [
           {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "succeeded",
+                    "failed",
+                    "retry_wait",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "required": false,
@@ -2895,6 +2917,133 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TraceListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or invalid CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant-scoped resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Upload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Schema validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demo quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/traces/ingestion/{trace_id}": {
+      "get": {
+        "tags": [
+          "traces"
+        ],
+        "summary": "Get Ingestion Trace",
+        "operationId": "get_ingestion_trace_api_v1_traces_ingestion__trace_id__get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "trace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionTraceViewResponse"
                 }
               }
             }
@@ -4008,6 +4157,243 @@
           "providers"
         ],
         "title": "HealthReportResponse"
+      },
+      "IngestionTraceBatchResponse": {
+        "properties": {
+          "span_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$",
+            "title": "Span Id"
+          },
+          "parent_span_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Span Id"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "batch_index": {
+            "type": "integer",
+            "title": "Batch Index"
+          },
+          "batch_count": {
+            "type": "integer",
+            "title": "Batch Count"
+          },
+          "item_count": {
+            "type": "integer",
+            "title": "Item Count"
+          },
+          "written_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Written Count"
+          },
+          "offset_ms": {
+            "type": "number",
+            "title": "Offset Ms"
+          },
+          "duration_ms": {
+            "type": "number",
+            "title": "Duration Ms"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "span_id",
+          "phase",
+          "batch_index",
+          "batch_count",
+          "item_count",
+          "written_count",
+          "offset_ms",
+          "duration_ms",
+          "status"
+        ],
+        "title": "IngestionTraceBatchResponse"
+      },
+      "IngestionTraceStageResponse": {
+        "properties": {
+          "span_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$",
+            "title": "Span Id"
+          },
+          "parent_span_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Span Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "offset_ms": {
+            "type": "number",
+            "title": "Offset Ms"
+          },
+          "duration_ms": {
+            "type": "number",
+            "title": "Duration Ms"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "root_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Count"
+          },
+          "leaf_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaf Count"
+          },
+          "expected_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Count"
+          },
+          "verified_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Count"
+          },
+          "batch_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "span_id",
+          "name",
+          "offset_ms",
+          "duration_ms",
+          "status",
+          "root_count",
+          "leaf_count",
+          "expected_count",
+          "verified_count",
+          "batch_count"
+        ],
+        "title": "IngestionTraceStageResponse"
+      },
+      "IngestionTraceViewResponse": {
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/TraceSummaryResponse"
+          },
+          "attempt": {
+            "type": "integer",
+            "title": "Attempt"
+          },
+          "progress": {
+            "type": "integer",
+            "title": "Progress"
+          },
+          "completed": {
+            "type": "boolean",
+            "title": "Completed"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/IngestionTraceStageResponse"
+            },
+            "type": "array",
+            "title": "Stages"
+          },
+          "batches": {
+            "items": {
+              "$ref": "#/components/schemas/IngestionTraceBatchResponse"
+            },
+            "type": "array",
+            "title": "Batches"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "summary",
+          "attempt",
+          "progress",
+          "completed",
+          "error_code",
+          "stages",
+          "batches"
+        ],
+        "title": "IngestionTraceViewResponse"
       },
       "JobListItemResponse": {
         "properties": {

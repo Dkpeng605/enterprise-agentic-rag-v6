@@ -34,9 +34,13 @@ ACTOR_B = UUID("01900000-0000-7000-8000-000000006104")
 QUERY_A = UUID("01900000-0000-7000-8000-000000006105")
 QUERY_A_2 = UUID("01900000-0000-7000-8000-000000006106")
 QUERY_B = UUID("01900000-0000-7000-8000-000000006107")
+JOB_OK = UUID("01900000-0000-7000-8000-000000006108")
+JOB_FAILED = UUID("01900000-0000-7000-8000-000000006109")
 TRACE_A = "1" * 32
 TRACE_A_2 = "2" * 32
 TRACE_B = "3" * 32
+TRACE_INGEST_OK = "4" * 32
+TRACE_INGEST_FAILED = "5" * 32
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -179,6 +183,33 @@ async def test_anonymous_trace_api_lists_own_tenant_and_hides_other_tenant(
                 ),
                 _deep_spans(TRACE_A_2, NOW + timedelta(minutes=1)),
             )
+            await trace_store.persist(
+                _ingestion_completion(
+                    TRACE_INGEST_OK,
+                    demo_tenant,
+                    JOB_OK,
+                    NOW + timedelta(minutes=2),
+                    status="succeeded",
+                    progress=100,
+                    completed=True,
+                ),
+                _ingestion_spans(TRACE_INGEST_OK, NOW + timedelta(minutes=2)),
+            )
+            await trace_store.persist(
+                _ingestion_completion(
+                    TRACE_INGEST_FAILED,
+                    demo_tenant,
+                    JOB_FAILED,
+                    NOW + timedelta(minutes=3),
+                    status="failed",
+                    progress=40,
+                    completed=False,
+                    error_code="INTERNAL_ERROR",
+                ),
+                _failed_ingestion_spans(
+                    TRACE_INGEST_FAILED, NOW + timedelta(minutes=3)
+                ),
+            )
             await _seed_other_trace(database)
 
             listed = await client.get("/api/v1/traces?type=query&limit=2")
@@ -204,7 +235,16 @@ async def test_anonymous_trace_api_lists_own_tenant_and_hides_other_tenant(
             ]
             ingestion_list = await client.get("/api/v1/traces/ingestion")
             assert ingestion_list.status_code == 200
-            assert ingestion_list.json()["items"] == []
+            assert [item["trace_id"] for item in ingestion_list.json()["items"]] == [
+                TRACE_INGEST_FAILED,
+                TRACE_INGEST_OK,
+            ]
+            failed_ingestion = await client.get(
+                "/api/v1/traces/ingestion?status=failed"
+            )
+            assert [
+                item["trace_id"] for item in failed_ingestion.json()["items"]
+            ] == [TRACE_INGEST_FAILED]
             detail = await client.get(f"/api/v1/traces/{TRACE_A}")
             assert detail.status_code == 200
             assert detail.json()["summary"]["subject_id"] == str(QUERY_A)
@@ -228,6 +268,20 @@ async def test_anonymous_trace_api_lists_own_tenant_and_hides_other_tenant(
             ]
             deep_view = await client.get(f"/api/v1/traces/query/{TRACE_A_2}")
             assert deep_view.json()["recovery_rounds"][0]["route"] == "hyde_dense"
+            ingestion_view = await client.get(
+                f"/api/v1/traces/ingestion/{TRACE_INGEST_OK}"
+            )
+            assert ingestion_view.status_code == 200
+            assert ingestion_view.json()["completed"] is True
+            assert ingestion_view.json()["stages"][1]["root_count"] == 2
+            assert ingestion_view.json()["stages"][3]["verified_count"] == 5
+            assert ingestion_view.json()["batches"][0]["phase"] == "staging"
+            assert ingestion_view.json()["batches"][1]["phase"] == "activation"
+            failed_view = await client.get(
+                f"/api/v1/traces/ingestion/{TRACE_INGEST_FAILED}"
+            )
+            assert failed_view.json()["error_code"] == "INTERNAL_ERROR"
+            assert failed_view.json()["stages"][2]["status"] == "ERROR"
             hidden = await client.get(f"/api/v1/traces/{TRACE_B}")
             assert hidden.status_code == 404
             assert hidden.json()["error"]["code"] == "NOT_FOUND"
@@ -301,6 +355,39 @@ def _completion(
         started_at + timedelta(milliseconds=250),
         {"llm_calls": 1, "input_tokens": 12, "output_tokens": 4},
         attributes or {},
+    )
+
+
+def _ingestion_completion(
+    trace_id: str,
+    tenant_id: UUID,
+    job_id: UUID,
+    started_at: datetime,
+    *,
+    status: str,
+    progress: int,
+    completed: bool,
+    error_code: str | None = None,
+) -> TraceCompletion:
+    return TraceCompletion(
+        trace_id,
+        "ingestion",
+        tenant_id,
+        None,
+        "worker",
+        job_id,
+        None,
+        None,
+        status,
+        started_at,
+        started_at + timedelta(milliseconds=500),
+        {},
+        {
+            "attempt": 1,
+            "progress": progress,
+            "completed": completed,
+            "error_code": error_code,
+        },
     )
 
 
@@ -400,5 +487,147 @@ def _deep_spans(trace_id: str, started_at: datetime) -> tuple[StoredSpan, ...]:
                 "rag.recovery.added_count": 1,
                 "rag.recovery.duplicate_count": 1,
             },
+        ),
+    )
+
+
+def _ingestion_spans(
+    trace_id: str, started_at: datetime
+) -> tuple[StoredSpan, ...]:
+    root_span_id = "00000000000000b0"
+    project_span_id = "00000000000000b3"
+    return (
+        StoredSpan(
+            trace_id,
+            root_span_id,
+            None,
+            "rag.ingestion",
+            started_at,
+            started_at + timedelta(milliseconds=500),
+            "UNSET",
+            {"rag.ingestion.status": "succeeded"},
+        ),
+        StoredSpan(
+            trace_id,
+            "00000000000000b1",
+            root_span_id,
+            "rag.ingestion.load",
+            started_at + timedelta(milliseconds=10),
+            started_at + timedelta(milliseconds=70),
+            "UNSET",
+            {"rag.ingestion.root_count": 2},
+        ),
+        StoredSpan(
+            trace_id,
+            "00000000000000b2",
+            root_span_id,
+            "rag.ingestion.split",
+            started_at + timedelta(milliseconds=80),
+            started_at + timedelta(milliseconds=140),
+            "UNSET",
+            {"rag.ingestion.leaf_count": 5},
+        ),
+        StoredSpan(
+            trace_id,
+            project_span_id,
+            root_span_id,
+            "rag.ingestion.project",
+            started_at + timedelta(milliseconds=150),
+            started_at + timedelta(milliseconds=350),
+            "UNSET",
+            {
+                "rag.ingestion.expected_count": 5,
+                "rag.ingestion.verified_count": 5,
+                "rag.ingestion.batch_count": 3,
+            },
+        ),
+        _batch_span(
+            trace_id,
+            "00000000000000b4",
+            project_span_id,
+            started_at,
+            offset=170,
+            phase="staging",
+        ),
+        _batch_span(
+            trace_id,
+            "00000000000000b5",
+            project_span_id,
+            started_at,
+            offset=230,
+            phase="activation",
+        ),
+        StoredSpan(
+            trace_id,
+            "00000000000000b6",
+            root_span_id,
+            "rag.ingestion.finalize",
+            started_at + timedelta(milliseconds=360),
+            started_at + timedelta(milliseconds=430),
+            "UNSET",
+        ),
+    )
+
+
+def _batch_span(
+    trace_id: str,
+    span_id: str,
+    parent_span_id: str,
+    started_at: datetime,
+    *,
+    offset: int,
+    phase: str,
+) -> StoredSpan:
+    return StoredSpan(
+        trace_id,
+        span_id,
+        parent_span_id,
+        "rag.ingestion.projection.batch",
+        started_at + timedelta(milliseconds=offset),
+        started_at + timedelta(milliseconds=offset + 20),
+        "UNSET",
+        {
+            "rag.ingestion.batch.phase": phase,
+            "rag.ingestion.batch.index": 1,
+            "rag.ingestion.batch.count": 3,
+            "rag.ingestion.batch.item_count": 2,
+            "rag.ingestion.batch.written_count": 2,
+        },
+    )
+
+
+def _failed_ingestion_spans(
+    trace_id: str, started_at: datetime
+) -> tuple[StoredSpan, ...]:
+    root_span_id = "00000000000000c0"
+    return (
+        StoredSpan(
+            trace_id,
+            root_span_id,
+            None,
+            "rag.ingestion",
+            started_at,
+            started_at + timedelta(milliseconds=500),
+            "UNSET",
+            {"rag.ingestion.status": "failed"},
+        ),
+        StoredSpan(
+            trace_id,
+            "00000000000000c1",
+            root_span_id,
+            "rag.ingestion.load",
+            started_at + timedelta(milliseconds=10),
+            started_at + timedelta(milliseconds=70),
+            "UNSET",
+            {"rag.ingestion.root_count": 1},
+        ),
+        StoredSpan(
+            trace_id,
+            "00000000000000c2",
+            root_span_id,
+            "rag.ingestion.split",
+            started_at + timedelta(milliseconds=80),
+            started_at + timedelta(milliseconds=110),
+            "ERROR",
         ),
     )

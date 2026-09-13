@@ -349,6 +349,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/traces/ingestion/{trace_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ingestion Trace */
+        get: operations["get_ingestion_trace_api_v1_traces_ingestion__trace_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/traces/{trace_id}": {
         parameters: {
             query?: never;
@@ -689,6 +706,70 @@ export interface components {
             checks: components["schemas"]["HealthCheckResponse"][];
             /** Providers */
             providers: components["schemas"]["ProviderDiagnosticResponse"][];
+        };
+        /** IngestionTraceBatchResponse */
+        IngestionTraceBatchResponse: {
+            /** Span Id */
+            span_id: string;
+            /** Parent Span Id */
+            parent_span_id?: string | null;
+            /** Phase */
+            phase: string;
+            /** Batch Index */
+            batch_index: number;
+            /** Batch Count */
+            batch_count: number;
+            /** Item Count */
+            item_count: number;
+            /** Written Count */
+            written_count: number | null;
+            /** Offset Ms */
+            offset_ms: number;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Status */
+            status: string;
+        };
+        /** IngestionTraceStageResponse */
+        IngestionTraceStageResponse: {
+            /** Span Id */
+            span_id: string;
+            /** Parent Span Id */
+            parent_span_id?: string | null;
+            /** Name */
+            name: string;
+            /** Offset Ms */
+            offset_ms: number;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Status */
+            status: string;
+            /** Root Count */
+            root_count: number | null;
+            /** Leaf Count */
+            leaf_count: number | null;
+            /** Expected Count */
+            expected_count: number | null;
+            /** Verified Count */
+            verified_count: number | null;
+            /** Batch Count */
+            batch_count: number | null;
+        };
+        /** IngestionTraceViewResponse */
+        IngestionTraceViewResponse: {
+            summary: components["schemas"]["TraceSummaryResponse"];
+            /** Attempt */
+            attempt: number;
+            /** Progress */
+            progress: number;
+            /** Completed */
+            completed: boolean;
+            /** Error Code */
+            error_code: string | null;
+            /** Stages */
+            stages: components["schemas"]["IngestionTraceStageResponse"][];
+            /** Batches */
+            batches: components["schemas"]["IngestionTraceBatchResponse"][];
         };
         /** JobListItemResponse */
         JobListItemResponse: {
@@ -3345,6 +3426,7 @@ export interface operations {
     list_ingestion_traces_api_v1_traces_ingestion_get: {
         parameters: {
             query?: {
+                status?: ("succeeded" | "failed" | "retry_wait" | "cancelled") | null;
                 cursor?: string | null;
                 limit?: number;
             };
@@ -3361,6 +3443,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TraceListResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    get_ingestion_trace_api_v1_traces_ingestion__trace_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestionTraceViewResponse"];
                 };
             };
             /** @description Invalid request */

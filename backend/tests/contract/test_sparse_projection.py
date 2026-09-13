@@ -5,10 +5,13 @@ from typing import cast
 from uuid import UUID
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
 from enterprise_rag.adapters.sparse import HashingSparseEncoder
 from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
 from enterprise_rag.domain import AppError, ErrorCode, LeafChunk, RootChunk, RootKind
+from enterprise_rag.observability import BufferedSpanExporter, start_span
 from enterprise_rag.ports import (
     DenseSearchRequest,
     ProviderHealth,
@@ -183,7 +186,12 @@ async def test_projection_batches_activates_verifies_and_is_idempotent(tmp_path:
         batch_size=2,
     )
     try:
-        first = await service.project(request())
+        exporter = BufferedSpanExporter(max_traces=2, max_spans_per_trace=10)
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        with start_span("rag.ingestion.project", tracer_provider=provider) as root_span:
+            trace_id = f"{root_span.get_span_context().trace_id:032x}"
+            first = await service.project(request())
         second = await service.project(request())
         assert first.expected_count == first.staged_count == first.activated_count == 3
         assert first.verified_count == 3 and first.batches == 2
@@ -197,6 +205,25 @@ async def test_projection_batches_activates_verifies_and_is_idempotent(tmp_path:
             DenseSearchRequest(REVISION, TENANT_ID, (1.0, 0.0, 0.1), 3)
         )
         assert dense
+        batch_spans = [
+            span
+            for span in exporter.take(trace_id)
+            if span.name == "rag.ingestion.projection.batch"
+        ]
+        assert len(batch_spans) == 4
+        assert [span.attributes["rag.ingestion.batch.phase"] for span in batch_spans] == [
+            "staging",
+            "staging",
+            "activation",
+            "activation",
+        ]
+        assert [span.attributes["rag.ingestion.batch.item_count"] for span in batch_spans] == [
+            2,
+            1,
+            2,
+            1,
+        ]
+        assert "retrieval policy" not in repr(batch_spans)
     finally:
         await store.aclose()
 

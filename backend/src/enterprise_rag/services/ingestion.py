@@ -280,8 +280,8 @@ class IngestionPipeline:
             await self._checkpoint(job.id, owner, 75, "projecting")
             with start_span(
                 "rag.ingestion.project", tracer_provider=self._tracer_provider
-            ), _observe_ingestion_stage("project"):
-                await self._projection.project(
+            ) as stage_span, _observe_ingestion_stage("project"):
+                projection = await self._projection.project(
                     ProjectionRequest(
                         work.tenant_id,
                         work.collection_id,
@@ -290,6 +290,15 @@ class IngestionPipeline:
                         self._index_revision,
                         leaves,
                     )
+                )
+                stage_span.set_attribute(
+                    "rag.ingestion.expected_count", projection.expected_count
+                )
+                stage_span.set_attribute(
+                    "rag.ingestion.verified_count", projection.verified_count
+                )
+                stage_span.set_attribute(
+                    "rag.ingestion.batch_count", projection.batches
                 )
             await self._checkpoint(job.id, owner, 95, "finalizing")
             with start_span(
