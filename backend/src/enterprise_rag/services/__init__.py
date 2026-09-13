@@ -53,6 +53,12 @@ from enterprise_rag.services.health import (
 )
 from enterprise_rag.services.images import EnrichedImage, ImageEnricher, ImageEnrichmentResult
 from enterprise_rag.services.ingestion import IngestionPipeline, PipelineRunResult
+from enterprise_rag.services.ingestion_trace import (
+    IngestionTraceBatch,
+    IngestionTraceStage,
+    IngestionTraceView,
+    project_ingestion_trace,
+)
 from enterprise_rag.services.knowledge import (
     KnowledgeApplication,
     KnowledgeQuery,
@@ -175,6 +181,9 @@ __all__ = [
     "HealthService",
     "HealthStatus",
     "IngestionPipeline",
+    "IngestionTraceBatch",
+    "IngestionTraceStage",
+    "IngestionTraceView",
     "KnowledgeApplication",
     "KnowledgeQuery",
     "JudgeResponseError",
@@ -250,5 +259,6 @@ __all__ = [
     "evaluate_quality_gate",
     "load_quality_gate_policy",
     "project_query_trace",
+    "project_ingestion_trace",
     "write_evaluation_report",
 ]

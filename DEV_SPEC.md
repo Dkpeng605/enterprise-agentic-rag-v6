@@ -1671,10 +1671,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M4 | Hybrid Retrieval 与 Agentic RAG | 10 | 完成 |
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 完成 |
-| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 5/8 完成 |
+| M7 | Vue3/TypeScript 公共端与管理端 | 8 | 6/8 完成 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 49/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 50/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -2364,8 +2364,34 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M7-06 Ingestion Trace
 
-- 阶段、批次和错误；
-- 验收：成功/失败任务展示。
+- 状态：已完成；
+- 查询边界：`GET /api/v1/traces/ingestion` 支持稳定 ingestion status、limit 与不透明 cursor，
+  tenant 始终来自 Principal 并在 PostgreSQL predicate 内强制过滤；
+  `GET /api/v1/traces/ingestion/{trace_id}` 只接受当前 tenant 的 ingestion Trace，query Trace、跨租户
+  或不存在的 ID 均统一返回 404；
+- 展示投影：新增后端 `IngestionTraceView`，只从持久化完成记录和 `rag.ingestion*` Span 生成任务摘要、
+  attempt、progress、稳定错误码、阶段 offset/duration、Root/Leaf 数量、投影校验数量和向量批次；Vue
+  不解析任意内部 Attribute，接口不返回文件正文、对象存储路径、文件名、异常 message/stack、lease
+  owner、鉴权信息或 Provider 私有诊断；
+- 阶段遥测：Ingestion Pipeline 在真实 Load、Split、Vector Projection 与 Finalize 阶段保留父子 Span，
+  Projection 阶段记录 expected/verified/batch count；状态只投影为 `ok`/`error`，缺失的旧遥测保持 null，
+  不由浏览器估算或补造；
+- 批次遥测：VectorStore 每次实际 staging/activation upsert 都生成
+  `rag.ingestion.projection.batch` 子 Span，记录 phase、从 1 开始的 batch index、该 phase 总批次数、
+  item count 与 written count；批次按 Trace 实际时间 offset 排序，不记录向量、Leaf/Root 正文或 ID
+  列表，写入失败使用 Span 状态表达而不暴露供应商异常；
+- 交互：列表自动选中最新 Trace，支持 succeeded/failed/retry_wait/cancelled 状态筛选、cursor 加载更多
+  和手动刷新；详情展示 attempt、真实进度、阶段瀑布、计数及投影批次。失败任务只显示 Worker 保存的
+  稳定错误码并链接回 `/workspace/ingestion?job=<job_id>`，浏览器不会自动重试或重启任务；
+- 状态与响应式：loading、empty、list error/request-ID/retry、detail loading、无阶段与无批次均有诚实
+  状态；桌面使用列表/Inspector 双栏，390×844 收敛为单栏，批次表只在自身容器横向滚动，文档根节点
+  无水平溢出；
+- 验收：PostgreSQL/FastAPI 测试覆盖 success+failed Trace、状态筛选、阶段/计数/批次投影和 tenant
+  隔离；OpenTelemetry 契约测试证明 staging/activation 每个真实 upsert 都产生批次 Span，计数准确且
+  不含检索正文；Vitest 覆盖成功阶段/批次、失败稳定错误、loading/empty/error 与 API 路径；真实
+  1280×720 与 390×844 浏览器检查成功/失败、局部表格滚动、根节点零水平溢出且控制台无
+  warning/error；
+- PR：`feat/m7-ingestion-trace`。
 
 #### M7-07 Evaluation UI
 

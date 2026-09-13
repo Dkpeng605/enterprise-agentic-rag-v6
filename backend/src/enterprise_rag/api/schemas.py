@@ -283,6 +283,43 @@ class QueryTraceViewResponse(ApiModel):
     degradations: list[QueryDegradationResponse]
 
 
+class IngestionTraceStageResponse(ApiModel):
+    span_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    parent_span_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
+    name: str
+    offset_ms: float
+    duration_ms: float
+    status: str
+    root_count: int | None
+    leaf_count: int | None
+    expected_count: int | None
+    verified_count: int | None
+    batch_count: int | None
+
+
+class IngestionTraceBatchResponse(ApiModel):
+    span_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    parent_span_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
+    phase: str
+    batch_index: int
+    batch_count: int
+    item_count: int
+    written_count: int | None
+    offset_ms: float
+    duration_ms: float
+    status: str
+
+
+class IngestionTraceViewResponse(ApiModel):
+    summary: TraceSummaryResponse
+    attempt: int
+    progress: int
+    completed: bool
+    error_code: str | None
+    stages: list[IngestionTraceStageResponse]
+    batches: list[IngestionTraceBatchResponse]
+
+
 class LivenessResponse(ApiModel):
     status: Literal["live"]
     service: str

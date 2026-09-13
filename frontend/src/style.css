@@ -483,6 +483,29 @@ h1 em { color: var(--mint-600); font-weight: inherit; }
 .recovery-grid p, .recovery-grid small { margin: 7px 0 0; color: #9cb0a8; font-size: 7px; }
 .recovery-grid small { color: #e7bf72; }
 .trace-inline-empty { margin: 0; padding: 22px; color: var(--muted); font-size: 8px; background: #f4f2eb; border: 1px dashed var(--line); border-radius: 7px; }
+.ingestion-trace-toolbar label { width: 210px; }
+.ingestion-status--succeeded { color: #22684f; background: #e6f7ee; border-color: #b8dfcf; }
+.ingestion-status--failed, .ingestion-status--cancelled { color: var(--danger); background: #fff0ed; border-color: #e8bab1; }
+.ingestion-status--retry_wait { color: #8b631f; background: #fff6df; border-color: #ead59d; }
+.ingestion-trace-error { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 15px; align-items: center; margin-top: 20px; padding: 14px 16px; color: #8c3e3e; background: #fff0ed; border: 1px solid #e8bab1; border-radius: 7px; }
+.ingestion-trace-error > span { padding: 5px 7px; font-size: 6px; font-weight: 900; letter-spacing: .1em; border: 1px solid #db9e98; border-radius: 4px; }
+.ingestion-trace-error strong { font-family: ui-monospace, monospace; font-size: 9px; }
+.ingestion-trace-error p { margin: 4px 0 0; color: #84615d; font-size: 7px; }
+.ingestion-trace-error a { color: var(--danger); font-size: 7px; font-weight: 800; text-decoration: none; }
+.ingestion-waterfall article { min-height: 45px; }
+.ingestion-waterfall em { display: block; margin-top: 3px; overflow: hidden; color: var(--mint-600); font-size: 6px; font-style: normal; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.batch-table { min-width: 620px; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; }
+.batch-row { display: grid; grid-template-columns: 1.2fr repeat(5, .7fr); align-items: center; min-height: 43px; border-top: 1px solid var(--line); }
+.batch-row:first-child { border-top: 0; }
+.batch-row > span { min-width: 0; padding: 9px 11px; color: var(--ink-700); font-size: 8px; border-left: 1px solid var(--line); }
+.batch-row > span:first-child { border-left: 0; }
+.batch-row b, .batch-row small { display: block; }
+.batch-row b { color: var(--mint-600); font-size: 7px; }
+.batch-row small { margin-top: 3px; color: var(--muted); font-size: 6px; }
+.batch-row--head { min-height: 30px; color: #78857f; font-size: 6px; font-weight: 900; letter-spacing: .1em; background: #f0eee7; }
+.batch-row--head > span { color: inherit; font-size: inherit; }
+.batch-row .batch-status--error { color: var(--danger); font-weight: 900; }
+.trace-section:has(.batch-table) { overflow-x: auto; }
 
 @media (max-width: 1050px) {
   .hero-grid { grid-template-columns: 1fr; }
@@ -592,4 +615,6 @@ h1 em { color: var(--mint-600); font-weight: inherit; }
   .trace-detail-head dl div { text-align: left; }
   .waterfall article { grid-template-columns: 105px minmax(0, 1fr); }
   .recovery-grid { grid-template-columns: 1fr; }
+  .ingestion-trace-error { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .ingestion-trace-error a { grid-column: 2; }
 }

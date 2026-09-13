@@ -13,6 +13,7 @@ import ChatView from './views/ChatView.vue'
 import DocumentsView from './views/DocumentsView.vue'
 import LoginView from './views/LoginView.vue'
 import IngestionView from './views/IngestionView.vue'
+import IngestionTraceView from './views/IngestionTraceView.vue'
 import OverviewView from './views/OverviewView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
 import QueryTraceView from './views/QueryTraceView.vue'
@@ -59,8 +60,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/workspace/traces/ingestion',
     name: 'ingestion-traces',
-    component: PlaceholderView,
-    props: { eyebrow: 'OBSERVABILITY', title: 'Ingestion Trace', description: '阶段、批次与错误视图将在 M7-06 接入。' },
+    component: IngestionTraceView,
     meta: { access: 'workspace', title: 'Ingestion Trace' },
   },
   {
