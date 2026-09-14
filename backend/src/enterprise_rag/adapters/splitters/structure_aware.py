@@ -287,7 +287,10 @@ class StructureAwareSplitter:
                 candidate = index
             else:
                 break
-        if candidate < end:
+        # Never reuse the entire current chunk: a short structural line can
+        # otherwise make `start` repeat forever when it is itself below the
+        # overlap budget.
+        if start < candidate < end:
             return candidate
         # Prefer one complete sentence/paragraph over cutting its prefix. This is a
         # deliberate semantic-boundary trade-off: overlap is a soft upper bound.

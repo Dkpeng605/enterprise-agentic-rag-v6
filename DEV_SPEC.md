@@ -2,7 +2,7 @@
 
 > 文档版本：0.1.0  
 > 状态：Draft for implementation  
-> 最后更新：2026-09-09  
+> 最后更新：2026-09-14
 > 目标仓库：`Dkpeng605/enterprise-agentic-rag-v6`  
 > 本地目录：`/Users/pengdingkang/agent开发/RAG/myRAG/v6最终版`
 
@@ -543,16 +543,18 @@ class Splitter(Protocol):
 - `target_tokens=350`；
 - `max_tokens=480`；
 - `overlap_tokens=50`；
-- macOS 真实 Provider 通过 FastEmbed `token_count` 提供实际 tokenizer；有效 `max_tokens` 为配置上限与
+- macOS 真实 Provider 通过 FastEmbed 的同一 tokenizer 计算完整 token 数；有效 `max_tokens` 为配置上限与
   `embedding_token_limit - embedding_safety_margin` 的较小值，默认安全余量为 1，保证每个 embedding 输入严格小于模型上限；
 - FastEmbed wrapper 不一定暴露 tokenizer 的 truncation 字段；此时启动预热必须用超过 registry 声明上限的探测文本调用
   `token_count`，若返回更小的截断值，则以该运行时值作为 `embedding_token_limit`，Splitter 不得继续使用过时的 registry 上限；
+- 当 FastEmbed `token_count` 因 truncation 只返回饱和值时，Provider 必须使用 tokenizer 的不可截断副本计算完整长度，不能把饱和值当成真实输入长度；原推理 tokenizer 仍保持截断，避免把超限文本发送给 ONNX 模型；
 - 当前 MiniLM registry 虽声明 512 input tokens，真实缓存 tokenizer 可能只有 128；运行时探测值是唯一权威上限。可插拔
   profile `BAAI/bge-small-zh-v1.5` 已验证为 512 维、512 input tokens；选择它时必须同步设置
   `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`，并创建新的 index revision，禁止与旧向量混写；
 - 单个句子/结构单元仍超过有效预算时才允许 token 硬切，并在 Leaf metadata 标记 `hard_cut=true`，不得把正常句子拆分伪装成自然边界；
 - overlap 不得跨 Root；
 - overlap 优先携带完整句子，只有无完整句子可携带时才退化为无 overlap；
+- overlap 计算必须保证下一起点严格前进；短结构行不能因为自身小于 overlap budget 被重复作为下一块起点；
 - 表格头在每个续块中重复，表头 token 计入预算，便于独立理解。
 
 ### 6.4 Embedding
@@ -1005,6 +1007,15 @@ Recovery 结果与现有 Evidence Ledger 按 Leaf ID 去重。每轮至少为 Re
 - `DELETE /collections/{id}`：异步删除集合内文档，必须二次确认字段；
 - demo tenant 至少保留一个系统 seed collection，该集合可恢复但不能永久删除。
 
+### 11.2A Provider 目录与选择
+
+- `GET /admin/providers`：仅系统管理员可调用；返回当前 `ProviderRegistry` 的真实注册实例、kind/name/version、capabilities、health 和 remote 属性，不返回密钥、Cookie 或 endpoint secret；
+- `POST /admin/providers/select`：仅系统管理员可调用，输入 `kind` 与 profile `key`；当前支持 `embedding` 与 `reranker`，未知 profile、LLM 环境管理项和未知 kind 均返回稳定 validation error；
+- 选择以原子 JSON 写入本机 `data/runtime/provider-selection.json` 的同级运行目录，服务重启时由 Composition Root 读取；接口返回 `pending_restart=true` 直到运行实例与持久化选择一致；
+- Embedding profile 至少提供默认 MiniLM（384 维，profile 声明 512 tokens，但当前缓存可能有效 128）与 `BAAI/bge-small-zh-v1.5`（512 维/512 tokens）；当前运行时有效 dimension/input limit 必须覆盖在 selected option 中；
+- 切换 Embedding 不得热替换已有索引：启动时由模型名计算新的 index revision，旧 revision 不与新维度混用；管理员界面必须提示重启 backend 和重新摄取；
+- 匿名用户仍可在总览查看非敏感 Provider 状态，但不能读取系统 Provider 目录或改变选择。
+
 ### 11.3 文档
 
 #### `POST /documents`
@@ -1412,6 +1423,7 @@ SSE 断线时显示已接收内容和 trace_id，不自动无限重连。用户�
 
 - 当前 LLM/Embedding/Rerank/VectorStore/Splitter/Evaluator 的非敏感名称；
 - Provider healthy/degraded/unavailable；
+- 系统管理员在 `/admin/providers` 可看到实时注册 Provider 与可选 profile；Embedding/Reranker 的选择显示维度、当前有效 token 上限、语言说明和 restart-bound 提示，未选择的模型不得显示为已生效；
 - ready/processing/failed 文档数；
 - Root/Leaf 数；
 - 最近 24 小时查询、错误率、p95；

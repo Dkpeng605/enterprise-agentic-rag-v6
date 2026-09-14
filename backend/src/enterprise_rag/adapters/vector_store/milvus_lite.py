@@ -256,6 +256,7 @@ class MilvusLiteVectorStore:
         count = 0
         async with self._lock:
             for collection_name in await self._collection_names():
+                await self._load_collection(collection_name)
                 rows = await asyncio.to_thread(
                     self._client.query,
                     collection_name=collection_name,
@@ -289,6 +290,7 @@ class MilvusLiteVectorStore:
         count = 0
         async with self._lock:
             for collection_name in await self._collection_names():
+                await self._load_collection(collection_name)
                 result = await asyncio.to_thread(
                     self._client.query,
                     collection_name=collection_name,
@@ -310,6 +312,7 @@ class MilvusLiteVectorStore:
         counts: dict[tuple[UUID, UUID], int] = defaultdict(int)
         async with self._lock:
             for collection_name in await self._collection_names():
+                await self._load_collection(collection_name)
                 rows = await asyncio.to_thread(
                     self._projection_rows,
                     collection_name,
@@ -378,6 +381,11 @@ class MilvusLiteVectorStore:
     async def _collection_names(self) -> tuple[str, ...]:
         names = await asyncio.to_thread(self._client.list_collections)
         return tuple(name for name in names if name.startswith(f"{self._prefix}_"))
+
+    async def _load_collection(self, collection_name: str) -> None:
+        """Re-open persisted Milvus Lite collections after a process restart."""
+
+        await asyncio.to_thread(self._client.load_collection, collection_name)
 
     def _projection_rows(self, collection_name: str) -> list[Mapping[str, object]]:
         iterator = self._client.query_iterator(

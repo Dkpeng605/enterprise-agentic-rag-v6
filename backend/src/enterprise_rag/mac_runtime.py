@@ -3,13 +3,14 @@
 import asyncio
 import hashlib
 import logging
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from fastapi import FastAPI
 
 from enterprise_rag.adapters.cleaners import DeterministicCleaner
 from enterprise_rag.adapters.database import Database
+from enterprise_rag.adapters.database.jobs import IngestionJobRepository
 from enterprise_rag.adapters.embeddings import LocalMultilingualEmbedding
 from enterprise_rag.adapters.embeddings.fastembed_local import DEFAULT_MODEL as EMBEDDING_MODEL
 from enterprise_rag.adapters.llms import OpenAICompatibleLanguageModel
@@ -34,6 +35,12 @@ from enterprise_rag.services import (
     ProjectionService,
     SemanticQueryRunner,
     build_persistent_tracing,
+)
+from enterprise_rag.services.provider_catalog import (
+    RuntimeProviderCatalog,
+    load_provider_selection,
+    selected_embedding_dimension,
+    selected_runtime_model,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -70,8 +77,23 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
 
     runtime_root = active.ingestion.object_store_root.resolve()
     model_cache = runtime_root.parent / "model-cache"
-    embedding_model = credentials.embedding_model or EMBEDDING_MODEL
-    reranker_model = credentials.rerank_model or DEFAULT_RERANKER_MODEL
+    selection_path = runtime_root.parent / "provider-selection.json"
+    selection = load_provider_selection(selection_path)
+    embedding_model = selected_runtime_model(
+        selection,
+        kind="embedding",
+        default=credentials.embedding_model or EMBEDDING_MODEL,
+    )
+    reranker_model = selected_runtime_model(
+        selection,
+        kind="reranker",
+        default=credentials.rerank_model or DEFAULT_RERANKER_MODEL,
+    )
+    llm_model = selected_runtime_model(
+        selection,
+        kind="llm",
+        default=credentials.llm_model or "",
+    )
     index_revision = _index_revision(embedding_model)
 
     database = Database(credentials.database_url.get_secret_value())
@@ -83,7 +105,10 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         max_batch_tokens=active.ingestion.embedding_batch_tokens,
     )
     embedding.warm_tokenizer()
-    if embedding.dimension != active.ingestion.embedding_dimension:
+    configured_embedding_dimension = selected_embedding_dimension(
+        selection, active.ingestion.embedding_dimension
+    )
+    if embedding.dimension != configured_embedding_dimension:
         raise RuntimeError(
             "Configured ingestion.embedding_dimension does not match the local embedding model"
         )
@@ -96,7 +121,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
     raw_language_model = OpenAICompatibleLanguageModel(
         base_url=str(credentials.llm_base_url),
         api_key=credentials.llm_api_key.get_secret_value(),
-        model=credentials.llm_model,
+        model=llm_model,
         timeout_seconds=active.cost_guard.provider_timeout_seconds,
     )
     language_model = BoundedLanguageModel(
@@ -188,10 +213,30 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         vector_store=vector_store,
         temporary_root=runtime_root.parent / "llm-cleaning-temporary",
     )
+    provider_catalog = RuntimeProviderCatalog(
+        registry=registry,
+        selection_path=selection_path,
+        current_models={
+            "embedding": embedding_model,
+            "reranker": reranker_model,
+            "llm": llm_model,
+        },
+        current_embedding_dimension=embedding.dimension,
+        current_embedding_input_token_limit=embedding.input_token_limit,
+    )
 
     async def worker() -> None:
+        loop = asyncio.get_running_loop()
+        next_recovery = 0.0
         while True:
             try:
+                now = loop.time()
+                if now >= next_recovery:
+                    async with database.session() as session:
+                        await IngestionJobRepository(session).recover_expired(
+                            now=datetime.now(UTC), limit=10
+                        )
+                    next_recovery = now + 5.0
                 result = await pipeline.run_once(owner="mac-local-worker")
             except asyncio.CancelledError:
                 raise
@@ -227,6 +272,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         trace_service=trace_service,
         provider_registry=registry,
         manual_llm_cleaning_service=manual_llm_cleaning,
+        provider_catalog=provider_catalog,
         background_tasks=(worker,),
         resource_closers=closers,
     )

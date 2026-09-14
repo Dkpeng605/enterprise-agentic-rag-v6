@@ -153,3 +153,19 @@ async def test_only_a_sentence_longer_than_the_budget_uses_hard_cut(
     splitter_metadata = cast(Mapping[str, object], result.root.metadata["splitter"])
     settings = cast(Mapping[str, object], splitter_metadata["settings"])
     assert cast(int, settings["hard_cut_count"]) > 0
+
+
+@pytest.mark.anyio
+async def test_short_structural_line_does_not_repeat_when_overlap_cannot_progress(
+    context: IngestionContext,
+) -> None:
+    text = "前言说明。\n# 章节标题\n正文说明。" * 4
+    result = await StructureAwareSplitter(
+        target_tokens=6,
+        max_tokens=8,
+        overlap_tokens=5,
+        token_counter=lambda value: len(value.replace(" ", "").replace("\n", "")),
+    ).split(clean_root(text), context)
+
+    assert len(result.leaves) > 1
+    assert all(leaf.token_count <= 8 for leaf in result.leaves)

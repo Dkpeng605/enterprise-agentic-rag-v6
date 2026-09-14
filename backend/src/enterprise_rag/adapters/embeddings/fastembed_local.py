@@ -3,6 +3,7 @@
 import asyncio
 import re
 from collections.abc import Iterable, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
@@ -76,6 +77,8 @@ class LocalMultilingualEmbedding:
         self._max_batch_tokens = max_batch_tokens
         self._model = model
         self._input_token_limit = self._model_input_token_limit(model_name)
+        self._runtime_limit_probed = False
+        self._untruncated_tokenizer: Any | None = None
         self._dimension = dimension or int(TextEmbedding.get_embedding_size(model_name))
         if self._dimension <= 0:
             raise ValueError("embedding dimension must be positive")
@@ -160,6 +163,7 @@ class LocalMultilingualEmbedding:
 
     async def aclose(self) -> None:
         self._model = None
+        self._untruncated_tokenizer = None
         self._closed = True
 
     def count_tokens(self, text: str) -> int:
@@ -167,6 +171,8 @@ class LocalMultilingualEmbedding:
 
         model = self._ensure_model()
         self._sync_input_token_limit(model)
+        if (count := self._count_with_untruncated_tokenizer(model, text)) is not None:
+            return count
         counter = getattr(model, "token_count", None)
         if callable(counter):
             return max(1, int(counter(text)))
@@ -200,6 +206,41 @@ class LocalMultilingualEmbedding:
             )
         return self._model
 
+    def _count_with_untruncated_tokenizer(
+        self, model: _FastEmbedModel, text: str
+    ) -> int | None:
+        """Count the complete input while the runtime model remains truncated safely.
+
+        FastEmbed's public ``token_count`` follows the tokenizer's truncation setting.
+        Some cached model packages therefore return the input limit for every longer
+        string. The splitter needs the complete count to make progress, while the
+        embedding call must keep the original truncated tokenizer. A private copy gives
+        us both behaviours without mutating the model used for inference.
+        """
+
+        if self._untruncated_tokenizer is None:
+            runtime_model = getattr(model, "model", None)
+            tokenizer = getattr(runtime_model, "tokenizer", None)
+            if tokenizer is None or not callable(getattr(tokenizer, "encode", None)):
+                return None
+            try:
+                candidate = deepcopy(tokenizer)
+                disable_truncation = getattr(candidate, "no_truncation", None)
+                if not callable(disable_truncation):
+                    return None
+                disable_truncation()
+            except Exception:
+                return None
+            self._untruncated_tokenizer = candidate
+        try:
+            encoding = self._untruncated_tokenizer.encode(text)
+            ids = getattr(encoding, "ids", None)
+            if not isinstance(ids, list | tuple):
+                return None
+            return max(1, len(ids))
+        except Exception:
+            return None
+
     def _sync_input_token_limit(self, model: _FastEmbedModel) -> None:
         inner = getattr(model, "model", None)
         tokenizer = getattr(inner, "tokenizer", None)
@@ -207,6 +248,13 @@ class LocalMultilingualEmbedding:
         limit = truncation.get("max_length") if isinstance(truncation, dict) else None
         if isinstance(limit, int) and limit > 1:
             self._input_token_limit = limit
+            self._runtime_limit_probed = True
+            return
+
+        # FastEmbed wrappers without a visible truncation field need one bounded
+        # probe. Repeating the probe from every Splitter count_tokens call turns
+        # a small document into thousands of unnecessary tokenizer passes.
+        if self._runtime_limit_probed:
             return
 
         # Some FastEmbed ONNX wrappers expose only token_count(). Their model
@@ -216,7 +264,11 @@ class LocalMultilingualEmbedding:
         counter = getattr(model, "token_count", None)
         advertised = self._input_token_limit
         if not callable(counter) or advertised is None:
+            self._runtime_limit_probed = True
             return
-        observed = int(counter("x " * max(advertised * 2, 1_024)))
-        if 1 < observed < advertised:
-            self._input_token_limit = observed
+        try:
+            observed = int(counter("x " * max(advertised * 2, 1_024)))
+            if 1 < observed < advertised:
+                self._input_token_limit = observed
+        finally:
+            self._runtime_limit_probed = True

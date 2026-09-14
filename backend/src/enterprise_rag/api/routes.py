@@ -51,6 +51,8 @@ from enterprise_rag.api.schemas import (
     LlmCleaningResponse,
     LoginRequest,
     PipelineRootDetailResponse,
+    ProviderCatalogResponse,
+    ProviderSelectionRequest,
     QueryRequestModel,
     QueryResponseModel,
     QueryTraceViewResponse,
@@ -75,6 +77,7 @@ from enterprise_rag.services.ingestion_trace import IngestionTraceView
 from enterprise_rag.services.knowledge import KnowledgeApplication, KnowledgeQuery
 from enterprise_rag.services.manual_llm_cleaning import ManualLlmCleaningService
 from enterprise_rag.services.overview import WorkspaceOverviewService
+from enterprise_rag.services.provider_catalog import RuntimeProviderCatalog
 from enterprise_rag.services.query_trace import QueryTraceView
 from enterprise_rag.services.traces import TraceService
 from enterprise_rag.services.workspace import (
@@ -136,6 +139,7 @@ def create_api_router(
     overview: WorkspaceOverviewService | None = None,
     evaluations: EvaluationWorkspaceService | None = None,
     manual_llm_cleaning: ManualLlmCleaningService | None = None,
+    provider_catalog: RuntimeProviderCatalog | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1", responses=ERROR_RESPONSES)
     cookie_scheme = APIKeyCookie(name=SESSION_COOKIE, auto_error=False)
@@ -186,6 +190,43 @@ def create_api_router(
         if manual_llm_cleaning is None:
             raise _unavailable()
         return manual_llm_cleaning
+
+    def _provider_catalog() -> RuntimeProviderCatalog:
+        if provider_catalog is None:
+            raise _unavailable()
+        return provider_catalog
+
+    def _require_system_admin(principal: Principal) -> Principal:
+        if principal.actor_type != "user" or principal.role not in {"super_admin", "system_admin"}:
+            raise AppError(ErrorCode.FORBIDDEN, "System administrator access is required.")
+        return principal
+
+    @router.get(
+        "/admin/providers",
+        response_model=ProviderCatalogResponse,
+        tags=["system"],
+    )
+    async def list_provider_catalog(
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> ProviderCatalogResponse:
+        _require_system_admin(principal)
+        return ProviderCatalogResponse.model_validate(_provider_catalog().to_dict())
+
+    @router.post(
+        "/admin/providers/select",
+        response_model=ProviderCatalogResponse,
+        tags=["system"],
+    )
+    async def select_provider_profile(
+        body: ProviderSelectionRequest,
+        principal: Annotated[Principal, Depends(writer)],
+    ) -> ProviderCatalogResponse:
+        _require_system_admin(principal)
+        try:
+            payload = _provider_catalog().select(kind=body.kind, key=body.key)
+        except ValueError as error:
+            raise AppError(ErrorCode.VALIDATION_ERROR, str(error)) from error
+        return ProviderCatalogResponse.model_validate(payload)
 
     @router.get("/auth/me", response_model=AuthMeResponse, tags=["auth"])
     async def auth_me(
