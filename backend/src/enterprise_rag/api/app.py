@@ -48,6 +48,7 @@ from enterprise_rag.services.knowledge import KnowledgeApplication
 from enterprise_rag.services.manual_llm_cleaning import ManualLlmCleaningService
 from enterprise_rag.services.overview import WorkspaceOverviewService
 from enterprise_rag.services.provider_catalog import RuntimeProviderCatalog
+from enterprise_rag.services.provider_reindex import ProviderReindexService
 from enterprise_rag.services.query_api import QueryApiService, QueryRunner
 from enterprise_rag.services.traces import TraceService, build_persistent_tracing
 from enterprise_rag.services.workspace import WorkspaceService
@@ -92,6 +93,7 @@ def create_app(
     evaluation_service: EvaluationWorkspaceService | None = None,
     manual_llm_cleaning_service: ManualLlmCleaningService | None = None,
     provider_catalog: RuntimeProviderCatalog | None = None,
+    provider_reindex: ProviderReindexService | None = None,
     background_tasks: Sequence[Callable[[], Awaitable[None]]] = (),
     resource_closers: Sequence[Callable[[], Awaitable[None]]] = (),
     clock: Clock = utc_now,
@@ -373,6 +375,7 @@ def create_app(
             ),
             manual_llm_cleaning=manual_llm_cleaning_service,
             provider_catalog=provider_catalog,
+            provider_reindex=provider_reindex,
             allowed_suffixes=active_settings.ingestion.allowed_suffixes,
             max_upload_bytes=min(
                 active_settings.ingestion.max_upload_bytes,

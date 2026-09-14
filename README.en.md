@@ -98,7 +98,13 @@ CrossEncoder reranking, Root recovery, LLM generation, and citations. Inspect pr
 Tenant Overview or at `http://127.0.0.1:8000/health/doctor`. After administrator login, the “Manage and select”
 link opens `/admin/providers`: it reads the live registry, shows selectable Embedding/Reranker profiles with
 dimensions, effective token limits, language notes, and local/remote attributes, and saves the next-start selection.
-Selection is not a hot swap; restart the backend to apply it, then re-ingest documents when the Embedding changes.
+Selection is not a hot swap; restart the backend to apply it. After restart, the `/admin/providers` page shows
+the active index revision, per-document Root/Leaf/vector counts, and incompatible old revisions. The administrator
+can click “Rebuild incompatible documents”: vectors are projected into the new Milvus revision first, PostgreSQL
+Root/Leaf content is swapped only after projection succeeds, and old-revision vectors are deleted last. A projection
+or database-swap failure leaves the old index intact. Changing only the Reranker does not require vector rebuild.
+The corresponding endpoints are `GET /api/v1/admin/providers/index-status` and
+`POST /api/v1/admin/providers/reindex`.
 
 After a document reaches `ready`, open it in Documents and select “Inspect parsing, cleaning, and splitting.”
 The page shows the actual Parser, deterministic Cleaner, Splitter settings, Root raw/clean comparisons and rule
@@ -441,7 +447,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R2C explicitly triggered one-pass LLM cleaning: complete
 - M7-R3 development/test database isolation, vector repair tool, and LLM Query Planner: complete
 - M7-R4 real Deep Recovery and citation verification/repair: complete
-- Next: M7-R5 index state and rebuild after Provider switching
+- M7-R5 Provider-switch index compatibility and safe rebuild: implemented on the Mac branch, pending PR merge
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -603,7 +609,12 @@ The Embedding port has local multilingual and OpenAI-compatible implementations,
   tests/contract/test_embedding_providers.py -m model)
 ```
 
-The Sparse Encoder produces Milvus sparse vectors with stable multilingual lexical hashes, log-TF weights, and L2 normalization; it is not represented as BM25. The Projection Service writes Dense/Sparse records in `processing` batches, verifies their count, activates them as `ready`, and verifies again. Repeated runs overwrite the same Leaf IDs. A partial write or verification failure removes every vector for the version with bounded delete retries.
+The Sparse Encoder produces Milvus sparse vectors with stable multilingual lexical hashes, log-TF weights, and L2 normalization; it is not represented as BM25. The Projection Service writes Dense/Sparse records in `processing` batches, verifies their count, activates them as `ready`, and verifies again. Repeated runs overwrite the same Leaf IDs. A partial write or verification failure removes only the target `index_revision`, with bounded delete retries, so a working old revision cannot be accidentally deleted. Document deletion and full reconciliation still support version-wide cleanup.
+
+The Provider Reindex Service treats the old PostgreSQL Root/Leaf rows and old Milvus projection as rollback facts:
+it re-splits with the active Embedding tokenizer, projects the new revision, swaps Root/Leaf rows in one transaction,
+and retires old revisions only afterward. The administration UI therefore distinguishes “Provider changed, index
+not rebuilt” from “the active revision is fully searchable” instead of presenting incompatible vectors as valid.
 
 The ingestion Pipeline creates or reuses its Job in the document-registration transaction, then executes Loader → image enrichment → Cleaner → Splitter → PostgreSQL → Milvus → final commit. Each checkpoint renews the lease, advances monotonic progress, and observes cancellation. Deterministic input errors fail immediately; transient failures retry up to the configured limit. Failure and cancellation compensate PostgreSQL content and Milvus projections for that version, and a document becomes `ready` only after both stores verify successfully. The service runs through `run_once(owner=...)`; the M7-08 offline composition now includes a single-process polling Worker, while M8 still owns the production process and resource constraints.
 

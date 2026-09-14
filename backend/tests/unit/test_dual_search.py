@@ -109,6 +109,18 @@ class SpyVectorStore:
         del tenant_id, version_id
         return 0
 
+    async def count_by_version_revision(
+        self, tenant_id: UUID, version_id: UUID, index_revision: str
+    ) -> int:
+        del tenant_id, version_id, index_revision
+        return 0
+
+    async def delete_by_version_revision(
+        self, tenant_id: UUID, version_id: UUID, index_revision: str
+    ) -> int:
+        del tenant_id, version_id, index_revision
+        return 0
+
     async def list_version_projections(self) -> tuple[VectorProjection, ...]:
         return ()
 

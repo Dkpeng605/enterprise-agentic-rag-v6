@@ -101,6 +101,33 @@ class FailingVectorStore:
             self.records.pop(key)
         return len(matching)
 
+    async def count_by_version_revision(
+        self, tenant_id: UUID, version_id: UUID, index_revision: str
+    ) -> int:
+        return sum(
+            record.tenant_id == tenant_id
+            and record.version_id == version_id
+            and record.index_revision == index_revision
+            for record in self.records.values()
+        )
+
+    async def delete_by_version_revision(
+        self, tenant_id: UUID, version_id: UUID, index_revision: str
+    ) -> int:
+        self.delete_calls += 1
+        if self.delete_calls == 1:
+            raise RuntimeError("temporary delete failure")
+        matching = [
+            key
+            for key, record in self.records.items()
+            if record.tenant_id == tenant_id
+            and record.version_id == version_id
+            and record.index_revision == index_revision
+        ]
+        for key in matching:
+            self.records.pop(key)
+        return len(matching)
+
     async def dense_search(self, request: object) -> list[object]:
         del request
         return []

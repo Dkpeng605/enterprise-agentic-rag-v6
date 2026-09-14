@@ -165,7 +165,9 @@ class ProjectionService:
         return count
 
     async def _verify_count(self, request: ProjectionRequest, expected: int) -> int:
-        actual = await self._vector_store.count_by_version(request.tenant_id, request.version_id)
+        actual = await self._vector_store.count_by_version_revision(
+            request.tenant_id, request.version_id, request.index_revision
+        )
         if actual != expected:
             raise ProjectionError(
                 ErrorCode.PROJECTION_COUNT_MISMATCH,
@@ -178,9 +180,13 @@ class ProjectionService:
         last_error: Exception | None = None
         for attempt in range(self._cleanup_retries + 1):
             try:
-                await self._vector_store.delete_by_version(request.tenant_id, request.version_id)
+                await self._vector_store.delete_by_version_revision(
+                    request.tenant_id, request.version_id, request.index_revision
+                )
                 if (
-                    await self._vector_store.count_by_version(request.tenant_id, request.version_id)
+                    await self._vector_store.count_by_version_revision(
+                        request.tenant_id, request.version_id, request.index_revision
+                    )
                     == 0
                 ):
                     return

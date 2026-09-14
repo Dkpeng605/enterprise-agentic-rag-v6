@@ -6,7 +6,7 @@ import AdminProvidersView from '../src/views/AdminProvidersView.vue'
 
 vi.mock('../src/api/providers', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/api/providers')>()
-  return { ...original, providerApi: { load: vi.fn(), select: vi.fn() } }
+  return { ...original, providerApi: { load: vi.fn(), select: vi.fn(), indexStatus: vi.fn(), reindex: vi.fn() } }
 })
 
 const catalog: ProviderCatalog = {
@@ -42,11 +42,24 @@ const catalog: ProviderCatalog = {
   },
 }
 
+const indexStatus = {
+  active_revision: 'mac-semantic-current', embedding_model: 'local', embedding_dimension: 384,
+  total_documents: 1, compatible_documents: 0, incompatible_documents: 1,
+  documents: [{ document_id: 'doc-1', title: '演示文档', version_id: 'version-1',
+    stored_revisions: ['mac-semantic-old'], active_revision: 'mac-semantic-current', compatible: false,
+    root_count: 2, leaf_count: 3, vector_count: 0 }],
+}
+
 describe('Provider management', () => {
   beforeEach(() => {
     vi.mocked(providerApi.load).mockReset().mockResolvedValue(catalog)
     vi.mocked(providerApi.select).mockReset().mockResolvedValue({
       ...catalog, selection: { ...catalog.selection, pending_restart: true },
+    })
+    vi.mocked(providerApi.indexStatus).mockReset().mockResolvedValue(indexStatus)
+    vi.mocked(providerApi.reindex).mockReset().mockResolvedValue({
+      active_revision: indexStatus.active_revision, requested_count: 1, rebuilt_count: 1,
+      skipped_count: 0, failed_count: 0, cleanup_failed_count: 0, items: [],
     })
   })
 
@@ -71,5 +84,20 @@ describe('Provider management', () => {
 
     expect(providerApi.select).toHaveBeenCalledWith('reranker', 'BAAI/bge-reranker-v2-m3')
     expect(wrapper.text()).toContain('重启 Mac backend 后生效')
+  })
+
+  it('shows incompatible documents and offers a real revision rebuild', async () => {
+    const wrapper = mount(AdminProvidersView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('需要重建')
+    expect(wrapper.text()).toContain('mac-semantic-old')
+    const rebuildButton = wrapper.findAll('button').find((button) => button.text().includes('重建'))
+    expect(rebuildButton).toBeDefined()
+    await rebuildButton!.trigger('click')
+    await flushPromises()
+
+    expect(providerApi.reindex).toHaveBeenCalledOnce()
+    expect(wrapper.text()).toContain('重建完成')
   })
 })

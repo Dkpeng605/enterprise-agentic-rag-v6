@@ -573,6 +573,47 @@ class ProviderCatalogResponse(ApiModel):
     selection: dict[str, str | bool]
 
 
+class ProviderIndexDocumentResponse(ApiModel):
+    document_id: str
+    title: str
+    version_id: str
+    stored_revisions: list[str]
+    active_revision: str
+    compatible: bool
+    root_count: int
+    leaf_count: int
+    vector_count: int
+
+
+class ProviderIndexStatusResponse(ApiModel):
+    active_revision: str
+    embedding_model: str
+    embedding_dimension: int
+    total_documents: int
+    compatible_documents: int
+    incompatible_documents: int
+    documents: list[ProviderIndexDocumentResponse]
+
+
+class ProviderReindexItemResponse(ApiModel):
+    document_id: str
+    title: str
+    status: str
+    old_revisions: list[str]
+    leaf_count: int
+    error: str | None = None
+
+
+class ProviderReindexResponse(ApiModel):
+    active_revision: str
+    requested_count: int
+    rebuilt_count: int
+    skipped_count: int
+    failed_count: int
+    cleanup_failed_count: int
+    items: list[ProviderReindexItemResponse]
+
+
 class ProviderSelectionRequest(ApiModel):
     kind: Literal["embedding", "reranker", "llm"]
     key: str = Field(min_length=1, max_length=500)

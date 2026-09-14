@@ -280,6 +280,72 @@ class MilvusLiteVectorStore:
             "count_by_version", self._count_by_version(tenant_id, version_id)
         )
 
+    async def delete_by_version_revision(
+        self, tenant_id: UUID, version_id: UUID, index_revision: str
+    ) -> int:
+        return await _observe_milvus(
+            "delete_by_version_revision",
+            self._delete_by_version_revision(tenant_id, version_id, index_revision),
+        )
+
+    async def _delete_by_version_revision(
+        self, tenant_id: UUID, version_id: UUID, index_revision: str
+    ) -> int:
+        self._ensure_open()
+        require_uuid7(tenant_id, "tenant_id")
+        require_uuid7(version_id, "version_id")
+        if not index_revision.strip():
+            raise ValueError("index_revision must not be empty")
+        expression = f'tenant_id == "{tenant_id}" and version_id == "{version_id}"'
+        collection_name = self._collection_name(index_revision)
+        count = 0
+        async with self._lock:
+            if not await asyncio.to_thread(self._client.has_collection, collection_name):
+                return 0
+            await self._load_collection(collection_name)
+            rows = await asyncio.to_thread(
+                self._client.query,
+                collection_name=collection_name,
+                filter=expression,
+                output_fields=["count(*)"],
+            )
+            count = self._count_rows(rows)
+            await asyncio.to_thread(
+                self._client.delete, collection_name=collection_name, filter=expression
+            )
+            await asyncio.to_thread(self._client.flush, collection_name=collection_name)
+        return count
+
+    async def count_by_version_revision(
+        self, tenant_id: UUID, version_id: UUID, index_revision: str
+    ) -> int:
+        return await _observe_milvus(
+            "count_by_version_revision",
+            self._count_by_version_revision(tenant_id, version_id, index_revision),
+        )
+
+    async def _count_by_version_revision(
+        self, tenant_id: UUID, version_id: UUID, index_revision: str
+    ) -> int:
+        self._ensure_open()
+        require_uuid7(tenant_id, "tenant_id")
+        require_uuid7(version_id, "version_id")
+        if not index_revision.strip():
+            raise ValueError("index_revision must not be empty")
+        collection_name = self._collection_name(index_revision)
+        expression = f'tenant_id == "{tenant_id}" and version_id == "{version_id}"'
+        async with self._lock:
+            if not await asyncio.to_thread(self._client.has_collection, collection_name):
+                return 0
+            await self._load_collection(collection_name)
+            result = await asyncio.to_thread(
+                self._client.query,
+                collection_name=collection_name,
+                filter=expression,
+                output_fields=["count(*)"],
+            )
+        return self._count_rows(result)
+
     async def _count_by_version(self, tenant_id: UUID, version_id: UUID) -> int:
         self._ensure_open()
         require_uuid7(tenant_id, "tenant_id")

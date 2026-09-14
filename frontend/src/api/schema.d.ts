@@ -106,6 +106,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/providers/index-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Provider Index Status */
+        get: operations["provider_index_status_api_v1_admin_providers_index_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/providers/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reindex Provider */
+        post: operations["reindex_provider_api_v1_admin_providers_reindex_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/me": {
         parameters: {
             query?: never;
@@ -1468,6 +1502,44 @@ export interface components {
             /** Health */
             health: string;
         };
+        /** ProviderIndexDocumentResponse */
+        ProviderIndexDocumentResponse: {
+            /** Document Id */
+            document_id: string;
+            /** Title */
+            title: string;
+            /** Version Id */
+            version_id: string;
+            /** Stored Revisions */
+            stored_revisions: string[];
+            /** Active Revision */
+            active_revision: string;
+            /** Compatible */
+            compatible: boolean;
+            /** Root Count */
+            root_count: number;
+            /** Leaf Count */
+            leaf_count: number;
+            /** Vector Count */
+            vector_count: number;
+        };
+        /** ProviderIndexStatusResponse */
+        ProviderIndexStatusResponse: {
+            /** Active Revision */
+            active_revision: string;
+            /** Embedding Model */
+            embedding_model: string;
+            /** Embedding Dimension */
+            embedding_dimension: number;
+            /** Total Documents */
+            total_documents: number;
+            /** Compatible Documents */
+            compatible_documents: number;
+            /** Incompatible Documents */
+            incompatible_documents: number;
+            /** Documents */
+            documents: components["schemas"]["ProviderIndexDocumentResponse"][];
+        };
         /** ProviderOptionResponse */
         ProviderOptionResponse: {
             /** Kind */
@@ -1502,6 +1574,38 @@ export interface components {
             unavailable_reason?: string | null;
             /** Requires Restart */
             requires_restart: boolean;
+        };
+        /** ProviderReindexItemResponse */
+        ProviderReindexItemResponse: {
+            /** Document Id */
+            document_id: string;
+            /** Title */
+            title: string;
+            /** Status */
+            status: string;
+            /** Old Revisions */
+            old_revisions: string[];
+            /** Leaf Count */
+            leaf_count: number;
+            /** Error */
+            error?: string | null;
+        };
+        /** ProviderReindexResponse */
+        ProviderReindexResponse: {
+            /** Active Revision */
+            active_revision: string;
+            /** Requested Count */
+            requested_count: number;
+            /** Rebuilt Count */
+            rebuilt_count: number;
+            /** Skipped Count */
+            skipped_count: number;
+            /** Failed Count */
+            failed_count: number;
+            /** Cleanup Failed Count */
+            cleanup_failed_count: number;
+            /** Items */
+            items: components["schemas"]["ProviderReindexItemResponse"][];
         };
         /** ProviderSelectionRequest */
         ProviderSelectionRequest: {
@@ -2103,6 +2207,208 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProviderCatalogResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    provider_index_status_api_v1_admin_providers_index_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderIndexStatusResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    reindex_provider_api_v1_admin_providers_reindex_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderReindexResponse"];
                 };
             };
             /** @description Invalid request */

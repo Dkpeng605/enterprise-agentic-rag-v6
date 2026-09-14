@@ -107,6 +107,13 @@ from enterprise_rag.services.projection import (
     ProjectionResult,
     ProjectionService,
 )
+from enterprise_rag.services.provider_reindex import (
+    ProviderIndexDocument,
+    ProviderIndexStatus,
+    ProviderReindexItem,
+    ProviderReindexResult,
+    ProviderReindexService,
+)
 from enterprise_rag.services.quality_gate import (
     QualityGatePolicy,
     QualityGatePolicyError,
@@ -232,6 +239,11 @@ __all__ = [
     "ProjectionRequest",
     "ProjectionResult",
     "ProjectionService",
+    "ProviderIndexDocument",
+    "ProviderIndexStatus",
+    "ProviderReindexItem",
+    "ProviderReindexResult",
+    "ProviderReindexService",
     "QualityGatePolicy",
     "QualityGatePolicyError",
     "QualityGateResult",

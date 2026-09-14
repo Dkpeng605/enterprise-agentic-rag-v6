@@ -101,7 +101,7 @@ _OPTIONS: tuple[ProviderOption, ...] = (
         dimension=1024,
         input_token_limit=8192,
         language_note="100+ languages",
-        note="1024 维；远程 token 计数为保守估算，切换后必须重新摄取",
+        note="1024 维；远程 token 计数为保守估算，切换后重启并执行索引重建",
     ),
     ProviderOption(
         kind=ProviderKind.RERANKER.value,

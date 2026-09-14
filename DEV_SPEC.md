@@ -2761,6 +2761,41 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   单路检索 API 和 Trace 新字段保持向后兼容，可独立保留；
 - PR：`feat/m7-r4-real-deep-recovery`。
 
+##### M7-R5 Provider 切换后的索引状态与安全重建（实现中）
+
+- 缺陷事实：Provider 选择文件是 restart-bound 的，Embedding 模型、维度、tokenizer 和 Milvus collection
+  属于同一索引契约。旧实现只在前端提示“重新摄取”，但不会判断已有文档是否仍使用旧 revision；更严重的是
+  Projection 的计数与失败补偿跨所有 revision 聚合，重建时会把旧向量算入新投影，失败补偿也可能删除仍可用的旧索引。
+  因此“Provider 已切换”不能等同于“文档可用”。
+- EDD 顺序：先加入 VectorStore revision 隔离契约测试，验证同一 version 同时存在 old/new projection 时，
+  `count_by_version_revision` 和 `delete_by_version_revision` 只影响指定 revision；再加入重建服务的数据库交换
+  失败测试、API 鉴权/CSRF 测试和 Vue 页面测试，最后在真实 PostgreSQL + Milvus Lite + SiliconFlow BGE-M3
+  Mac 运行时上执行一次旧 revision 到新 revision 的迁移。不能用“重新上传”替代重建验收。
+- VectorStore/Projection：Milvus Lite 新增 revision-scoped count/delete；普通 `delete_by_version` 保留给文档
+  删除和 reconcile。Projection staging、activation、count verification 与 compensation 全部使用请求的目标
+  revision，确保目标 revision 失败不会动旧 revision。
+- 安全重建事务：管理员触发后，服务列出所有 ready/indexed 文档，读取 PostgreSQL 中已有 Root 的 raw/clean
+  text 与 metadata，用当前 Splitter/token counter 重新生成 Root/Leaf 和新 revision 向量；先投影新 Milvus
+  collection，再在一个 PostgreSQL transaction 中删除旧 Root/Leaf、插入新 Root/Leaf，最后按旧 revision 定向
+  删除向量。数据库交换失败时删除目标 revision 向量并保留旧事实；旧向量清理失败时新 revision 仍可用，状态
+  标为 cleanup degraded。Mac 组合使用进程内锁和安全文档上限；多副本部署必须升级为 advisory lock/持久化 Job。
+- 状态接口/UI：`GET /api/v1/admin/providers/index-status` 返回 active revision、Embedding model/dimension、
+  compatible/incompatible 文档统计，以及每个文档的 stored revision、Root/Leaf/vector 数量；
+  `POST /api/v1/admin/providers/reindex` 执行有界的全量不兼容文档重建。`/admin/providers` 显示这些事实并提供
+  “重建不兼容文档”按钮；Reranker 切换明确标记不需要向量重建。API 只允许 system administrator，前端不显示密钥。
+- 查询规划验收：真实 Mac smoke 必须同时证明 Planner LLM 被调用、`rewritten_query` 与原文可区分、比较/多条件
+  请求产生 2～4 个唯一 `sub_queries`，且每条分支进入 Dense/Sparse 检索；Query Trace 必须显示 planner provider、
+  call/token usage、分支 query 和每步返回数量。若 LLM Planner 失败，Trace 必须明确 `degraded=true` 并展示确定性
+  fallback，不能用 UI 静态节点冒充子查询执行。
+- 验收证据：revision contract tests、Projection tests、backend Ruff/Mypy/Pytest、frontend test/typecheck/build、
+  OpenAPI drift，以及真实 Mac API smoke：切换后的旧文档从 incompatible/old revision 变为 compatible/current
+  revision，旧 revision count 为 0，新 revision count 等于 PostgreSQL Leaf 数；随后真实多条件查询 Trace 显示
+  LLM rewrite、4 branches、Dense/Sparse 返回与 reranker provider。README 中英文必须同步记录重建按钮、接口和
+  restart-bound 限制。
+- 回滚：在 PR 回滚前停止 Provider reindex，旧 Root/Leaf 和旧 Milvus revision 已由事务/定向清理规则保留；若
+  新 revision 已完成，可重新选择旧 Provider、重启并运行同一重建服务。禁止手工删除整个 Milvus 文件作为回滚。
+- PR：`fix/m7-r5-provider-reindex`。
+
 ### M8：首次公网发布
 
 #### M8-01 Images

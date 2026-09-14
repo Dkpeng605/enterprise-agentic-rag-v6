@@ -40,6 +40,7 @@ from enterprise_rag.services import (
     IngestionPipeline,
     ManualLlmCleaningService,
     ProjectionService,
+    ProviderReindexService,
     QueryPlanningService,
     SemanticQueryRunner,
     build_persistent_tracing,
@@ -298,6 +299,17 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
             if configured
         ),
     )
+    provider_reindex = ProviderReindexService(
+        database=database,
+        splitter=splitter,
+        projection=projection,
+        vector_store=vector_store,
+        active_revision=index_revision,
+        embedding_model=embedding_model,
+        embedding_dimension=embedding.dimension,
+        temporary_root=runtime_root.parent / "provider-reindex-temporary",
+        max_documents=active.security.anonymous_max_ready_documents,
+    )
 
     async def worker() -> None:
         loop = asyncio.get_running_loop()
@@ -347,6 +359,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         provider_registry=registry,
         manual_llm_cleaning_service=manual_llm_cleaning,
         provider_catalog=provider_catalog,
+        provider_reindex=provider_reindex,
         background_tasks=(worker,),
         resource_closers=closers,
     )
