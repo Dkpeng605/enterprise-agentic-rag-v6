@@ -222,11 +222,11 @@ async def test_confirmed_one_pass_rechunks_reprojects_and_persists_audit(
         assert result.input_tokens == 41 and result.output_tokens == 19
         assert await store.count_by_version(TENANT_ID, VERSION_ID) == result.leaf_count_after
         async with database.session() as session:
-            document = await session.get(DocumentModel, DOCUMENT_ID)
-            version = await session.get(DocumentVersionModel, VERSION_ID)
+            stored_document = await session.get(DocumentModel, DOCUMENT_ID)
+            stored_version = await session.get(DocumentVersionModel, VERSION_ID)
             root = await session.scalar(select(RootModel).where(RootModel.version_id == VERSION_ID))
-            assert document is not None and document.status == "ready"
-            assert version is not None and version.status == "indexed"
+            assert stored_document is not None and stored_document.status == "ready"
+            assert stored_version is not None and stored_version.status == "indexed"
             assert root is not None
             assert root.clean_text.endswith("上传后  运行评测。")
             assert root.raw_text == original
