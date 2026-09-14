@@ -367,8 +367,19 @@ async def test_reconcile_reports_read_only_and_repairs_only_safe_orphans(
         assert await object_store.exists(orphan_object.key)
         assert await vector_store.count_by_version(TENANT_ID, ORPHAN_VERSION) == 1
 
+        vector_only = await reconcile.run_vectors(
+            now=NOW + timedelta(seconds=2), apply=True
+        )
+        assert vector_only.repaired_count == 1
+        assert {issue.kind for issue in vector_only.issues} == {
+            ReconcileIssueKind.ORPHAN_VECTOR,
+            ReconcileIssueKind.VECTOR_COUNT_MISMATCH,
+        }
+        assert await vector_store.count_by_version(TENANT_ID, ORPHAN_VERSION) == 0
+        assert await object_store.exists(orphan_object.key)
+
         applied = await reconcile.run(now=NOW + timedelta(seconds=2), apply=True)
-        assert applied.repaired_count == 3
+        assert applied.repaired_count == 2
         assert not await object_store.exists(orphan_object.key)
         assert await vector_store.count_by_version(TENANT_ID, ORPHAN_VERSION) == 0
 

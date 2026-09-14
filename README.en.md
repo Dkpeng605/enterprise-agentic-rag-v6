@@ -38,8 +38,9 @@ pnpm install --frozen-lockfile
 This entry point runs selectable local/remote multilingual embedding and CrossEncoder reranker providers,
 Milvus Lite, and the background document parsing/ingestion worker. It calls the LLM through OpenAI-compatible
 Chat Completions. The defaults keep document and query text on the Mac. Selecting a SiliconFlow remote
-profile sends the corresponding Leaf/query or candidate text to SiliconFlow; only bounded Root evidence
-recovered after tenant authorization is sent to the LLM.
+profile sends the corresponding Leaf/query or candidate text to SiliconFlow. The OpenAI-compatible LLM
+Planner receives the current question, at most 12 conversation turns, and the server-constrained Scope;
+the answering call receives only bounded Root evidence recovered after tenant authorization.
 
 Install the system dependencies and prepare an untracked local configuration:
 
@@ -56,6 +57,11 @@ FastAPI+Worker composition in the first terminal:
 ```bash
 ./scripts/mac-backend.sh
 ```
+
+The script creates and migrates `enterprise_rag_dev` exclusively for the application and keeps
+`enterprise_rag_test` isolated for integration tests. Test fixtures may clear only the test database and
+can no longer cascade-delete Mac workspace data. Both databases use the same persistent PostgreSQL
+container, but they are separate databases.
 
 The first upload or query downloads these ONNX models into the ignored
 `data/runtime/mac/model-cache/` directory and reuses them afterward:
@@ -121,12 +127,30 @@ evidence for synthesis. The multi-round Deep Recovery Controller specified in M4
 pluggable service and is not yet composed into this local QueryRunner, so the current Deep button
 must not be described as multi-round recovery.
 
-The Mac QueryRunner first creates a deterministic QueryPlan. It preserves the original query,
-resolves pronouns from recent conversation when needed, and splits conditions joined by semicolons,
-`simultaneously`, `as well as`, or `and` into at most four parallel sub-queries. After an answer,
-Query Trace shows whether rewriting/splitting occurred, per-branch Dense/Sparse returns and overlap,
-RRF deduplication and drops, authorization filtering, reranking, Root recovery, LLM tokens, and
-citations. These runtime counts are not Recall@K; gold-labelled quality metrics remain in Evaluations.
+The Mac QueryRunner first calls the same timeout/retry-bounded OpenAI-compatible LLM for a strict JSON
+QueryPlan. It rewrites context-dependent questions into standalone retrieval queries and produces one to
+four distinct sub-queries according to complexity. A simple factual request normally remains one precise
+sub-query; comparison, multi-part, and multi-hop requests are decomposed instead of inflating every query.
+The backend still validates every field, list bound, UUID, and Scope. Malformed JSON, expanded Scope, or a
+Provider failure falls back atomically to the deterministic planner. Query Trace displays the rewrite,
+sub-queries, Planner Provider/degradation, Planner tokens, per-branch Dense/Sparse returns and overlap,
+RRF deduplication and drops, authorization filtering, reranking, Root recovery, answer tokens, and
+citations. Planner and answer calls both count toward query usage; a completed Planner call is still
+reported when retrieval finds no evidence. These runtime counts are not Recall@K; gold-labelled quality
+metrics remain in Evaluations.
+
+If an older checkout shared the application and test database, stop the backend and run the read-only
+check before applying deletion. The command removes only Milvus projections whose tenant/version no
+longer exists in PostgreSQL; it does not delete objects, documents, or jobs:
+
+```bash
+uv run --project backend --env-file .env python scripts/mac-reconcile-vectors.py
+uv run --project backend --env-file .env python scripts/mac-reconcile-vectors.py --apply
+```
+
+Milvus Lite permits only one process to hold its file, so the backend must be stopped. A
+`vector_count_mismatch` remains unresolved because it may represent missing vectors for a valid version
+and requires re-ingestion or manual investigation.
 
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
 To stop PostgreSQL only:
@@ -182,7 +206,8 @@ Start the development PostgreSQL service and apply migrations:
 
 ```bash
 docker compose -f infra/compose/compose.dev.yml up -d postgres
-export DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test
+./scripts/ensure-local-databases.sh
+export DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_dev
 export SESSION_SECRET=development-only-change-me-32-bytes-minimum
 uv run --project backend alembic -c backend/alembic.ini upgrade head
 ```
@@ -404,6 +429,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R2A document pipeline inspector: complete
 - M7-R2B query planning and stage-level retrieval metrics: complete
 - M7-R2C explicitly triggered one-pass LLM cleaning: complete
+- M7-R3 development/test database isolation, vector repair tool, and LLM Query Planner: complete
 - Next: M8-01 production images
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
@@ -585,7 +611,7 @@ The Reranker port provides local FastEmbed CrossEncoder, HTTP, and explicit Noop
 
 The Scope/Root service resolves server-side authorization and user metadata constraints to an explicit set of currently ready PostgreSQL document IDs. Anonymous users retain full business access inside the demo tenant but cannot override the tenant in a request; restricted identities use the union of allowed Collections and Documents. Title, organization, media type, active-version UUID, and section are checked against the fact source, while contradictory explicit constraints return `QUERY_SCOPE_CONFLICT` without disclosing resource existence. Recalled Leaves are rechecked before reranking, and selected Roots are rechecked again before entering context, joining tenant, active Collection, ready Document, and indexed active Version. Stale vectors, deleting content, and unauthorized records are therefore discarded. Recovered content has a strict default 18,000-character budget, merges Leaf references per Root, and records deterministic truncation.
 
-The Query Planning Service treats structured Planner output as untrusted input and strictly validates fields, intent, sub-query and requirement limits, UUIDs, and scope narrowing. A model cannot change Standard/Deep mode, invent Collection or Document IDs, or replace explicit caller metadata. Any malformed response or Provider failure falls back as one unit to a deterministic plan that preserves the original scope, recognizes Chinese and English comparison, procedural, and summary intent, splits multiple conditions, and uses the latest user turn to resolve pronouns. Provider exception text never enters the QueryPlan.
+The Query Planning Service treats structured Planner output as untrusted input and strictly validates fields, intent, sub-query and requirement limits, UUIDs, and scope narrowing. A model cannot change Standard/Deep mode, invent Collection or Document IDs, or replace explicit caller metadata. The Mac composition uses the current OpenAI-compatible LLM for rewriting and one-to-four-way decomposition and records Planner calls/tokens separately. Any malformed response or Provider failure falls back as one unit to a deterministic plan that preserves the original scope, recognizes Chinese and English comparison, procedural, and summary intent, splits multiple conditions, and uses the latest user turn to resolve pronouns. Provider exception text never enters the QueryPlan.
 
 The Standard Query Graph is an explicit state machine connecting Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer. Every run returns its actual transitions. Empty RRF output, authorized Leaves, or rechecked Roots terminate as NoResults without invoking the answer model. Standard counts the Planner attempt as LLM call one and final answer generation as call two, with a runtime hard ceiling; Planner degradation adds no call. Unclassified failures terminate as Failed with a sanitized error code and no exception text exposed to clients.
 

@@ -37,8 +37,9 @@ pnpm install --frozen-lockfile
 
 这个入口运行可切换的本地/远程多语 Embedding 与 CrossEncoder Reranker、Milvus Lite、后台文档
 解析/摄取 Worker，并通过 OpenAI-compatible Chat Completions 调用 LLM。默认本地 Embedding/Rerank
-不会把文档和查询发送到外部；选择 SiliconFlow 远程 profile 后，相应的 Leaf/查询或候选文本会发送给
-SiliconFlow。发送给 LLM 的仍是经过租户权限复核后恢复的有限 Root 证据。
+不会把文档和查询发送给 Embedding/Rerank 外部服务；选择 SiliconFlow 远程 profile 后，相应的
+Leaf/查询或候选文本会发送给 SiliconFlow。OpenAI-compatible LLM Planner 会接收当前问题、最多 12 条
+会话历史与服务端约束的 Scope；回答阶段只接收经过租户权限复核后恢复的有限 Root 证据。
 
 先安装系统依赖并准备仅本机使用的配置：
 
@@ -55,6 +56,10 @@ cp .env.mac.example .env
 ```bash
 ./scripts/mac-backend.sh
 ```
+
+脚本会创建并迁移专供应用使用的 `enterprise_rag_dev`，同时保留独立的
+`enterprise_rag_test` 给集成测试。测试夹具只允许清理 test 库，不会再级联删除 Mac 工作区数据；两者
+继续共用一个持久化 PostgreSQL 容器，但不共用 database。
 
 首次上传或查询会把以下 ONNX 模型下载到已忽略的 `data/runtime/mac/model-cache/`，之后复用缓存：
 
@@ -110,10 +115,25 @@ Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引
 定义的多轮 Deep Recovery Controller 仍是可插拔服务，尚未装配到这个本地 QueryRunner，不能把
 当前 Deep 按钮描述为已经执行多轮检索恢复。
 
-Mac QueryRunner 会先运行确定性 QueryPlan：保留原查询、必要时结合最近对话完成指代改写，并把以
-分号、`同时`、`以及` 或 `and` 连接的多条件拆成最多 4 条并行子查询。完成问答后到“Query Trace”可查看
-本次是否改写/拆分，以及每个分支的 Dense/Sparse 返回量、交集、RRF 去重与淘汰、权限过滤、Rerank、
-Root 恢复、LLM token 和引用。这里的运行计数不是 Recall@K；带 gold 的质量指标只在“评测中心”计算。
+Mac QueryRunner 会先调用同一个受 timeout/retry 保护的 OpenAI-compatible LLM 生成严格 JSON
+QueryPlan：把依赖会话的问题改写为独立检索问题，并按复杂度生成 1～4 条不重复子查询；简单事实问题保留
+1 条精确子查询，比较、多条件和多跳问题才拆成多条，不能为了展示而无意义扩增。后端继续严格校验字段、
+数量、UUID 与 Scope；坏 JSON、越权 Scope 或 Provider 故障会整体降级为确定性改写/拆分。
+完成问答后到“Query Trace”可查看本次改写、子查询、Planner Provider/降级、Planner token、每个分支的
+Dense/Sparse 返回量、交集、RRF 去重与淘汰、权限过滤、Rerank、Root 恢复、回答 token 和引用。Planner
+与回答调用都会计入查询 usage；即使没有召回结果，已发生的 Planner 调用仍会如实计费。这里的运行计数
+不是 Recall@K；带 gold 的质量指标只在“评测中心”计算。
+
+若旧版本曾让测试库与应用共用，先停止后端，再做只读检查；确认后才应用删除。命令只会删除 PostgreSQL
+中已经不存在 tenant/version 的 Milvus 投影，不会删除对象文件、文档或任务：
+
+```bash
+uv run --project backend --env-file .env python scripts/mac-reconcile-vectors.py
+uv run --project backend --env-file .env python scripts/mac-reconcile-vectors.py --apply
+```
+
+Milvus Lite 只允许单进程打开；运行以上命令时后端必须处于停止状态。`vector_count_mismatch` 不会自动
+删除，因为它也可能表示有效版本缺失向量，需要重新摄取或人工核对。
 
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
 
@@ -165,7 +185,8 @@ sudo apt-get install --yes tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim
 
 ```bash
 docker compose -f infra/compose/compose.dev.yml up -d postgres
-export DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_test
+./scripts/ensure-local-databases.sh
+export DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1:55432/enterprise_rag_dev
 export SESSION_SECRET=development-only-change-me-32-bytes-minimum
 uv run --project backend alembic -c backend/alembic.ini upgrade head
 ```
@@ -393,6 +414,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R2A 文档处理透视：已完成
 - M7-R2B 查询计划与逐阶段召回指标：已完成
 - M7-R2C 人工触发的一次 LLM 清洗：已完成
+- M7-R3 开发/测试数据库隔离、向量修复工具与 LLM Query Planner：已完成
 - 下一项：M8-01 生产镜像
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
@@ -565,7 +587,7 @@ Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种�
 
 Scope/Root 服务把服务端授权边界与用户的 metadata 条件解析为 PostgreSQL 中当前明确的 ready document ID 集合。匿名用户仍拥有 demo tenant 全部业务权限，但不能通过请求覆盖 tenant；受限身份按获准 Collection/Document 取并集。title、organization、media type、active version UUID 和 section 均在事实源中校验，显式矛盾返回不泄露资源存在性的 `QUERY_SCOPE_CONFLICT`。召回 Leaf 在进入 Reranker 前、selected Root 在进入上下文前都会再次联表检查 tenant、active collection、ready document 和 indexed active version，因此旧向量、删除中或未授权内容会被丢弃。恢复内容默认严格限制为 18,000 字符，同 Root 合并 Leaf 引用并记录确定性截断。
 
-Query Planning Service 将结构化 Planner 输出视为不可信输入，严格校验字段、intent、子查询/需求数量、UUID 和 Scope 收窄关系。模型不能改变 Standard/Deep mode，不能凭空加入 Collection/Document ID，也不能覆盖调用方显式 metadata。任何坏响应或 Provider 故障都会整体降级为确定性计划：保留原 Scope，识别中英文比较、流程和总结意图，拆分多条件，并使用最近一条 user 历史补足指代。Planner 的供应商异常不会进入 QueryPlan。
+Query Planning Service 将结构化 Planner 输出视为不可信输入，严格校验字段、intent、子查询/需求数量、UUID 和 Scope 收窄关系。模型不能改变 Standard/Deep mode，不能凭空加入 Collection/Document ID，也不能覆盖调用方显式 metadata。Mac 组合通过当前 OpenAI-compatible LLM 执行查询改写与 1～4 路分解，并独立记录 Planner token/call；任何坏响应或 Provider 故障都会整体降级为确定性计划：保留原 Scope，识别中英文比较、流程和总结意图，拆分多条件，并使用最近一条 user 历史补足指代。Planner 的供应商异常不会进入 QueryPlan。
 
 Standard Query Graph 使用显式状态机串联 Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer。每次运行返回真实状态转移；RRF、授权 Leaf 或二次校验 Root 为空都会进入 NoResults 并跳过答案模型。Standard 固定把 Planner 尝试计为第 1 次 LLM 调用、最终答案计为第 2 次并执行硬上限；Planner 降级不触发额外调用。未分类故障进入带净化错误码的 Failed 状态，不把异常文本交给客户端。
 

@@ -37,5 +37,19 @@ class PlannerRequest:
             raise ValueError("planner history must not exceed 20 turns")
 
 
+@dataclass(frozen=True, slots=True)
+class PlannerProviderResult:
+    payload: Mapping[str, object]
+    input_tokens: int
+    output_tokens: int
+    retry_count: int = 0
+
+    def __post_init__(self) -> None:
+        if min(self.input_tokens, self.output_tokens, self.retry_count) < 0:
+            raise ValueError("planner usage must not be negative")
+
+
 class QueryPlannerProvider(Provider, Protocol):
-    async def plan(self, request: PlannerRequest) -> Mapping[str, object]: ...
+    async def plan(
+        self, request: PlannerRequest
+    ) -> Mapping[str, object] | PlannerProviderResult: ...

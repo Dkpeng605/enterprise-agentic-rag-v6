@@ -49,6 +49,7 @@ from enterprise_rag.ports.object_store import (
 from enterprise_rag.ports.planner import (
     ConversationRole,
     ConversationTurn,
+    PlannerProviderResult,
     PlannerRequest,
     QueryPlannerProvider,
 )
@@ -116,6 +117,7 @@ __all__ = [
     "JudgeScores",
     "Provider",
     "PlannerRequest",
+    "PlannerProviderResult",
     "ProviderHealth",
     "ProviderInfo",
     "ProviderKind",

@@ -102,6 +102,9 @@ class SemanticQueryRunner:
             span.set_attribute("rag.plan.sub_queries", plan.sub_queries)
             span.set_attribute("rag.plan.sub_query_count", len(plan.sub_queries))
             span.set_attribute("rag.degraded", planned.degraded)
+            span.set_attribute("rag.llm_calls", planned.llm_calls)
+            span.set_attribute("rag.input_tokens", planned.input_tokens)
+            span.set_attribute("rag.output_tokens", planned.output_tokens)
 
         await self._progress(
             emit,
@@ -213,7 +216,11 @@ class SemanticQueryRunner:
                     planner_degraded=planned.degraded,
                     reranker_degraded=reranked.degraded,
                 ),
-                usage={"llm_calls": 0, "input_tokens": 0, "output_tokens": 0},
+                usage={
+                    "llm_calls": planned.llm_calls,
+                    "input_tokens": planned.input_tokens,
+                    "output_tokens": planned.output_tokens,
+                },
             )
 
         root_limit = 5 if command.mode is QueryMode.DEEP else 3
@@ -250,9 +257,9 @@ class SemanticQueryRunner:
                 reranker_degraded=reranked.degraded,
             ),
             usage={
-                "llm_calls": 1 + completion.retry_count,
-                "input_tokens": completion.input_tokens,
-                "output_tokens": completion.output_tokens,
+                "llm_calls": planned.llm_calls + 1 + completion.retry_count,
+                "input_tokens": planned.input_tokens + completion.input_tokens,
+                "output_tokens": planned.output_tokens + completion.output_tokens,
             },
         )
 

@@ -8,7 +8,12 @@ from uuid import UUID
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import QueryIntent, QueryPlan, QueryScope
 from enterprise_rag.observability import start_span
-from enterprise_rag.ports.planner import ConversationRole, PlannerRequest, QueryPlannerProvider
+from enterprise_rag.ports.planner import (
+    ConversationRole,
+    PlannerProviderResult,
+    PlannerRequest,
+    QueryPlannerProvider,
+)
 
 _CJK = re.compile(r"[\u3400-\u9fff]")
 _PRONOUN = re.compile(r"(?:它|这(?:个|些)?|该|前者|后者|\b(?:it|this|that|they|those)\b)", re.I)
@@ -24,6 +29,9 @@ class PlannerOutcome:
     provider: str
     degraded: bool
     error_code: ErrorCode | None = None
+    llm_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class QueryPlanningService:
@@ -44,7 +52,17 @@ class QueryPlanningService:
             "rag.query_planning.provider", attributes={"provider.name": provider_name}
         ) as span:
             try:
-                payload = await self._provider.plan(request)
+                result = await self._provider.plan(request)
+                if isinstance(result, PlannerProviderResult):
+                    payload = result.payload
+                    llm_calls = 1 + result.retry_count
+                    input_tokens = result.input_tokens
+                    output_tokens = result.output_tokens
+                else:
+                    payload = result
+                    llm_calls = 1
+                    input_tokens = 0
+                    output_tokens = 0
                 plan = self._parse_plan(payload, request)
             except Exception as error:
                 code = (
@@ -56,10 +74,26 @@ class QueryPlanningService:
                 )
                 span.set_attribute("rag.degraded", True)
                 span.set_attribute("error.code", code.value)
-                return PlannerOutcome(self._deterministic_plan(request), provider_name, True, code)
+                llm_calls, input_tokens, output_tokens = _error_usage(error)
+                return PlannerOutcome(
+                    self._deterministic_plan(request),
+                    provider_name,
+                    True,
+                    code,
+                    llm_calls=llm_calls,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
             span.set_attribute("rag.degraded", False)
             span.set_attribute("rag.sub_query_count", len(plan.sub_queries))
-            return PlannerOutcome(plan, provider_name, False)
+            return PlannerOutcome(
+                plan,
+                provider_name,
+                False,
+                llm_calls=llm_calls,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
 
     def _parse_plan(self, payload: Mapping[str, object], request: PlannerRequest) -> QueryPlan:
         required_keys = {
@@ -206,3 +240,14 @@ def _intent(query: str) -> QueryIntent:
     return next(
         (intent for pattern, intent in checks if pattern.search(query)), QueryIntent.FACTUAL
     )
+
+
+def _error_usage(error: Exception) -> tuple[int, int, int]:
+    if not isinstance(error, AppError):
+        return (1, 0, 0)
+    values: list[int] = []
+    for key in ("llm_calls", "input_tokens", "output_tokens"):
+        value = error.details.get(key)
+        values.append(value if isinstance(value, int) and not isinstance(value, bool) else 0)
+    calls, input_tokens, output_tokens = values
+    return (max(1, calls), input_tokens, output_tokens)

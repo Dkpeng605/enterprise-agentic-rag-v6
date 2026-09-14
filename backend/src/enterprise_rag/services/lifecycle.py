@@ -142,45 +142,10 @@ class ReconcileService:
         self._object_store = object_store
 
     async def run(self, *, now: datetime, apply: bool = False) -> ReconcileReport:
-        projections = {
-            (item.tenant_id, item.version_id): item.count
-            for item in await self._vector_store.list_version_projections()
-        }
+        vector_report = await self.run_vectors(now=now, apply=apply)
+        issues = list(vector_report.issues)
         async with self._database.session() as session:
             snapshot = await DocumentLifecycleRepository(session).reconcile_snapshot(now=now)
-        issues: list[ReconcileIssue] = []
-
-        for vector_key, actual in sorted(projections.items(), key=lambda item: str(item[0])):
-            if vector_key in snapshot.vector_counts:
-                continue
-            repaired = False
-            if apply:
-                await self._vector_store.delete_by_version(*vector_key)
-                repaired = True
-            issues.append(
-                ReconcileIssue(
-                    ReconcileIssueKind.ORPHAN_VECTOR,
-                    f"{vector_key[0]}:{vector_key[1]}",
-                    0,
-                    actual,
-                    repaired,
-                )
-            )
-
-        for vector_key, expected in sorted(
-            snapshot.vector_counts.items(), key=lambda item: str(item[0])
-        ):
-            actual = projections.get(vector_key, 0)
-            if actual != expected:
-                issues.append(
-                    ReconcileIssue(
-                        ReconcileIssueKind.VECTOR_COUNT_MISMATCH,
-                        f"{vector_key[0]}:{vector_key[1]}",
-                        expected,
-                        actual,
-                        False,
-                    )
-                )
 
         async with self._object_store.mutation_guard():
             async with self._database.session() as session:
@@ -221,4 +186,49 @@ class ReconcileService:
                     repaired,
                 )
             )
+        return ReconcileReport(tuple(issues))
+
+    async def run_vectors(self, *, now: datetime, apply: bool = False) -> ReconcileReport:
+        """Reconcile only version-owned vectors without mutating objects or jobs."""
+
+        projections = {
+            (item.tenant_id, item.version_id): item.count
+            for item in await self._vector_store.list_version_projections()
+        }
+        async with self._database.session() as session:
+            snapshot = await DocumentLifecycleRepository(session).reconcile_snapshot(now=now)
+        issues: list[ReconcileIssue] = []
+
+        for vector_key, actual in sorted(projections.items(), key=lambda item: str(item[0])):
+            if vector_key in snapshot.vector_counts:
+                continue
+            repaired = False
+            if apply:
+                await self._vector_store.delete_by_version(*vector_key)
+                repaired = True
+            issues.append(
+                ReconcileIssue(
+                    ReconcileIssueKind.ORPHAN_VECTOR,
+                    f"{vector_key[0]}:{vector_key[1]}",
+                    0,
+                    actual,
+                    repaired,
+                )
+            )
+
+        for vector_key, expected in sorted(
+            snapshot.vector_counts.items(), key=lambda item: str(item[0])
+        ):
+            actual = projections.get(vector_key, 0)
+            if actual != expected:
+                issues.append(
+                    ReconcileIssue(
+                        ReconcileIssueKind.VECTOR_COUNT_MISMATCH,
+                        f"{vector_key[0]}:{vector_key[1]}",
+                        expected,
+                        actual,
+                        False,
+                    )
+                )
+
         return ReconcileReport(tuple(issues))

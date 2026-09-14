@@ -98,6 +98,7 @@ async def test_valid_structured_plan_is_parsed_and_cannot_override_mode() -> Non
     assert outcome.plan.scope.collection_ids == (COLLECTION_A,)
     assert outcome.plan.scope.doc_types == ("text/plain",)
     assert provider.requests == [request]
+    assert outcome.llm_calls == 1
 
 
 @pytest.mark.anyio

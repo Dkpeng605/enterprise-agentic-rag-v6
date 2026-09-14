@@ -297,7 +297,22 @@ def _stage_metrics(spans: tuple[StoredSpan, ...]) -> tuple[QueryStageMetric, ...
     metrics: list[QueryStageMetric] = []
     for span in spans:
         values = span.attributes
-        if span.name == "rag.rrf_fusion":
+        if span.name == "rag.query_planning":
+            sub_query_count = _integer(values.get("rag.plan.sub_query_count")) or 0
+            metrics.append(
+                QueryStageMetric(
+                    "query_planning",
+                    1,
+                    sub_query_count,
+                    0,
+                    {
+                        "llm_calls": _integer(values.get("rag.llm_calls")) or 0,
+                        "input_tokens": _integer(values.get("rag.input_tokens")) or 0,
+                        "output_tokens": _integer(values.get("rag.output_tokens")) or 0,
+                    },
+                )
+            )
+        elif span.name == "rag.rrf_fusion":
             input_count = _integer(values.get("rag.fusion.input_hit_count")) or 0
             output_count = _integer(values.get("rag.candidate_count")) or 0
             root_dropped = _integer(values.get("rag.fusion.root_quota_dropped")) or 0
@@ -362,11 +377,12 @@ def _stage_metrics(spans: tuple[StoredSpan, ...]) -> tuple[QueryStageMetric, ...
                 )
             )
     order = {
-        "rrf_fusion": 0,
-        "auth_and_scope": 1,
-        "rerank": 2,
-        "root_restore": 3,
-        "answer_generation": 4,
+        "query_planning": 0,
+        "rrf_fusion": 1,
+        "auth_and_scope": 2,
+        "rerank": 3,
+        "root_restore": 4,
+        "answer_generation": 5,
     }
     return tuple(sorted(metrics, key=lambda item: order.get(item.stage, 99)))
 

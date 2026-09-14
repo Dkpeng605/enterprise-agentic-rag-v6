@@ -20,6 +20,7 @@ from enterprise_rag.adapters.llms import OpenAICompatibleLanguageModel
 from enterprise_rag.adapters.loaders import PdfLoader, SpreadsheetLoader, TextDocumentLoader
 from enterprise_rag.adapters.object_store import LocalObjectStore
 from enterprise_rag.adapters.ocr import TesseractOcrEngine
+from enterprise_rag.adapters.planners import LanguageModelQueryPlanner
 from enterprise_rag.adapters.rerankers import (
     LocalFastEmbedReranker,
     OpenAICompatibleReranker,
@@ -39,6 +40,7 @@ from enterprise_rag.services import (
     IngestionPipeline,
     ManualLlmCleaningService,
     ProjectionService,
+    QueryPlanningService,
     SemanticQueryRunner,
     build_persistent_tracing,
 )
@@ -191,6 +193,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         max_retries=active.cost_guard.provider_max_retries,
         retry_backoff_seconds=active.cost_guard.provider_retry_backoff_seconds,
     )
+    query_planner = QueryPlanningService(LanguageModelQueryPlanner(language_model))
     ocr = TesseractOcrEngine(languages=active.ingestion.pdf_ocr_languages)
     vision = NoopVisionProvider()
     loaders = (
@@ -266,6 +269,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         selected_leaf_k=retrieval.selected_leaf_k,
         rrf_k=retrieval.rrf_k,
         max_parent_chars=retrieval.max_parent_chars,
+        planner=query_planner,
     )
     manual_llm_cleaning = ManualLlmCleaningService(
         database=database,
