@@ -239,6 +239,7 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `GET /api/v1/traces/{trace_id}` — 阶段耗时、候选排名、分数和降级详情
 - `GET /health/live`、`GET /health/ready`、`GET /health/doctor` — 存活、就绪和已净化 Provider 诊断
 - `GET /api/v1/admin/providers`、`POST /api/v1/admin/providers/select` — 系统管理员读取当前 Provider 注册表、可选 Embedding/Reranker profile，并保存重启生效的选择
+- `GET /api/v1/workspace/mcp` — 当前组合根提供的 MCP Server、6 个只读 Tool、4 类 Resource 和 stdio/HTTP 传输状态
 - `GET /metrics` — Prometheus text exposition；生产环境必须使用独立 Bearer token
 
 stdio MCP Server 使用官方 Python SDK v2，提供 6 个只读知识 Tool 与 4 类租户隔离的 Resource。先在你自己的组合模块中构造 `MCPServer`，再显式配置 factory 启动：
@@ -273,7 +274,7 @@ pnpm --dir=frontend dev
 Vite 会把 `/api` 与 `/health` 同源代理到 `127.0.0.1:8000`。当前前端包含响应式 Shell、
 完整路由表、匿名 session、管理员登录、system route guard、公共 SSE 问答、租户总览、
 Collection/Document 管理、摄取任务监控、Query Trace 瀑布/排名/Recovery 检查器、Ingestion
-Trace 阶段/批次/稳定错误检查器，以及预算评测中心。
+Trace 阶段/批次/稳定错误检查器、MCP 能力目录，以及预算评测中心。
 匿名用户无需登录即可进入 `/workspace/*`；`/workspace/overview` 会读取当前 tenant 的集合、文档、
 索引、24 小时 Query 与最近任务聚合，并并列显示 `/health/doctor` 的 Provider 状态；
 `/workspace/documents` 支持集合 CRUD、筛选、上传、详情和安全删除，`/workspace/ingestion` 展示
@@ -283,6 +284,9 @@ Trace 阶段/批次/稳定错误检查器，以及预算评测中心。
 数量与旧 revision，并点击“重建不兼容文档”。重建先在新 Milvus revision 投影向量，成功写入 PostgreSQL
 Root/Leaf 后才删除旧 revision；投影或数据库交换失败时保留旧索引。Reranker 切换不需要重建向量。
 对应接口为 `GET /api/v1/admin/providers/index-status` 与 `POST /api/v1/admin/providers/reindex`。
+`/workspace/mcp` 使用后端共享的 SDK 注册定义展示 Tool 名称、只读标记、所需 Scope、Resource URI/template
+和当前传输状态。Mac API 进程未挂载 Streamable HTTP 时会明确显示“需要外部组合”，不会把协议支持误报为
+正在运行的公网端点；该页面不返回 Token、Prompt、Authorization 或文档正文。
 若需要重新生成锁定的 OpenAPI 类型：
 
 ```bash
@@ -440,8 +444,9 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R2C 人工触发的一次 LLM 清洗：已完成
 - M7-R3 开发/测试数据库隔离、向量修复工具与 LLM Query Planner：已完成
 - M7-R4 真实 Deep Recovery 与引用核验/修复：已完成
-- M7-R5 Provider 切换后的索引兼容状态与安全重建：开发中（实现已完成，待 PR 合并）
-- 下一项：M7-R5 Provider 切换后的索引状态与重建
+- M7-R5 Provider 切换后的索引兼容状态与安全重建：已完成
+- M7-R6 MCP 能力目录与传输状态可视化：已完成
+- 下一项：M8 公网发布
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 

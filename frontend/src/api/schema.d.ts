@@ -208,6 +208,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspace Mcp Catalog */
+        get: operations["workspace_mcp_catalog_api_v1_workspace_mcp_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/collections": {
         parameters: {
             query?: never;
@@ -1424,6 +1441,61 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** McpCapabilityCatalogResponse */
+        McpCapabilityCatalogResponse: {
+            /** Server Name */
+            server_name: string;
+            /** Server Version */
+            server_version: string;
+            /** Tools */
+            tools: components["schemas"]["McpToolCapabilityResponse"][];
+            /** Resources */
+            resources: components["schemas"]["McpResourceCapabilityResponse"][];
+            /** Transports */
+            transports: components["schemas"]["McpTransportResponse"][];
+        };
+        /** McpResourceCapabilityResponse */
+        McpResourceCapabilityResponse: {
+            /** Uri */
+            uri: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "resource" | "template";
+            /** Description */
+            description: string;
+            /** Required Scopes */
+            required_scopes: string[];
+        };
+        /** McpToolCapabilityResponse */
+        McpToolCapabilityResponse: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Required Scopes */
+            required_scopes: string[];
+            /** Read Only */
+            read_only: boolean;
+        };
+        /** McpTransportResponse */
+        McpTransportResponse: {
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "stdio" | "streamable_http";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "factory_declared" | "requires_factory" | "mounted" | "external_composition_required";
+            /** Endpoint */
+            endpoint: string | null;
+            /** Detail */
+            detail: string;
         };
         /** OverviewActivityResponse */
         OverviewActivityResponse: {
@@ -2845,6 +2917,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceOverviewResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    workspace_mcp_catalog_api_v1_workspace_mcp_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpCapabilityCatalogResponse"];
                 };
             };
             /** @description Invalid request */

@@ -31,6 +31,7 @@ from enterprise_rag.api.schemas import HealthReportResponse, LivenessResponse
 from enterprise_rag.config import AppSettings, load_settings
 from enterprise_rag.domain.common import new_uuid7, utc_now
 from enterprise_rag.domain.errors import AppError, ErrorCode, ErrorDetail, ErrorResponse
+from enterprise_rag.mcp.catalog import McpCapabilityCatalog
 from enterprise_rag.observability import (
     ApplicationMetrics,
     bind_context,
@@ -94,6 +95,7 @@ def create_app(
     manual_llm_cleaning_service: ManualLlmCleaningService | None = None,
     provider_catalog: RuntimeProviderCatalog | None = None,
     provider_reindex: ProviderReindexService | None = None,
+    mcp_catalog: McpCapabilityCatalog | None = None,
     background_tasks: Sequence[Callable[[], Awaitable[None]]] = (),
     resource_closers: Sequence[Callable[[], Awaitable[None]]] = (),
     clock: Clock = utc_now,
@@ -376,6 +378,7 @@ def create_app(
             manual_llm_cleaning=manual_llm_cleaning_service,
             provider_catalog=provider_catalog,
             provider_reindex=provider_reindex,
+            mcp_catalog=mcp_catalog,
             allowed_suffixes=active_settings.ingestion.allowed_suffixes,
             max_upload_bytes=min(
                 active_settings.ingestion.max_upload_bytes,

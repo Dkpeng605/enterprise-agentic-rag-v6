@@ -14,6 +14,7 @@ import DocumentsView from './views/DocumentsView.vue'
 import EvaluationView from './views/EvaluationView.vue'
 import AdminProvidersView from './views/AdminProvidersView.vue'
 import LoginView from './views/LoginView.vue'
+import McpView from './views/McpView.vue'
 import IngestionView from './views/IngestionView.vue'
 import IngestionTraceView from './views/IngestionTraceView.vue'
 import OverviewView from './views/OverviewView.vue'
@@ -77,6 +78,12 @@ const routes: RouteRecordRaw[] = [
     name: 'evaluations',
     component: EvaluationView,
     meta: { access: 'workspace', title: '评测中心' },
+  },
+  {
+    path: '/workspace/mcp',
+    name: 'mcp',
+    component: McpView,
+    meta: { access: 'workspace', title: 'MCP 生态' },
   },
   { path: '/login', name: 'login', component: LoginView, meta: { access: 'public', title: '管理员登录' } },
   {

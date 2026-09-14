@@ -31,6 +31,7 @@ from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
 from enterprise_rag.adapters.vision import NoopVisionProvider
 from enterprise_rag.api import create_app
 from enterprise_rag.config import AppSettings, load_settings
+from enterprise_rag.mcp.catalog import McpCapabilityCatalog
 from enterprise_rag.observability import configure_json_logging
 from enterprise_rag.ports import Provider, ProviderRegistry
 from enterprise_rag.services import (
@@ -360,6 +361,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         manual_llm_cleaning_service=manual_llm_cleaning,
         provider_catalog=provider_catalog,
         provider_reindex=provider_reindex,
+        mcp_catalog=McpCapabilityCatalog.from_environment(),
         background_tasks=(worker,),
         resource_closers=closers,
     )

@@ -272,6 +272,7 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `GET /api/v1/traces/{trace_id}` — stage timing, candidate ranks, scores, and degradation details
 - `GET /health/live`, `GET /health/ready`, and `GET /health/doctor` — liveness, readiness, and sanitized Provider diagnostics
 - `GET /api/v1/admin/providers` and `POST /api/v1/admin/providers/select` — system-admin live Provider registry, selectable Embedding/Reranker profiles, and restart-bound selection
+- `GET /api/v1/workspace/mcp` — current composition's MCP Server, six read-only tools, four resource forms, and stdio/HTTP transport status
 - `GET /metrics` — Prometheus text exposition; production requires a dedicated bearer token
 
 The stdio MCP server uses the official Python SDK v2 and exposes six read-only knowledge tools plus four tenant-scoped resource forms. Build an `MCPServer` in your own composition module, then configure its factory explicitly:
@@ -303,7 +304,7 @@ Start the frontend in a second terminal:
 pnpm --dir=frontend dev
 ```
 
-Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, system route guards, public SSE chat, tenant overview, Collection/Document management, ingestion-job monitoring, Query and Ingestion Trace inspectors, and the budgeted evaluation workspace. Anonymous visitors may use `/workspace/*` without login; `/workspace/overview` reads current-tenant collection, document, index, 24-hour query, and recent activity aggregates alongside `/health/doctor` Provider states. `/workspace/documents` provides collection CRUD, filtering, upload, detail, and safe deletion, while `/workspace/ingestion` shows persisted job progress. `/admin/providers` shows the live Provider registry and selectable Embedding/Reranker profiles; all other `/admin/*` routes still require a system administrator. Regenerate the committed OpenAPI types with:
+Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, system route guards, public SSE chat, tenant overview, Collection/Document management, ingestion-job monitoring, Query and Ingestion Trace inspectors, the MCP capability catalog, and the budgeted evaluation workspace. Anonymous visitors may use `/workspace/*` without login; `/workspace/overview` reads current-tenant collection, document, index, 24-hour query, and recent activity aggregates alongside `/health/doctor` Provider states. `/workspace/documents` provides collection CRUD, filtering, upload, detail, and safe deletion, while `/workspace/ingestion` shows persisted job progress. `/admin/providers` shows the live Provider registry and selectable Embedding/Reranker profiles; all other `/admin/*` routes still require a system administrator. `/workspace/mcp` renders the backend definitions shared with the SDK server: tool names, read-only annotations, required scopes, resource URIs/templates, and current transport composition. When Streamable HTTP is not mounted in the Mac API process, the page explicitly reports that an external HTTPS composition is required; it never exposes tokens, prompts, authorization headers, or document content. Regenerate the committed OpenAPI types with:
 
 ```bash
 pnpm --dir=frontend generate:api
@@ -462,7 +463,9 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R2C explicitly triggered one-pass LLM cleaning: complete
 - M7-R3 development/test database isolation, vector repair tool, and LLM Query Planner: complete
 - M7-R4 real Deep Recovery and citation verification/repair: complete
-- M7-R5 Provider-switch index compatibility and safe rebuild: implemented on the Mac branch, pending PR merge
+- M7-R5 Provider-switch index compatibility and safe rebuild: complete
+- M7-R6 MCP capability catalog and transport-state UI: complete
+- Next: M8 public deployment
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 

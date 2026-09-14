@@ -16,6 +16,7 @@ const primaryNavigation = [
   { to: '/workspace/traces/queries', label: 'Query Trace', mark: 'Q' },
   { to: '/workspace/traces/ingestion', label: 'Ingestion Trace', mark: 'I' },
   { to: '/workspace/evaluations', label: '评测中心', mark: '评' },
+  { to: '/workspace/mcp', label: 'MCP 生态', mark: 'M' },
 ]
 
 const systemNavigation = [
