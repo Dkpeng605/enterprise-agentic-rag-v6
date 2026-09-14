@@ -52,7 +52,7 @@ class LanguageModelJudge:
             sort_keys=True,
         )
         completion = await self._model.complete(
-            CompletionRequest(SYSTEM_PROMPT, payload, self._max_output_tokens)
+            CompletionRequest(SYSTEM_PROMPT, payload, self._max_output_tokens, True)
         )
         scores = _parse_scores(completion.text)
         return JudgeResult(

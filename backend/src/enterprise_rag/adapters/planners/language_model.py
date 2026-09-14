@@ -76,6 +76,7 @@ class LanguageModelQueryPlanner:
                         separators=(",", ":"),
                     ),
                     max_output_tokens=self._max_output_tokens,
+                    json_mode=True,
                 )
             )
         except AppError as error:

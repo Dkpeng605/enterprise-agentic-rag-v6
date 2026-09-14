@@ -107,6 +107,7 @@ async def test_llm_evidence_assessor_reads_bounded_evidence_and_reports_usage() 
     assert result.llm_calls == 2
     assert result.input_tokens == 31 and result.output_tokens == 17
     assert "政策定义与期限证据" in model.requests[0].user_prompt
+    assert model.requests[0].json_mode is True
 
 
 @pytest.mark.anyio
@@ -160,3 +161,4 @@ async def test_invalid_json_draft_gets_one_schema_retry_with_aggregated_usage() 
     assert authored.input_tokens == 62 and authored.output_tokens == 34
     assert len(author.model_requests) == 2
     assert "previous draft failed" in author.model_requests[1].system_prompt
+    assert all(request.json_mode for request in author.model_requests)

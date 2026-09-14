@@ -59,6 +59,37 @@ async def test_openai_compatible_llm_sends_chat_request_and_parses_usage() -> No
 
 
 @pytest.mark.anyio
+async def test_openai_compatible_llm_sends_json_mode_only_when_requested() -> None:
+    requests: list[dict[str, object]] = []
+
+    def handler(incoming: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(incoming.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": '{"ok":true}'}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatibleLanguageModel(
+            base_url="https://provider.example/v1",
+            api_key="test-secret",
+            model="chat-model",
+            client=client,
+        )
+        await provider.complete(request())
+        await provider.complete(
+            CompletionRequest("Use JSON only.", "Return an object.", 32, json_mode=True)
+        )
+
+    assert "response_format" not in requests[0]
+    assert requests[1]["response_format"] == {"type": "json_object"}
+    assert "json-mode" in provider.info().capabilities
+
+
+@pytest.mark.anyio
 async def test_openai_compatible_llm_unwraps_reasoning_and_json_fence() -> None:
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(

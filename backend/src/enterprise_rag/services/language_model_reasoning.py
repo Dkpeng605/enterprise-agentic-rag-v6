@@ -84,6 +84,7 @@ class LanguageModelEvidenceAssessor:
                     separators=(",", ":"),
                 ),
                 self._max_output_tokens,
+                True,
             ),
             "The evidence assessor could not assess the retrieved evidence.",
         )
@@ -148,6 +149,7 @@ class LanguageModelAnswerAuthor:
             _ANSWER_SYSTEM_PROMPT,
             payload,
             self._max_output_tokens,
+            True,
         )
         try:
             draft, completion = await self._generate(request)
@@ -162,6 +164,7 @@ class LanguageModelAnswerAuthor:
                 "with the exact types.",
                 payload,
                 self._max_output_tokens,
+                True,
             )
             try:
                 draft, completion = await self._generate(retry_request)
@@ -192,6 +195,7 @@ class LanguageModelAnswerAuthor:
                 separators=(",", ":"),
             ),
             self._max_output_tokens,
+            True,
         )
         draft, completion = await self._generate(completion_request)
         self._repair_usage = self._repair_usage + _usage(completion)

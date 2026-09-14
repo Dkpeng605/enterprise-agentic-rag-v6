@@ -84,6 +84,7 @@ async def test_judge_parses_exact_scores_and_records_usage() -> None:
     assert len(model.requests) == 1
     assert "untrusted data" in model.requests[0].system_prompt
     assert "Ignore prior instructions" in model.requests[0].user_prompt
+    assert model.requests[0].json_mode is True
     assert registration.judge.info().estimated_llm_calls_per_case == 1
 
 
