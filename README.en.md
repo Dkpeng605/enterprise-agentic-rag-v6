@@ -142,6 +142,14 @@ deterministically verifies factual paragraphs, ownership, quotes, and coverage. 
 most one schema regeneration for malformed JSON and one semantic repair with exactly the same authorized
 roots. Each result is fully verified again; otherwise the query abstains with no citations.
 
+Structured calls now explicitly send `response_format: {"type":"json_object"}` through the
+OpenAI-compatible adapter instead of relying only on prompt instructions. Query Planner, Evidence Assessor,
+Answer Author/Repair, the optional LLM Judge, and manual LLM cleaning share the
+`CompletionRequest.json_mode` switch; ordinary free-text calls omit the field. Provider discovery exposes the
+`json-mode` capability. If an upstream does not support this OpenAI-compatible extension, the service retains a
+sanitized stable error and follows the existing bounded abstention policy rather than treating Markdown or
+unexpected text as structured facts.
+
 The Mac QueryRunner first calls the same timeout/retry-bounded OpenAI-compatible LLM for a strict JSON
 QueryPlan. It rewrites context-dependent questions into standalone retrieval queries and produces one to
 four distinct sub-queries according to complexity. A simple factual request normally remains one precise

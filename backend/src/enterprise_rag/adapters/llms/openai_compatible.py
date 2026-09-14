@@ -47,7 +47,9 @@ class OpenAICompatibleLanguageModel:
             kind=ProviderKind.LLM,
             name="openai_compatible",
             version=self._model,
-            capabilities=frozenset({"chat-completions", "usage", "system-prompt"}),
+            capabilities=frozenset(
+                {"chat-completions", "usage", "system-prompt", "json-mode"}
+            ),
             is_remote=True,
             health=ProviderHealth.UNAVAILABLE if self._closed else self._health,
         )
@@ -56,22 +58,25 @@ class OpenAICompatibleLanguageModel:
         if self._closed:
             raise RuntimeError("Language Model Provider is closed")
         try:
+            payload: dict[str, Any] = {
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": request.system_prompt},
+                    {"role": "user", "content": request.user_prompt},
+                ],
+                "max_tokens": request.max_output_tokens,
+                "temperature": 0,
+                "stream": False,
+            }
+            if request.json_mode:
+                payload["response_format"] = {"type": "json_object"}
             response = await self._client.post(
                 self._endpoint,
                 headers={
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": self._model,
-                    "messages": [
-                        {"role": "system", "content": request.system_prompt},
-                        {"role": "user", "content": request.user_prompt},
-                    ],
-                    "max_tokens": request.max_output_tokens,
-                    "temperature": 0,
-                    "stream": False,
-                },
+                json=payload,
                 timeout=self._timeout,
             )
         except (httpx.TimeoutException, httpx.NetworkError) as error:

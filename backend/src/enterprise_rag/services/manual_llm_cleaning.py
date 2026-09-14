@@ -209,6 +209,7 @@ class ManualLlmCleaningService:
                     system_prompt=_SYSTEM_PROMPT,
                     user_prompt=_request_json(snapshot.roots),
                     max_output_tokens=self._max_output_tokens,
+                    json_mode=True,
                 )
             )
             cleaned_texts = parse_cleaning_response(completion.text, snapshot.roots)

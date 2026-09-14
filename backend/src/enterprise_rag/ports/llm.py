@@ -12,6 +12,7 @@ class CompletionRequest:
     system_prompt: str
     user_prompt: str
     max_output_tokens: int
+    json_mode: bool = False
 
     def __post_init__(self) -> None:
         require_non_empty(self.system_prompt, "system_prompt")

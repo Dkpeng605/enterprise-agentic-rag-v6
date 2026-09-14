@@ -122,6 +122,12 @@ Standard 与 Deep 的回答都不再直接信任自由文本：LLM 必须返回�
 JSON/schema 错误最多原证据重生成一次；结构有效但核验失败时，再使用完全相同的授权证据修复一次，
 重新核验失败就返回空引用拒答。
 
+本轮结构化调用会在 OpenAI-compatible 请求中显式发送 `response_format: {"type":"json_object"}`，而不是
+只依赖 Prompt 约束。Query Planner、Evidence Assessor、Answer Author/Repair、可选 LLM Judge 和人工 LLM
+清洗均通过同一 `CompletionRequest.json_mode` 开关；普通自由文本调用不会携带该字段。Provider 能力列表会
+声明 `json-mode`。如果上游不支持该 OpenAI-compatible 扩展，服务会保留脱敏的稳定错误并按既有边界拒答，
+不会把模型返回的 Markdown 或异常文本当成结构化事实。
+
 Mac QueryRunner 会先调用同一个受 timeout/retry 保护的 OpenAI-compatible LLM 生成严格 JSON
 QueryPlan：把依赖会话的问题改写为独立检索问题，并按复杂度生成 1～4 条不重复子查询；简单事实问题保留
 1 条精确子查询，比较、多条件和多跳问题才拆成多条，不能为了展示而无意义扩增。后端继续严格校验字段、

@@ -65,6 +65,7 @@ class FakeCleaningLlm:
         )
 
     async def complete(self, request: CompletionRequest) -> CompletionResult:
+        assert request.json_mode is True
         payload = json.loads(request.user_prompt)
         assert len(payload["roots"]) == 1
         return CompletionResult(

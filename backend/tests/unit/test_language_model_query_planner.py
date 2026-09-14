@@ -90,6 +90,7 @@ async def test_language_model_planner_sends_bounded_context_and_parses_json() ->
     assert len(model.requests) == 1
     completion = model.requests[0]
     assert completion.max_output_tokens == 900
+    assert completion.json_mode is True
     prompt = json.loads(completion.user_prompt)
     assert prompt["query"] == request.query
     assert prompt["history"][0] == {
