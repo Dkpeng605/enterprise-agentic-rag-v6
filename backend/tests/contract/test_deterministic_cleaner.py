@@ -85,6 +85,19 @@ async def test_cleaning_is_idempotent(context: IngestionContext) -> None:
 
 
 @pytest.mark.anyio
+async def test_cleaner_keeps_fenced_code_formatting_and_ocr_text_unchanged(
+    context: IngestionContext,
+) -> None:
+    raw = "正文 know-\nledge\n\n```python\n  know-\n  ledge  \n\n  return 1\n```\n\n结束"
+
+    result = await DeterministicCleaner().clean(loaded(0, raw), context)
+
+    assert result.root.clean_text == (
+        "正文 knowledge\n\n```python\n  know-\n  ledge  \n\n  return 1\n```\n\n结束"
+    )
+
+
+@pytest.mark.anyio
 async def test_empty_after_cleaning_and_closed_provider_are_explicit(
     context: IngestionContext,
 ) -> None:

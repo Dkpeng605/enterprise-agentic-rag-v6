@@ -51,6 +51,8 @@ def test_strict_response_accepts_noise_removal_and_restores_input_order() -> Non
         ("访问 https://example.test/a", "访问 https://example.test/b"),
         ('状态是 "ready"', '状态是 "failed"'),
         ("# 原始标题\n正文", "# 新标题\n正文"),
+        ("系统必须保留原始策略", "系统必须删除原始策略"),
+        ("第一条 第二条", "第二条 第一条"),
         ("```python\nprint(1)\n```", "```python\nprint(2)\n```"),
         ("| 名称 | 值 |\n| --- | --- |\n| A | 1 |", "| name | value |\n| --- | --- |\n| A | 1 |"),
     ],
@@ -61,6 +63,22 @@ def test_response_rejects_protected_anchor_changes(before: str, after: str) -> N
 
     assert raised.value.code is ErrorCode.LLM_INVALID_RESPONSE
     assert raised.value.details["root_ordinal"] == 0
+
+
+def test_response_preserves_cleaning_output_whitespace_when_lexical_content_is_unchanged() -> None:
+    roots = (root("  保留边界  "),)
+
+    cleaned = parse_cleaning_response(response((0, " 保留边界 ")), roots)
+
+    assert cleaned == (" 保留边界 ",)
+
+
+def test_response_allows_only_repeated_edge_line_removal() -> None:
+    roots = (root("页眉\n第一段", ordinal=0), root("页眉\n第二段", ordinal=1))
+
+    cleaned = parse_cleaning_response(response((0, "第一段"), (1, "第二段")), roots)
+
+    assert cleaned == ("第一段", "第二段")
 
 
 @pytest.mark.parametrize(

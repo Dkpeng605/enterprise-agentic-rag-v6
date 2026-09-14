@@ -39,6 +39,9 @@ _FACT_ANCHOR = re.compile(
     r"`[^`\n]+`|\"[^\"\n]+\"|'[^'\n]+'|“[^”\n]+”|‘[^’\n]+’"
 )
 _FENCE = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
+_LEXICAL_TOKEN = re.compile(
+    r"[\u3400-\u4dbf\u4e00-\u9fff]|[A-Za-z]+(?:['’-][A-Za-z]+)*|\d+(?:[.,:/-]\d+)*"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -580,17 +583,20 @@ def parse_cleaning_response(text: str, roots: Sequence[RootChunk]) -> tuple[str,
             or ordinal in by_ordinal
         ):
             raise _invalid_response("An LLM cleaning Root has invalid values.")
-        by_ordinal[ordinal] = clean_text.strip()
+        by_ordinal[ordinal] = clean_text
     expected = [root.ordinal for root in roots]
     if sorted(by_ordinal) != sorted(expected):
         raise _invalid_response("The LLM cleaning response changed Root ordinals.")
     cleaned = tuple(by_ordinal[ordinal] for ordinal in expected)
+    repeated_edges = _repeated_edge_lines(roots)
     for root, value in zip(roots, cleaned, strict=True):
-        _validate_anchors(root.clean_text, value, root.ordinal)
+        _validate_anchors(root.clean_text, value, root.ordinal, repeated_edges)
     return cleaned
 
 
-def _validate_anchors(before: str, after: str, ordinal: int) -> None:
+def _validate_anchors(
+    before: str, after: str, ordinal: int, repeated_edges: Counter[str]
+) -> None:
     if Counter(_FACT_ANCHOR.findall(before)) != Counter(_FACT_ANCHOR.findall(after)):
         raise _invalid_response(
             "The LLM cleaning response changed a protected fact anchor.", ordinal=ordinal
@@ -604,6 +610,63 @@ def _validate_anchors(before: str, after: str, ordinal: int) -> None:
             "The LLM cleaning response changed a protected heading or table header.",
             ordinal=ordinal,
         )
+    _validate_lexical_content(before, after, ordinal, repeated_edges)
+
+
+def _validate_lexical_content(
+    before: str, after: str, ordinal: int, repeated_edges: Counter[str]
+) -> None:
+    before_tokens = Counter(token.casefold() for token in _LEXICAL_TOKEN.findall(before))
+    after_tokens = Counter(token.casefold() for token in _LEXICAL_TOKEN.findall(after))
+    if after_tokens - before_tokens:
+        raise _invalid_response(
+            "The LLM cleaning response added or rewrote lexical content.", ordinal=ordinal
+        )
+    before_sequence = [token.casefold() for token in _LEXICAL_TOKEN.findall(before)]
+    actual_sequence = [token.casefold() for token in _LEXICAL_TOKEN.findall(after)]
+    if actual_sequence == before_sequence:
+        return
+    removed_lines = Counter(_non_empty_lines(before)) - Counter(_non_empty_lines(after))
+    removable = Counter(
+        line for line, count in removed_lines.items() if repeated_edges[line] >= 2
+    )
+    if removable != removed_lines:
+        raise _invalid_response(
+            "The LLM cleaning response removed non-repeated lexical content.", ordinal=ordinal
+        )
+    expected = before_tokens.copy()
+    for line, count in removable.items():
+        removed_tokens = Counter(token.casefold() for token in _LEXICAL_TOKEN.findall(line))
+        for token, token_count in removed_tokens.items():
+            expected[token] -= token_count * count
+    expected += Counter()
+    remaining_lines = list(_non_empty_lines(before))
+    for index in range(len(remaining_lines) - 1, -1, -1):
+        line = remaining_lines[index]
+        if removable[line] > 0:
+            removable[line] -= 1
+            remaining_lines.pop(index)
+    expected_sequence = [
+        token.casefold() for token in _LEXICAL_TOKEN.findall("\n".join(remaining_lines))
+    ]
+    if after_tokens != expected or actual_sequence != expected_sequence:
+        raise _invalid_response(
+            "The LLM cleaning response rewrote lexical content.", ordinal=ordinal
+        )
+
+
+def _non_empty_lines(text: str) -> tuple[str, ...]:
+    return tuple(" ".join(line.split()) for line in text.splitlines() if line.strip())
+
+
+def _repeated_edge_lines(roots: Sequence[RootChunk]) -> Counter[str]:
+    edges: Counter[str] = Counter()
+    for root in roots:
+        lines = _non_empty_lines(root.clean_text)
+        if lines:
+            edges[lines[0]] += 1
+            edges[lines[-1]] += 1
+    return edges
 
 
 def _structural_anchors(text: str) -> tuple[str, ...]:
@@ -625,7 +688,9 @@ def _request_json(roots: Sequence[RootChunk]) -> str:
         {
             "task": (
                 "Clean presentation noise only. Preserve every fact, number, URL, email, "
-                "quoted value, heading, table header, code block, Root count and ordinal."
+                "quoted value, heading, table header, code block, Root count and ordinal. "
+                "Preserve every lexical word and number; only remove an exact line when it is "
+                "a repeated first/last edge across Roots."
             ),
             "roots": [{"ordinal": root.ordinal, "clean_text": root.clean_text} for root in roots],
         },
@@ -638,9 +703,10 @@ _SYSTEM_PROMPT = """You are a conservative document-cleaning function.
 Return exactly one JSON object and no Markdown, commentary, or reasoning:
 {"roots":[{"ordinal":0,"clean_text":"..."}]}
 Keep every input Root exactly once with its original ordinal. Remove only obvious presentation
-noise such as repeated whitespace, duplicated headers/footers, or OCR artifacts. Never summarize,
-translate, invent, or alter facts, numbers, URLs, emails, quoted values, headings, table headers,
-or fenced code. If uncertain, return the input clean_text unchanged."""
+noise such as repeated whitespace or duplicated first/last edge lines. Never summarize, translate,
+invent, paraphrase, reorder, or alter any lexical word, number, URL, email, quoted value, heading,
+table header, or fenced code. Do not merge or split words. If uncertain, return the input clean_text
+unchanged."""
 
 
 def _root_from_model(model: RootModel) -> RootChunk:

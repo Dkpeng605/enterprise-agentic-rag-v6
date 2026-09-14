@@ -1783,7 +1783,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 #### M3-04 Cleaner
 
 - 端口：`CleanRoot` 同时保留 `raw_text` 与 `clean_text`；`CleaningAudit` 为每个实际发生变化的规则记录次数和前后 SHA-256；
-- 规则：按固定顺序处理 NUL/不可见控制字符、常见 OCR 连字/软连字符/跨行断词、行尾与空白归一化；默认不调用 LLM，不改写事实内容；
+- 规则：按固定顺序处理 NUL/不可见控制字符、常见 OCR 连字/软连字符/跨行断词、行尾与空白归一化；处理 fenced code 时必须隔离代码块，保留代码缩进、空行和跨行文本；默认不调用 LLM，不改写事实内容；
 - 重复边界：单 Root 无法判定重复页眉页脚，因此 Cleaner 提供 `clean_all` 批量契约；仅当首行或末行达到可配置比例且至少出现两次时删除，并保留逐 Root audit；
 - 语义：输入 metadata、图片和 locator 原样保留；清洗后为空返回 `DOCUMENT_EMPTY`；相同输入输出稳定，清洗结果再次输入不会产生新变化；
 - 验收：原文保留、规则顺序和 hash 可追踪、三页页眉页脚统计、非重复页脚保留、幂等、清洗后空内容和关闭幂等。
@@ -2597,11 +2597,11 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 模型契约：发送 `{task, roots:[{ordinal, clean_text}]}`，temperature 由 Provider 固定为 0；响应必须是
   无 Markdown 包裹、无解释字段的严格 `{roots:[{ordinal, clean_text}]}` JSON。Root 数、ordinal 集、
   非空文本必须与输入一致，后端按输入 ordinal 恢复顺序，不信任供应商返回顺序；
-- 事实保护：变更只允许删除展示噪声、重复页眉页脚和明显 OCR/空白问题。后端以 multiset 方式保护数字、
-  URL、邮箱、引号值和 inline code，并要求 Markdown heading、表头/分隔行和 fenced code block 完全
-  保持；任一 Root 校验失败则以 `LLM_INVALID_RESPONSE` 拒绝整次结果。该锚点规则只能证明列出的字面量
-  未变，不等价于完整语义正确性，因此 UI/README 不得声称 LLM 清洗“绝对不改事实”；不确定时 Prompt
-  要求原样返回；
+- 事实保护：变更只允许删除展示噪声、跨 Root 重复的首/尾页眉页脚和明显空白问题。后端除数字、URL、
+  邮箱、引号值、inline code、Markdown heading、表头/分隔行和 fenced code block 锚点外，还比较全部词法
+  token 的新增、删除与顺序；唯一允许的 token 删除必须对应跨 Root 重复的完整首/尾行。任何普通词替换、
+  重排、拆词、合词、非重复行删除或代码内容变化均以 `LLM_INVALID_RESPONSE` 拒绝整次结果；不确定时
+  Prompt 要求原样返回；
 - 重切分：通过现有可插拔 `Splitter` 重新生成 Root/Leaf 稳定内容 ID，保留 parser、raw_text、kind、
   source locator 和既有 metadata；每个 Root 增加 `llm_cleaning` audit，记录 provider/model、remote、
   applied_at、actor_id、usage、before/after SHA-256 与 changed。发生变更时在既有 cleaning audit 追加
