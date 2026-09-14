@@ -9,6 +9,8 @@ export type DocumentSummary = components['schemas']['DocumentResponse']
 export type DocumentDetail = components['schemas']['DocumentDetailResponse']
 export type DocumentPipeline = components['schemas']['DocumentPipelineResponse']
 export type PipelineRoot = components['schemas']['PipelineRootDetailResponse']
+export type LlmCleaningPreflight = components['schemas']['LlmCleaningPreflightResponse']
+export type LlmCleaningResult = components['schemas']['LlmCleaningResponse']
 export type DocumentStatus = components['schemas']['DocumentStatus']
 export type Job = components['schemas']['JobResponse']
 export type JobListItem = components['schemas']['JobListItemResponse']
@@ -43,6 +45,8 @@ export interface WorkspaceApi {
   getDocument(id: string): Promise<DocumentDetail>
   getDocumentPipeline(id: string, cursor?: number): Promise<DocumentPipeline>
   getPipelineRoot(documentId: string, rootId: string): Promise<PipelineRoot>
+  getLlmCleaningPreflight(documentId: string): Promise<LlmCleaningPreflight>
+  runLlmCleaning(documentId: string, expectedVersionId: string): Promise<LlmCleaningResult>
   uploadDocument(input: UploadInput): Promise<UploadResult>
   deleteDocument(id: string): Promise<string>
   listJobs(filters?: JobFilters): Promise<Page<JobListItem>>
@@ -110,6 +114,25 @@ export const workspaceApi: WorkspaceApi = {
       '/api/v1/documents/{document_id}/pipeline/roots/{root_id}',
       { params: { path: { document_id: documentId, root_id: rootId } } },
     )
+    if (result.error) throw apiErrorFromResponse(result.error, result.response)
+    return result.data
+  },
+  async getLlmCleaningPreflight(documentId) {
+    const result = await apiClient.GET(
+      '/api/v1/documents/{document_id}/llm-cleaning/preflight',
+      { params: { path: { document_id: documentId } } },
+    )
+    if (result.error) throw apiErrorFromResponse(result.error, result.response)
+    return result.data
+  },
+  async runLlmCleaning(documentId, expectedVersionId) {
+    const result = await apiClient.POST('/api/v1/documents/{document_id}/llm-cleaning', {
+      params: { path: { document_id: documentId } },
+      body: {
+        expected_version_id: expectedVersionId,
+        confirm_remote_processing: true,
+      },
+    })
     if (result.error) throw apiErrorFromResponse(result.error, result.response)
     return result.data
   },

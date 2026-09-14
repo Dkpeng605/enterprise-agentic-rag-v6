@@ -30,6 +30,7 @@ from enterprise_rag.services import (
     DeterministicEvaluator,
     ImageEnricher,
     IngestionPipeline,
+    ManualLlmCleaningService,
     ProjectionService,
     SemanticQueryRunner,
     build_persistent_tracing,
@@ -175,6 +176,14 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         rrf_k=retrieval.rrf_k,
         max_parent_chars=retrieval.max_parent_chars,
     )
+    manual_llm_cleaning = ManualLlmCleaningService(
+        database=database,
+        language_model=language_model,
+        splitter=splitter,
+        projection=projection,
+        vector_store=vector_store,
+        temporary_root=runtime_root.parent / "llm-cleaning-temporary",
+    )
 
     async def worker() -> None:
         while True:
@@ -213,6 +222,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         tracer_provider=tracer_provider,
         trace_service=trace_service,
         provider_registry=registry,
+        manual_llm_cleaning_service=manual_llm_cleaning,
         background_tasks=(worker,),
         resource_closers=closers,
     )

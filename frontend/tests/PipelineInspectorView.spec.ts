@@ -16,6 +16,8 @@ vi.mock('../src/api/workspace', async (importOriginal) => {
     workspaceApi: {
       getDocumentPipeline: vi.fn(),
       getPipelineRoot: vi.fn(),
+      getLlmCleaningPreflight: vi.fn(),
+      runLlmCleaning: vi.fn(),
     },
   }
 })
@@ -46,7 +48,25 @@ const pipeline: DocumentPipeline = {
     target_tokens: 350, max_tokens: 480, overlap_tokens: 50,
     tokenizer: 'deterministic-multilingual-v1',
   },
+  llm_cleaning: {},
   root_count: 1, leaf_count: 2, roots: [rootSummary], next_cursor: null,
+}
+
+const preflight = {
+  document_id: pipeline.document_id,
+  version_id: pipeline.version_id,
+  available: true,
+  reason: null,
+  provider: 'openai_compatible',
+  model: 'minimax-m3',
+  remote: true,
+  root_count: 1,
+  input_chars: 32,
+  max_roots: 20,
+  max_input_chars: 12000,
+  estimated_calls: 1,
+  max_output_tokens: 8000,
+  already_applied: false,
 }
 
 const detail: PipelineRoot = {
@@ -83,6 +103,24 @@ describe('document pipeline inspector', () => {
   beforeEach(() => {
     vi.mocked(workspaceApi.getDocumentPipeline).mockReset().mockResolvedValue(pipeline)
     vi.mocked(workspaceApi.getPipelineRoot).mockReset().mockResolvedValue(detail)
+    vi.mocked(workspaceApi.getLlmCleaningPreflight).mockReset().mockResolvedValue(preflight)
+    vi.mocked(workspaceApi.runLlmCleaning).mockReset().mockResolvedValue({
+      document_id: pipeline.document_id,
+      version_id: pipeline.version_id,
+      provider: 'openai_compatible',
+      model: 'minimax-m3',
+      root_count: 1,
+      changed_root_count: 1,
+      leaf_count_before: 2,
+      leaf_count_after: 3,
+      input_chars: 32,
+      output_chars: 30,
+      input_tokens: 20,
+      output_tokens: 12,
+      retry_count: 0,
+      llm_calls: 1,
+      applied_at: '2026-09-14T08:00:00Z',
+    })
   })
 
   it('shows the persisted parser, cleaner, splitter and actual chunk boundaries', async () => {
@@ -97,5 +135,48 @@ describe('document pipeline inspector', () => {
     expect(wrapper.get('.text-compare').text()).toContain('退款   申请')
     expect(wrapper.findAll('.leaf-card')).toHaveLength(2)
     expect(wrapper.findAll('.leaf-card')[1]!.text()).toContain('overlap 2 chars')
+    expect(wrapper.get('.llm-cleaning-panel').text()).toContain('minimax-m3')
+    expect(wrapper.get('.llm-cleaning-panel').text()).toContain('32 chars')
+  })
+
+  it('requires an explicit remote-data confirmation before one cleaning call', async () => {
+    const wrapper = await mountView()
+    await flushPromises()
+
+    await wrapper.get('.llm-cleaning-actions button').trigger('click')
+    const confirm = wrapper.get('.llm-confirm')
+    expect(confirm.text()).toContain('clean_text 将离开本机')
+    expect(confirm.get('.button--primary').attributes('disabled')).toBeDefined()
+
+    await confirm.get('input[type="checkbox"]').setValue(true)
+    await confirm.get('.button--primary').trigger('click')
+    await flushPromises()
+
+    expect(workspaceApi.runLlmCleaning).toHaveBeenCalledTimes(1)
+    expect(workspaceApi.runLlmCleaning).toHaveBeenCalledWith(
+      pipeline.document_id,
+      pipeline.version_id,
+    )
+    expect(wrapper.get('.llm-cleaning-result').text()).toContain('1/1 Roots 变化')
+    expect(wrapper.get('.llm-cleaning-result').text()).toContain('Tokens 20 in / 12 out')
+  })
+
+  it('shows persisted Root-level LLM hashes even when the model returns unchanged text', async () => {
+    vi.mocked(workspaceApi.getPipelineRoot).mockResolvedValue({
+      ...detail,
+      metadata: {
+        llm_cleaning: {
+          provider: 'openai_compatible', model: 'minimax-m3', changed: false,
+          before_sha256: '1234567890abcdefaaaa', after_sha256: '1234567890abcdefaaaa',
+          applied_at: '2026-09-14T08:00:00Z', input_tokens: 20, output_tokens: 12,
+        },
+      },
+    })
+    const wrapper = await mountView()
+    await flushPromises()
+
+    expect(wrapper.get('.root-llm-audit').text()).toContain('模型保守原样返回')
+    expect(wrapper.get('.root-llm-audit').text()).toContain('1234567890abcdef → 1234567890abcdef')
+    expect(wrapper.get('.root-llm-audit').text()).toContain('20 in / 12 out')
   })
 })

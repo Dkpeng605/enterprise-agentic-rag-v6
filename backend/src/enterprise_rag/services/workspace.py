@@ -139,6 +139,7 @@ class DocumentPipelineSnapshot:
     splitter_provider: str | None
     splitter_version: str | None
     splitter_settings: Mapping[str, object]
+    llm_cleaning: Mapping[str, object]
     root_count: int
     leaf_count: int
     roots: tuple[PipelineRootSummary, ...]
@@ -576,6 +577,7 @@ class WorkspaceService:
         metadata = selected[0][0].metadata_json if selected else {}
         cleaning = _mapping(metadata.get("cleaning"))
         splitter = _mapping(metadata.get("splitter"))
+        llm_cleaning = _mapping(metadata.get("llm_cleaning"))
         return DocumentPipelineSnapshot(
             document.id,
             version.id,
@@ -587,6 +589,7 @@ class WorkspaceService:
             _text(splitter.get("provider")),
             _text(splitter.get("version")),
             _mapping(splitter.get("settings")),
+            llm_cleaning,
             root_count,
             leaf_count,
             roots,

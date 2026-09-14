@@ -46,6 +46,9 @@ from enterprise_rag.api.schemas import (
     JobListItemResponse,
     JobListResponse,
     JobResponse,
+    LlmCleaningPreflightResponse,
+    LlmCleaningRequest,
+    LlmCleaningResponse,
     LoginRequest,
     PipelineRootDetailResponse,
     QueryRequestModel,
@@ -70,6 +73,7 @@ from enterprise_rag.services.auth import SESSION_COOKIE, AnonymousSessionService
 from enterprise_rag.services.evaluation_workspace import EvaluationWorkspaceService
 from enterprise_rag.services.ingestion_trace import IngestionTraceView
 from enterprise_rag.services.knowledge import KnowledgeApplication, KnowledgeQuery
+from enterprise_rag.services.manual_llm_cleaning import ManualLlmCleaningService
 from enterprise_rag.services.overview import WorkspaceOverviewService
 from enterprise_rag.services.query_trace import QueryTraceView
 from enterprise_rag.services.traces import TraceService
@@ -131,6 +135,7 @@ def create_api_router(
     traces: TraceService | None = None,
     overview: WorkspaceOverviewService | None = None,
     evaluations: EvaluationWorkspaceService | None = None,
+    manual_llm_cleaning: ManualLlmCleaningService | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1", responses=ERROR_RESPONSES)
     cookie_scheme = APIKeyCookie(name=SESSION_COOKIE, auto_error=False)
@@ -176,6 +181,11 @@ def create_api_router(
         if evaluations is None:
             raise _unavailable()
         return evaluations
+
+    def _manual_llm_cleaning() -> ManualLlmCleaningService:
+        if manual_llm_cleaning is None:
+            raise _unavailable()
+        return manual_llm_cleaning
 
     @router.get("/auth/me", response_model=AuthMeResponse, tags=["auth"])
     async def auth_me(
@@ -458,6 +468,58 @@ def create_api_router(
                 principal.tenant_id, document_id, root_id
             )
         )
+
+    @router.get(
+        "/documents/{document_id}/llm-cleaning/preflight",
+        response_model=LlmCleaningPreflightResponse,
+        tags=["documents"],
+    )
+    async def llm_cleaning_preflight(
+        document_id: UUID,
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> LlmCleaningPreflightResponse:
+        if manual_llm_cleaning is None:
+            pipeline = await _workspace().inspect_document_pipeline(
+                principal.tenant_id, document_id, cursor=None, limit=1
+            )
+            return LlmCleaningPreflightResponse(
+                document_id=document_id,
+                version_id=pipeline.version_id,
+                available=False,
+                reason="This runtime has no remote LLM cleaning provider configured.",
+                provider=None,
+                model=None,
+                remote=True,
+                root_count=pipeline.root_count,
+                input_chars=0,
+                max_roots=0,
+                max_input_chars=0,
+                estimated_calls=0,
+                max_output_tokens=0,
+                already_applied=False,
+            )
+        preflight = await manual_llm_cleaning.preflight(principal.tenant_id, document_id)
+        return LlmCleaningPreflightResponse.model_validate(asdict(preflight))
+
+    @router.post(
+        "/documents/{document_id}/llm-cleaning",
+        response_model=LlmCleaningResponse,
+        tags=["documents"],
+    )
+    async def run_llm_cleaning(
+        document_id: UUID,
+        body: LlmCleaningRequest,
+        principal: Annotated[Principal, Depends(writer)],
+    ) -> LlmCleaningResponse:
+        result = await _manual_llm_cleaning().clean(
+            tenant_id=principal.tenant_id,
+            actor_id=principal.actor_id,
+            document_id=document_id,
+            expected_version_id=body.expected_version_id,
+            confirm_remote_processing=body.confirm_remote_processing,
+            now=clock(),
+        )
+        return LlmCleaningResponse.model_validate(asdict(result))
 
     @router.delete(
         "/documents/{document_id}",

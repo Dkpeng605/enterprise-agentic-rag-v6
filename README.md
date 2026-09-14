@@ -76,6 +76,14 @@ Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引
 文本、token 数、offset 和相邻 overlap。该页面读取 PostgreSQL 事实源，不根据前端猜测切分结果；
 升级前摄取且没有 audit 元数据的旧文档会明确标为“旧数据未记录”，重新上传后即可生成完整记录。
 
+同一页面还提供默认关闭的“一次远程 LLM 清洗”。预检会显示 Provider/Model、Root 数、发送字符数、
+一次调用预算和数据离开本机的风险；只有勾选确认后，当前版本的 `clean_text`（不是原文件）才会发送。
+单次最多 20 Roots、12,000 输入字符和 8,000 output tokens；超限、非 ready、版本变化或已经执行过的
+版本会拒绝。响应必须保持 Root ordinal，并通过数字、URL、邮箱、引号值、标题、表头和 fenced code
+锚点校验，成功后才重切分和重建 Dense/Sparse 索引。页面显示 Root 变化、Leaf 前后数量、token usage、
+重试次数和持久化 hash audit；失败会尝试恢复原向量与 ready 状态。这个同步、进程内互斥实现仅适合
+当前单进程 Mac 演示，多副本生产协调仍属于 M8。
+
 当前 Mac 组合的 Standard 与 Deep 都走真实模型链路；Deep 会为综合回答恢复更多 Root 证据。M4
 定义的多轮 Deep Recovery Controller 仍是可插拔服务，尚未装配到这个本地 QueryRunner，不能把
 当前 Deep 按钮描述为已经执行多轮检索恢复。
@@ -160,6 +168,7 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `/api/v1/documents` — 流式上传、筛选与 cursor 分页
 - `/api/v1/documents/{id}` — 文档详情与幂等删除
 - `GET /api/v1/documents/{id}/pipeline`、`/pipeline/roots/{root_id}` — 租户隔离的处理链路、Root/Leaf 与清洗 audit
+- `GET /api/v1/documents/{id}/llm-cleaning/preflight`、`POST /api/v1/documents/{id}/llm-cleaning` — 一次远程清洗预检、明确确认、重切分与索引重建
 - `GET /api/v1/ingestion-jobs`、`GET /api/v1/ingestion-jobs/{id}` — 摄取任务 cursor 列表、筛选与详情
 - `POST /api/v1/queries`、`POST /api/v1/queries/stream` — 同步与 SSE 查询契约；未注入 QueryRunner 的当前启动入口会返回 503
 - `GET /api/v1/traces`、`/api/v1/traces/query`、`/api/v1/traces/ingestion` — 租户内 Trace 筛选与 cursor 分页；Query 列表支持 mode/status/degraded
@@ -359,7 +368,8 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R1 macOS 真实 Provider 开发组合：已完成
 - M7-R2A 文档处理透视：已完成
 - M7-R2B 查询计划与逐阶段召回指标：已完成
-- 下一项：M7-R2C 人工触发的一次 LLM 清洗
+- M7-R2C 人工触发的一次 LLM 清洗：已完成
+- 下一项：M8-01 生产镜像
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
