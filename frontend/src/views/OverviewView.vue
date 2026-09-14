@@ -124,7 +124,7 @@ onMounted(load)
       </div>
 
       <section class="overview-section" aria-labelledby="providers-title">
-        <div class="section-heading"><div><p class="section-kicker">PLUGGABLE RUNTIME</p><h2 id="providers-title">Provider 状态</h2></div><span>{{ health.providers.length }} 个已注册实例</span></div>
+        <div class="section-heading"><div><p class="section-kicker">PLUGGABLE RUNTIME</p><h2 id="providers-title">Provider 状态</h2></div><span>{{ health.providers.length }} 个已注册实例 <RouterLink class="section-heading__link" to="/admin/providers">查看目录与选择 →</RouterLink></span></div>
         <div class="provider-grid">
           <article v-for="group in providerGroups" :key="group.kind" class="provider-card" :class="`provider-card--${providerStatus(group.providers)}`">
             <div class="provider-card__top"><span>{{ group.short }}</span><i></i></div>

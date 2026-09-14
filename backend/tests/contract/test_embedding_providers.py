@@ -33,8 +33,10 @@ class CappedTokenModel(FakeLocalModel):
     def __init__(self, limit: int) -> None:
         super().__init__(())
         self.limit = limit
+        self.token_count_calls = 0
 
     def token_count(self, text: str) -> int:
+        self.token_count_calls += 1
         return min(self.limit, max(1, len(text.split())))
 
 
@@ -96,14 +98,14 @@ async def test_local_provider_rejects_inputs_at_model_limit_before_embedding() -
 
 
 def test_local_provider_probes_a_runtime_limit_smaller_than_registry() -> None:
-    provider = LocalMultilingualEmbedding(
-        model=CappedTokenModel(128), dimension=3, max_batch_tokens=512
-    )
+    model = CappedTokenModel(128)
+    provider = LocalMultilingualEmbedding(model=model, dimension=3, max_batch_tokens=512)
 
     provider.warm_tokenizer()
 
     assert provider.input_token_limit == 128
     assert provider.count_tokens("x " * 1_000) == 128
+    assert model.token_count_calls == 2
 
 
 def test_bge_small_zh_profile_supports_512_dimension_and_input_tokens() -> None:

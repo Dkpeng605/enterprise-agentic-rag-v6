@@ -426,7 +426,19 @@ class IngestionPipeline:
         return replace(root, metadata=metadata)
 
     async def _compensate(self, work: IngestionWork) -> None:
-        await self._vector_store.delete_by_version(work.tenant_id, work.version_id)
+        try:
+            await self._vector_store.delete_by_version(work.tenant_id, work.version_id)
+        except Exception:
+            # Compensation must not strand the PostgreSQL job in `running`. The next
+            # retry can re-open the vector revision and reconcile the same version.
+            LOGGER.warning(
+                "rag.ingestion.vector_compensation_degraded",
+                extra={
+                    "event_code": "INGESTION_VECTOR_COMPENSATION_DEGRADED",
+                    "outcome": "degraded",
+                },
+                exc_info=True,
+            )
         async with self._database.session() as session:
             await IngestionContentRepository(session).reset_content(work.version_id)
 

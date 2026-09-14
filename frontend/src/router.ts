@@ -12,6 +12,7 @@ import HomeView from './views/HomeView.vue'
 import ChatView from './views/ChatView.vue'
 import DocumentsView from './views/DocumentsView.vue'
 import EvaluationView from './views/EvaluationView.vue'
+import AdminProvidersView from './views/AdminProvidersView.vue'
 import LoginView from './views/LoginView.vue'
 import IngestionView from './views/IngestionView.vue'
 import IngestionTraceView from './views/IngestionTraceView.vue'
@@ -78,8 +79,13 @@ const routes: RouteRecordRaw[] = [
     meta: { access: 'workspace', title: '评测中心' },
   },
   { path: '/login', name: 'login', component: LoginView, meta: { access: 'public', title: '管理员登录' } },
+  {
+    path: '/admin/providers',
+    name: 'admin-providers',
+    component: AdminProvidersView,
+    meta: { access: 'system', title: 'Provider 管理' },
+  },
   ...[
-    ['/admin/providers', 'admin-providers', 'Provider 管理'],
     ['/admin/tenants', 'admin-tenants', '租户管理'],
     ['/admin/users', 'admin-users', '用户与角色'],
     ['/admin/audit', 'admin-audit', '审计日志'],

@@ -548,6 +548,34 @@ class HealthReportResponse(ApiModel):
     providers: list[ProviderDiagnosticResponse]
 
 
+class ProviderOptionResponse(ApiModel):
+    kind: str
+    key: str
+    name: str
+    model: str
+    label: str
+    capabilities: list[str]
+    is_remote: bool
+    dimension: int | None = None
+    input_token_limit: int | None = None
+    language_note: str | None = None
+    note: str | None = None
+    selected: bool
+    available: bool
+    requires_restart: bool
+
+
+class ProviderCatalogResponse(ApiModel):
+    providers: list[ProviderDiagnosticResponse]
+    options: list[ProviderOptionResponse]
+    selection: dict[str, str | bool]
+
+
+class ProviderSelectionRequest(ApiModel):
+    kind: Literal["embedding", "reranker", "llm"]
+    key: str = Field(min_length=1, max_length=500)
+
+
 class DocumentCountsResponse(ApiModel):
     pending: int
     processing: int

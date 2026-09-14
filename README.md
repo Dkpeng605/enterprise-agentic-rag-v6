@@ -61,7 +61,8 @@ cp .env.mac.example .env
 - LLM：`MiniMax-M3`，通过 `.env` 中的 `LLM_BASE_URL` 调用。
 
 默认 MiniLM 的 registry 描述是 512 input tokens，但本机 FastEmbed tokenizer 实测上限是 128；页面和
-Splitter 以运行时实测值为准。需要 512 输入 token/512 维向量时，可在 `.env` 中改为
+Splitter 以运行时实测值为准。Provider 管理页会同时显示 profile 声明值和当前进程探测到的有效值。
+需要 512 输入 token/512 维向量时，可在 `.env` 中改为
 `EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5`，并设置
 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`。这是可插拔的本地模型 profile，首次运行会下载
 对应模型；切换模型或维度会创建新的 index revision，旧向量不会与新向量混用。
@@ -75,7 +76,10 @@ pnpm --dir=frontend dev
 打开 `http://127.0.0.1:5173`。匿名用户会自动获得 Demo Tenant 全部业务权限，可依次新建集合、
 上传 PDF/DOCX/XLSX/XLS/CSV/HTML/TXT/Markdown、查看真实解析与摄取进度，再到“知识问答”观察
 Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引用。Provider 状态可在
-“租户总览”或 `http://127.0.0.1:8000/health/doctor` 查看。
+“租户总览”或 `http://127.0.0.1:8000/health/doctor` 查看。管理员登录后，Provider 状态卡片的“管理与选择”
+会打开 `/admin/providers`：页面读取当前注册表，展示可用 Embedding/Reranker profile、维度、有效 token
+上限、语言说明和本地/远程属性，并可保存下一次启动配置。选择不是热切换；重启 backend 后生效，Embedding
+变更还必须重新摄取文档。
 
 文档进入 `ready` 后，在“文档管理”打开详情并选择“查看解析、清洗与切分”，可检查实际 Parser、
 确定性 Cleaner、Splitter 参数、每个 Root 的原文/清洗后对照、规则 audit，以及每个 Leaf 的完整
@@ -184,6 +188,7 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `/api/v1/evaluations/catalog`、`/api/v1/evaluations/runs`、`/api/v1/evaluations/compare` — 预算预检、租户评测历史、报告与受控比较
 - `GET /api/v1/traces/{trace_id}` — 阶段耗时、候选排名、分数和降级详情
 - `GET /health/live`、`GET /health/ready`、`GET /health/doctor` — 存活、就绪和已净化 Provider 诊断
+- `GET /api/v1/admin/providers`、`POST /api/v1/admin/providers/select` — 系统管理员读取当前 Provider 注册表、可选 Embedding/Reranker profile，并保存重启生效的选择
 - `GET /metrics` — Prometheus text exposition；生产环境必须使用独立 Bearer token
 
 stdio MCP Server 使用官方 Python SDK v2，提供 6 个只读知识 Tool 与 4 类租户隔离的 Resource。先在你自己的组合模块中构造 `MCPServer`，再显式配置 factory 启动：
@@ -222,7 +227,8 @@ Trace 阶段/批次/稳定错误检查器，以及预算评测中心。
 匿名用户无需登录即可进入 `/workspace/*`；`/workspace/overview` 会读取当前 tenant 的集合、文档、
 索引、24 小时 Query 与最近任务聚合，并并列显示 `/health/doctor` 的 Provider 状态；
 `/workspace/documents` 支持集合 CRUD、筛选、上传、详情和安全删除，`/workspace/ingestion` 展示
-后台任务真实进度；`/admin/*` 仍需系统管理员身份。若需要重新生成锁定的 OpenAPI 类型：
+后台任务真实进度；`/admin/providers` 展示实时 Provider 注册表并提供 Embedding/Reranker 选择，其他 `/admin/*`
+仍需系统管理员身份。若需要重新生成锁定的 OpenAPI 类型：
 
 ```bash
 pnpm --dir=frontend generate:api

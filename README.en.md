@@ -63,7 +63,8 @@ The first upload or query downloads these ONNX models into the ignored
 - LLM: `MiniMax-M3`, called through `LLM_BASE_URL` from `.env`.
 
 The MiniLM registry describes a 512-token input window, but the cached FastEmbed tokenizer on this Mac
-reports an actual limit of 128; the UI and Splitter use the runtime limit. For a 512-token, 512-dimensional
+reports an actual limit of 128; the UI and Splitter use the runtime limit. The Provider administration page
+also shows the profile declaration and the effective limit detected by the current process. For a 512-token, 512-dimensional
 local profile, set `EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5` and
 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`. Model selection is pluggable; switching a model or
 dimension creates a new index revision, so old and new vectors are never mixed.
@@ -78,7 +79,10 @@ Open `http://127.0.0.1:5173`. Anonymous users automatically receive all Demo Ten
 permissions. Create a collection, upload PDF/DOCX/XLSX/XLS/CSV/HTML/TXT/Markdown, inspect real
 parsing and ingestion progress, then use Knowledge Chat to exercise Dense/Sparse retrieval, RRF,
 CrossEncoder reranking, Root recovery, LLM generation, and citations. Inspect provider status in
-Tenant Overview or at `http://127.0.0.1:8000/health/doctor`.
+Tenant Overview or at `http://127.0.0.1:8000/health/doctor`. After administrator login, the “Manage and select”
+link opens `/admin/providers`: it reads the live registry, shows selectable Embedding/Reranker profiles with
+dimensions, effective token limits, language notes, and local/remote attributes, and saves the next-start selection.
+Selection is not a hot swap; restart the backend to apply it, then re-ingest documents when the Embedding changes.
 
 After a document reaches `ready`, open it in Documents and select “Inspect parsing, cleaning, and splitting.”
 The page shows the actual Parser, deterministic Cleaner, Splitter settings, Root raw/clean comparisons and rule
@@ -199,6 +203,7 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `/api/v1/evaluations/catalog`, `/api/v1/evaluations/runs`, and `/api/v1/evaluations/compare` — budget preflight, tenant run history, reports, and controlled comparison
 - `GET /api/v1/traces/{trace_id}` — stage timing, candidate ranks, scores, and degradation details
 - `GET /health/live`, `GET /health/ready`, and `GET /health/doctor` — liveness, readiness, and sanitized Provider diagnostics
+- `GET /api/v1/admin/providers` and `POST /api/v1/admin/providers/select` — system-admin live Provider registry, selectable Embedding/Reranker profiles, and restart-bound selection
 - `GET /metrics` — Prometheus text exposition; production requires a dedicated bearer token
 
 The stdio MCP server uses the official Python SDK v2 and exposes six read-only knowledge tools plus four tenant-scoped resource forms. Build an `MCPServer` in your own composition module, then configure its factory explicitly:
@@ -230,7 +235,7 @@ Start the frontend in a second terminal:
 pnpm --dir=frontend dev
 ```
 
-Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, system route guards, public SSE chat, tenant overview, Collection/Document management, ingestion-job monitoring, Query and Ingestion Trace inspectors, and the budgeted evaluation workspace. Anonymous visitors may use `/workspace/*` without login; `/workspace/overview` reads current-tenant collection, document, index, 24-hour query, and recent activity aggregates alongside `/health/doctor` Provider states. `/workspace/documents` provides collection CRUD, filtering, upload, detail, and safe deletion, while `/workspace/ingestion` shows persisted job progress. `/admin/*` still requires a system administrator. Regenerate the committed OpenAPI types with:
+Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, system route guards, public SSE chat, tenant overview, Collection/Document management, ingestion-job monitoring, Query and Ingestion Trace inspectors, and the budgeted evaluation workspace. Anonymous visitors may use `/workspace/*` without login; `/workspace/overview` reads current-tenant collection, document, index, 24-hour query, and recent activity aggregates alongside `/health/doctor` Provider states. `/workspace/documents` provides collection CRUD, filtering, upload, detail, and safe deletion, while `/workspace/ingestion` shows persisted job progress. `/admin/providers` shows the live Provider registry and selectable Embedding/Reranker profiles; all other `/admin/*` routes still require a system administrator. Regenerate the committed OpenAPI types with:
 
 ```bash
 pnpm --dir=frontend generate:api
