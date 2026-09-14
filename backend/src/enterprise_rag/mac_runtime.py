@@ -82,6 +82,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         batch_size=active.ingestion.embedding_batch_size,
         max_batch_tokens=active.ingestion.embedding_batch_tokens,
     )
+    embedding.warm_tokenizer()
     if embedding.dimension != active.ingestion.embedding_dimension:
         raise RuntimeError(
             "Configured ingestion.embedding_dimension does not match the local embedding model"
@@ -123,6 +124,9 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         target_tokens=active.ingestion.target_tokens,
         max_tokens=active.ingestion.max_tokens,
         overlap_tokens=active.ingestion.overlap_tokens,
+        token_counter=embedding.count_tokens,
+        tokenizer=embedding.tokenizer_name,
+        embedding_token_limit=embedding.input_token_limit,
     )
     evaluator = DeterministicEvaluator()
     registry = ProviderRegistry()

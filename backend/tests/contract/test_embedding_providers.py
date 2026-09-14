@@ -24,6 +24,9 @@ class FakeLocalModel:
         assert batch_size == len(documents)
         return iter(self.responses.pop(0))
 
+    def token_count(self, text: str) -> int:
+        return max(1, len(text.split()))
+
 
 @pytest.mark.anyio
 async def test_local_provider_batches_normalizes_and_preserves_order() -> None:
@@ -48,6 +51,8 @@ async def test_local_provider_batches_normalizes_and_preserves_order() -> None:
     )
     assert provider.dimension == 3
     assert "mean-pooling" in provider.info().version
+    assert provider.input_token_limit == 512
+    assert provider.tokenizer_name.startswith("fastembed-tokenizer:")
 
 
 @pytest.mark.anyio
@@ -65,6 +70,19 @@ async def test_local_provider_rejects_input_and_invalid_model_outputs() -> None:
         with pytest.raises(AppError) as raised:
             await provider.embed_documents(texts)
         assert raised.value.code is ErrorCode.EMBEDDING_INPUT_INVALID
+
+
+@pytest.mark.anyio
+async def test_local_provider_rejects_inputs_at_model_limit_before_embedding() -> None:
+    provider = LocalMultilingualEmbedding(
+        model=FakeLocalModel(()), dimension=3, max_batch_tokens=600
+    )
+
+    with pytest.raises(AppError) as raised:
+        await provider.embed_documents(("x " * 512,))
+
+    assert raised.value.code is ErrorCode.EMBEDDING_INPUT_INVALID
+    assert raised.value.details == {"tokens": 512, "max_input_tokens": 512}
 
 
 @pytest.mark.anyio
@@ -158,7 +176,10 @@ async def test_provider_close_is_idempotent() -> None:
 @pytest.mark.anyio
 async def test_real_multilingual_minilm_embeds_chinese_and_english(tmp_path: Path) -> None:
     provider = LocalMultilingualEmbedding(cache_dir=tmp_path / "models")
+    provider.warm_tokenizer()
     vectors = await provider.embed_documents(("企业知识库", "enterprise knowledge base"))
     assert len(vectors) == 2
     assert all(len(vector) == 384 for vector in vectors)
     assert all(math.isfinite(value) for vector in vectors for value in vector)
+    assert provider.input_token_limit is not None
+    assert provider.count_tokens("x " * 1_000) == provider.input_token_limit

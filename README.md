@@ -510,11 +510,11 @@ PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr
 
 确定性 Cleaner 同时保留原文和清洗文本，并为每项实际变更记录规则、次数及前后内容 hash。它处理不可见控制字符、常见 OCR 异常和空白，并通过批量 Root 统计移除重复页眉页脚。相同文本重复清洗不会继续变化，默认不会使用 LLM 改写文档。
 
-结构化 Splitter 使用版本化的确定性多语 tokenizer，在 Root 内优先尊重标题、段落、列表、代码围栏和表格行边界，再应用 target/max/overlap 限制。表格续块会重复表头且计入 token 上限；Root/Leaf ID 对相同 version、index revision、内容和顺序保持稳定。该轻量 tokenizer 不等同于任何远程模型 tokenizer，后续替换时必须创建新索引 revision。
+结构化 Splitter 使用版本化的段落/句子感知策略：在 Root 内优先保留标题、段落、列表、代码围栏、表格行和完整句子，再应用 target/max/overlap 限制。只有单个结构单元本身超过预算时才降级为 token 硬切，并在 Leaf metadata 标记 `boundary=token_limit_hard_cut`、`hard_cut=true`。macOS 真实运行时直接复用 FastEmbed tokenizer 与模型输入上限，实际安全预算为配置上限和 `model_input_limit - 1` 的较小值；每个 Root/Leaf 都保存实际 tokenizer、预算、边界和硬切计数，前端可逐块核对。表格续块会重复表头且计入 token 上限；Root/Leaf ID 对相同 version、index revision、内容和顺序保持稳定。
 
 图片增强服务先把 Loader 提取的原始图片写入内容寻址 ObjectStore，再调用可插拔 Vision 端口。默认 `vision: none` 会保留图片并跳过 caption；Vision 异常只将 caption 标记为降级，不会丢弃已存图片或泄露供应商错误。ObjectStore 写入失败仍会中止摄取，因为图片持久化不是可选数据。
 
-Embedding 端口提供本地多语和 OpenAI-compatible 两种实现。本地默认使用 FastEmbed ONNX 的 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling），首次调用会下载约 0.22GB 模型；远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
+Embedding 端口提供本地多语和 OpenAI-compatible 两种实现。本地默认使用 FastEmbed ONNX 的 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling、registry 描述为 512 input tokens），首次调用会下载约 0.22GB 模型；运行时不会盲信 registry，而是在 tokenizer 预热后读取实际 truncation limit（当前缓存模型实际报告 128），Provider 暴露真实 tokenizer 的 `count_tokens` 与输入上限，拒绝达到模型上限的单项输入，Splitter 与 Embedding 使用同一个计数器。远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试，但在未配置模型 tokenizer 时不会虚构远程模型上限。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
 
 ```bash
 (cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \
