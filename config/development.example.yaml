@@ -18,6 +18,7 @@ ingestion:
   csv_fallback_encoding: null
   embedding_batch_size: 32
   embedding_batch_tokens: 8192
+  overlap_tokens: 0
   embedding_dimension: 384
   embedding_timeout_seconds: 20.0
   embedding_max_retries: 2
