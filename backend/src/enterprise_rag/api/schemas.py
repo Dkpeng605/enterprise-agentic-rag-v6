@@ -95,6 +95,40 @@ class DemoSeedResponse(ApiModel):
     documents: list[UploadResponse]
 
 
+class McpToolCapabilityResponse(ApiModel):
+    name: str
+    description: str
+    required_scopes: list[str]
+    read_only: bool
+
+
+class McpResourceCapabilityResponse(ApiModel):
+    uri: str
+    kind: Literal["resource", "template"]
+    description: str
+    required_scopes: list[str]
+
+
+class McpTransportResponse(ApiModel):
+    name: Literal["stdio", "streamable_http"]
+    status: Literal[
+        "factory_declared",
+        "requires_factory",
+        "mounted",
+        "external_composition_required",
+    ]
+    endpoint: str | None
+    detail: str
+
+
+class McpCapabilityCatalogResponse(ApiModel):
+    server_name: str
+    server_version: str
+    tools: list[McpToolCapabilityResponse]
+    resources: list[McpResourceCapabilityResponse]
+    transports: list[McpTransportResponse]
+
+
 class DocumentResponse(ApiModel):
     id: UUID
     collection_id: UUID

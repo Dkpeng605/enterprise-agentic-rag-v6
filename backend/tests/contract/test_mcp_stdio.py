@@ -9,6 +9,8 @@ from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import TextResourceContents
 
+from enterprise_rag.mcp.catalog import MCP_RESOURCES, MCP_TOOLS
+
 BACKEND_ROOT = Path(__file__).parents[2]
 
 
@@ -35,26 +37,20 @@ async def test_real_stdio_client_can_list_call_and_read_without_stdout_corruptio
         async with Client(stdio_client(parameters, errlog=stderr)) as client:
             tools = await client.list_tools()
             assert {tool.name for tool in tools.tools} == {
-                "get_document_summary",
-                "list_collections",
-                "list_document_sections",
-                "query_knowledge_base",
-                "search_documents",
-                "verify_answer",
+                item.name for item in MCP_TOOLS
             }
             assert all(
                 tool.annotations and tool.annotations.read_only_hint for tool in tools.tools
             )
 
             resources = await client.list_resources()
-            assert [str(resource.uri) for resource in resources.resources] == [
-                "rag://collections"
+            expected_resources = [
+                item.uri for item in MCP_RESOURCES if item.kind == "resource"
             ]
+            assert [str(resource.uri) for resource in resources.resources] == expected_resources
             templates = await client.list_resource_templates()
             assert {template.uri_template for template in templates.resource_templates} == {
-                "rag://collections/{collection_id}",
-                "rag://documents/{document_id}",
-                "rag://documents/{document_id}/sections/{root_id}",
+                item.uri for item in MCP_RESOURCES if item.kind == "template"
             }
 
             query = await client.call_tool(

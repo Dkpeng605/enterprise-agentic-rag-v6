@@ -18,6 +18,7 @@ from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
 from enterprise_rag.adapters.vision import NoopVisionProvider
 from enterprise_rag.api import create_app
 from enterprise_rag.config import AppSettings, load_settings
+from enterprise_rag.mcp.catalog import McpCapabilityCatalog
 from enterprise_rag.observability import configure_json_logging
 from enterprise_rag.services import (
     DeterministicLocalQueryRunner,
@@ -144,6 +145,7 @@ def build_local_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         query_runner=query_runner,
         tracer_provider=tracer_provider,
         trace_service=trace_service,
+        mcp_catalog=McpCapabilityCatalog.from_environment(),
         background_tasks=(worker,),
         resource_closers=closers,
     )

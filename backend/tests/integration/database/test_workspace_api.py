@@ -24,6 +24,7 @@ from enterprise_rag.adapters.database.models import (
 from enterprise_rag.adapters.object_store import LocalObjectStore
 from enterprise_rag.api import create_app
 from enterprise_rag.config import AppSettings
+from enterprise_rag.mcp.catalog import McpCapabilityCatalog
 
 BACKEND_ROOT = Path(__file__).parents[3]
 DATABASE_URL = os.environ.get(
@@ -69,6 +70,7 @@ async def api(tmp_path: Path) -> AsyncIterator[httpx2.AsyncClient]:
         database=database,
         object_store=LocalObjectStore(tmp_path / "objects"),
         session_secret=SESSION_SECRET,
+        mcp_catalog=McpCapabilityCatalog(stdio_factory_declared=False),
         clock=lambda: NOW,
     )
     transport = httpx2.ASGITransport(app=application)
@@ -86,6 +88,30 @@ async def start_session(client: httpx2.AsyncClient) -> tuple[str, str]:
     assert response.json()["role"] == "demo_operator"
     assert "documents:manage" in response.json()["permissions"]
     return response.json()["csrf_token"], response.json()["tenant"]["id"]
+
+
+@pytest.mark.anyio
+async def test_anonymous_workspace_can_read_sanitized_mcp_capability_catalog(
+    api: httpx2.AsyncClient,
+) -> None:
+    await start_session(api)
+
+    response = await api.get("/api/v1/workspace/mcp")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["server_name"] == "enterprise-agentic-rag-v6"
+    assert {item["name"] for item in payload["tools"]} == {
+        "query_knowledge_base",
+        "search_documents",
+        "list_collections",
+        "get_document_summary",
+        "list_document_sections",
+        "verify_answer",
+    }
+    assert len(payload["resources"]) == 4
+    assert payload["transports"][1]["status"] == "external_composition_required"
+    assert "authorization" not in response.text.lower()
 
 
 def csrf_headers(token: str) -> dict[str, str]:

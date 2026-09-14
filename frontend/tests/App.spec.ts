@@ -29,6 +29,10 @@ vi.mock('../src/api/workspace', () => ({
   },
 }))
 
+vi.mock('../src/api/mcp', () => ({
+  mcpApi: { load: vi.fn().mockResolvedValue({ server_name: 'test', server_version: '0.1.0', tools: [], resources: [], transports: [] }) },
+}))
+
 const anonymous: SessionProfile = {
   actor_type: 'anonymous',
   role: 'demo_operator',
@@ -77,6 +81,13 @@ describe('application shell and authorization', () => {
     expect(auth.isAnonymous).toBe(true)
     expect(wrapper.get('.sidebar__footer').text()).toContain('demo · 匿名演示')
     expect(wrapper.get('h1').text()).toBe('文档管理')
+  })
+
+  it('permits anonymous users to open the MCP capability catalog', async () => {
+    const { wrapper, router } = await mountAt('/workspace/mcp')
+
+    expect(router.currentRoute.value.fullPath).toBe('/workspace/mcp')
+    expect(wrapper.get('h1').text()).toBe('MCP 生态')
   })
 
   it('redirects an anonymous identity away from system routes', async () => {

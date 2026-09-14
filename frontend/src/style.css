@@ -306,6 +306,46 @@ h1 em { color: var(--mint-600); font-weight: inherit; }
 .provider-index-warning { color: #9a641d !important; }
 .provider-index-ok { color: #287655 !important; }
 .provider-index-help { max-width: 900px; margin: 0 0 14px; color: var(--muted); font-size: 10px; line-height: 1.7; }
+.mcp-page { max-width: 1450px; margin: auto; padding: 44px clamp(28px, 5vw, 72px) 80px; }
+.mcp-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; margin-bottom: 34px; }
+.mcp-heading h1 { margin: 0; color: var(--ink-900); font-family: Georgia, "Songti SC", serif; font-size: clamp(40px, 4vw, 60px); font-weight: 500; }
+.mcp-heading p:last-child { max-width: 710px; margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.mcp-identity { display: flex; align-items: center; gap: 10px; min-width: 260px; padding: 15px 18px; background: var(--white); border: 1px solid var(--line); border-radius: 8px; }
+.mcp-identity strong, .mcp-identity small { display: block; }
+.mcp-identity strong { color: var(--ink-800); font-size: 12px; }
+.mcp-identity small { margin-top: 4px; color: var(--muted); font-size: 9px; }
+.mcp-state { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.mcp-state i { display: block; height: 104px; background: #f2f0e9; border: 1px solid var(--line); border-radius: 8px; animation: mcp-pulse 1.5s infinite alternate; }
+@keyframes mcp-pulse { to { opacity: .55; } }
+.mcp-error { padding: 38px; background: var(--white); border: 1px solid #e8bab1; border-radius: 8px; }
+.mcp-error h2 { margin: 7px 0; color: var(--ink-900); font-family: Georgia, "Songti SC", serif; font-weight: 500; }
+.mcp-error p:not(.section-kicker) { color: var(--muted); font-size: 11px; }
+.mcp-error code { display: block; margin: 15px 0; color: var(--danger); font-size: 10px; }
+.mcp-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.mcp-summary article { padding: 18px; background: var(--white); border: 1px solid var(--line); border-radius: 8px; }
+.mcp-summary small, .mcp-summary strong, .mcp-summary p { display: block; }
+.mcp-summary small { color: var(--mint-600); font-size: 8px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.mcp-summary strong { margin-top: 12px; color: var(--ink-900); font-family: Georgia, "Songti SC", serif; font-size: 30px; font-weight: 500; }
+.mcp-summary p { margin: 6px 0 0; color: var(--muted); font-size: 9px; }
+.mcp-section { margin-top: 38px; }
+.mcp-transport-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.mcp-transport { padding: 18px; background: var(--white); border: 1px solid var(--line); border-left: 3px solid #d29338; border-radius: 8px; }
+.mcp-transport--ready { border-left-color: var(--mint-500); }
+.mcp-transport header { display: flex; justify-content: space-between; gap: 12px; color: var(--mint-600); font-size: 8px; font-weight: 800; letter-spacing: .11em; }
+.mcp-transport header b { color: #9a641d; font-size: 8px; letter-spacing: 0; }
+.mcp-transport--ready header b { color: #287655; }
+.mcp-transport > strong { display: block; margin-top: 19px; color: var(--ink-800); font-size: 12px; font-weight: 500; line-height: 1.7; }
+.mcp-transport code, .mcp-transport small { display: block; margin-top: 13px; color: var(--muted); font-size: 9px; word-break: break-all; }
+.mcp-tool-list, .mcp-resource-list { display: grid; gap: 8px; }
+.mcp-tool, .mcp-resource { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 16px 18px; background: var(--white); border: 1px solid var(--line); border-radius: 7px; }
+.mcp-tool strong, .mcp-resource strong { color: var(--ink-800); font-family: ui-monospace, monospace; font-size: 11px; }
+.mcp-tool p, .mcp-resource p { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.mcp-scope-list { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; max-width: 420px; }
+.mcp-scope-list span, .mcp-scope-list b, .mcp-resource > span { padding: 5px 7px; color: var(--muted); font-family: ui-monospace, monospace; font-size: 8px; font-weight: 500; background: #f7f5ef; border: 1px solid var(--line); border-radius: 4px; white-space: nowrap; }
+.mcp-scope-list b { color: #287655; font-family: inherit; font-size: 7px; letter-spacing: .07em; }
+.mcp-resource > span { flex: 0 0 auto; color: var(--mint-600); font-family: inherit; }
+@media (max-width: 800px) { .mcp-heading { display: block; } .mcp-identity { margin-top: 20px; } .mcp-summary, .mcp-transport-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .mcp-tool, .mcp-resource { display: block; } .mcp-scope-list { justify-content: flex-start; margin-top: 14px; } .mcp-resource > span { display: inline-block; margin-top: 14px; } }
+@media (max-width: 520px) { .mcp-page { padding: 28px 18px 60px; } .mcp-summary, .mcp-transport-grid { grid-template-columns: 1fr; } }
 .provider-index-table { overflow: hidden; background: var(--white); border: 1px solid var(--line); border-radius: 9px; }
 .provider-index-row { display: grid; grid-template-columns: minmax(180px, 1.5fr) minmax(130px, 1fr) 90px minmax(180px, 1fr); align-items: center; gap: 15px; padding: 12px 15px; border-bottom: 1px solid var(--line); }
 .provider-index-row:last-child { border-bottom: 0; }

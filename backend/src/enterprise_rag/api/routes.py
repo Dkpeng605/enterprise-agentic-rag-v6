@@ -51,6 +51,7 @@ from enterprise_rag.api.schemas import (
     LlmCleaningRequest,
     LlmCleaningResponse,
     LoginRequest,
+    McpCapabilityCatalogResponse,
     PipelineRootDetailResponse,
     ProviderCatalogResponse,
     ProviderIndexStatusResponse,
@@ -73,6 +74,7 @@ from enterprise_rag.domain.documents import DocumentStatus, DocumentVisibility
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.jobs import JobSnapshot, JobStatus
 from enterprise_rag.domain.retrieval import QueryMode, QueryScope
+from enterprise_rag.mcp.catalog import McpCapabilityCatalog
 from enterprise_rag.ports.planner import ConversationRole, ConversationTurn
 from enterprise_rag.ports.traces import StoredSpan, TraceDetail, TraceSummary
 from enterprise_rag.services.auth import SESSION_COOKIE, AnonymousSessionService, Principal
@@ -146,6 +148,7 @@ def create_api_router(
     manual_llm_cleaning: ManualLlmCleaningService | None = None,
     provider_catalog: RuntimeProviderCatalog | None = None,
     provider_reindex: ProviderReindexService | None = None,
+    mcp_catalog: McpCapabilityCatalog | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1", responses=ERROR_RESPONSES)
     cookie_scheme = APIKeyCookie(name=SESSION_COOKIE, auto_error=False)
@@ -206,6 +209,11 @@ def create_api_router(
         if provider_reindex is None:
             raise _unavailable()
         return provider_reindex
+
+    def _mcp_catalog() -> McpCapabilityCatalog:
+        if mcp_catalog is None:
+            raise _unavailable()
+        return mcp_catalog
 
     def _require_system_admin(principal: Principal) -> Principal:
         if principal.actor_type != "user" or principal.role not in {"super_admin", "system_admin"}:
@@ -373,6 +381,17 @@ def create_api_router(
     ) -> WorkspaceOverviewResponse:
         snapshot = await _overview().get(principal.tenant_id, now=clock())
         return WorkspaceOverviewResponse.model_validate(snapshot.to_dict())
+
+    @router.get(
+        "/workspace/mcp",
+        response_model=McpCapabilityCatalogResponse,
+        tags=["workspace"],
+    )
+    async def workspace_mcp_catalog(
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> McpCapabilityCatalogResponse:
+        del principal
+        return McpCapabilityCatalogResponse.model_validate(_mcp_catalog().to_dict())
 
     @router.get(
         "/collections",

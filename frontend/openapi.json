@@ -1039,6 +1039,122 @@
         ]
       }
     },
+    "/api/v1/workspace/mcp": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Workspace Mcp Catalog",
+        "operationId": "workspace_mcp_catalog_api_v1_workspace_mcp_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpCapabilityCatalogResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or invalid CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant-scoped resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Upload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Schema validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demo quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
     "/api/v1/collections": {
       "get": {
         "tags": [
@@ -7432,6 +7548,163 @@
           "password"
         ],
         "title": "LoginRequest"
+      },
+      "McpCapabilityCatalogResponse": {
+        "properties": {
+          "server_name": {
+            "type": "string",
+            "title": "Server Name"
+          },
+          "server_version": {
+            "type": "string",
+            "title": "Server Version"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/McpToolCapabilityResponse"
+            },
+            "type": "array",
+            "title": "Tools"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/McpResourceCapabilityResponse"
+            },
+            "type": "array",
+            "title": "Resources"
+          },
+          "transports": {
+            "items": {
+              "$ref": "#/components/schemas/McpTransportResponse"
+            },
+            "type": "array",
+            "title": "Transports"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "server_name",
+          "server_version",
+          "tools",
+          "resources",
+          "transports"
+        ],
+        "title": "McpCapabilityCatalogResponse"
+      },
+      "McpResourceCapabilityResponse": {
+        "properties": {
+          "uri": {
+            "type": "string",
+            "title": "Uri"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "resource",
+              "template"
+            ],
+            "title": "Kind"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "required_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Scopes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "uri",
+          "kind",
+          "description",
+          "required_scopes"
+        ],
+        "title": "McpResourceCapabilityResponse"
+      },
+      "McpToolCapabilityResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "required_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Scopes"
+          },
+          "read_only": {
+            "type": "boolean",
+            "title": "Read Only"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "required_scopes",
+          "read_only"
+        ],
+        "title": "McpToolCapabilityResponse"
+      },
+      "McpTransportResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "stdio",
+              "streamable_http"
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "factory_declared",
+              "requires_factory",
+              "mounted",
+              "external_composition_required"
+            ],
+            "title": "Status"
+          },
+          "endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "endpoint",
+          "detail"
+        ],
+        "title": "McpTransportResponse"
       },
       "OverviewActivityResponse": {
         "properties": {

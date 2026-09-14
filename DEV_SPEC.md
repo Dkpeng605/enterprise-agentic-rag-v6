@@ -2796,6 +2796,33 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   新 revision 已完成，可重新选择旧 Provider、重启并运行同一重建服务。禁止手工删除整个 Milvus 文件作为回滚。
 - PR：`fix/m7-r5-provider-reindex`。
 
+##### M7-R6 MCP 能力目录与传输状态可视化（已完成）
+
+- 缺口事实：M5 已有官方 SDK 的 stdio/Streamable HTTP Adapter、六个只读 Tool、四类 Resource 和
+  scope/collection allowlist 约束，但 Vue 工作区没有 MCP 入口；Mac API 组合也没有挂载 `/mcp`。仅凭
+  README 或测试 fixture 无法证明用户当前看到的是哪组能力，更不能把“代码支持 HTTP MCP”误报为
+  “当前进程已经运行 HTTP MCP”；
+- 单一事实源：新增脱敏 `McpCapabilityCatalog`，集中定义 Server 名称/版本、Tool 名称、用途、只读标记、
+  required scopes，以及固定 Resource/URI template。SDK Server 显式复用同一 Server 常量和 Tool 名称，
+  契约测试锁定 SDK 实际 list_tools/list_resources 结果，避免前端目录与协议注册静默漂移；
+- 传输语义：stdio 只根据当前进程环境是否声明 `ENTERPRISE_RAG_MCP_STDIO_FACTORY` 显示
+  `factory_declared`，该状态不等同于可连接；真正可用性仍由官方 MCP Client 契约/连接验证；
+  Streamable HTTP 只有组合根显式提供 endpoint 时才能标为 `mounted`。Mac runtime 未挂载时返回
+  `external_composition_required`，页面显示“需要外部组合”；不得根据模块存在、测试通过或 README 文案
+  推断端点健康，也不得伪造 client count、请求量或连接状态；
+- API/权限：`GET /api/v1/workspace/mcp` 是 session 保护的 tenant 工作区只读接口。匿名 demo 用户可以查看
+  能力目录，但不能签发、查看、撤销 MCP Token，也不能读取 token prefix/hash、pepper、Prompt、
+  Authorization、文档正文或跨租户统计；未注入 catalog 的组合返回稳定 `SERVICE_UNAVAILABLE`；
+- UI：新增 `/workspace/mcp` 和侧栏入口，展示 Server identity、Tool/Resource/Scope 数量、两种 transport
+  的真实状态、六个 Tool 的说明与 Scope、四类 Resource URI。loading、error/request-ID/retry 和窄屏布局
+  均有独立状态；所有能力项来自 API，不在 Vue 中复制静态目录；
+- EDD：后端单元测试覆盖目录、传输状态和敏感字段排除，PostgreSQL/FastAPI 集成测试覆盖匿名 session
+  读取；Vue 测试覆盖 API 数据投影、未挂载状态、错误和重试，路由测试覆盖匿名工作区访问。OpenAPI 与
+  TypeScript 类型重新生成，Ruff、Mypy、Pytest、Vitest、typecheck、build 和 Browser E2E 必须通过；
+- 回滚：移除只读 API、Vue 页面与目录即可，不改变 MCP 协议、数据库或现有 Token；已运行的 stdio/HTTP
+  Adapter 不依赖该页面。
+- PR：`feat/m7-r6-mcp-capability-ui`。
+
 ### M8：首次公网发布
 
 #### M8-01 Images

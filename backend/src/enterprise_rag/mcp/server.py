@@ -20,6 +20,20 @@ from enterprise_rag.mcp.access import (
     AccessResolver,
     McpAccess,
 )
+from enterprise_rag.mcp.catalog import (
+    COLLECTION_RESOURCE,
+    COLLECTIONS_RESOURCE,
+    DOCUMENT_RESOURCE,
+    GET_DOCUMENT_SUMMARY_TOOL,
+    LIST_COLLECTIONS_TOOL,
+    LIST_DOCUMENT_SECTIONS_TOOL,
+    MCP_SERVER_NAME,
+    MCP_SERVER_VERSION,
+    QUERY_KNOWLEDGE_TOOL,
+    SEARCH_DOCUMENTS_TOOL,
+    SECTION_RESOURCE,
+    VERIFY_ANSWER_TOOL,
+)
 from enterprise_rag.services.auth import Principal
 from enterprise_rag.services.knowledge import KnowledgeQuery, McpApplicationService
 
@@ -97,8 +111,8 @@ def build_mcp_server(
     token_verifier: TokenVerifier | None = None,
 ) -> MCPServer[None]:
     server: MCPServer[None] = MCPServer(
-        "enterprise-agentic-rag-v6",
-        version="0.1.0",
+        MCP_SERVER_NAME,
+        version=MCP_SERVER_VERSION,
         instructions=(
             "Use read-only knowledge tools. Results are restricted to the authenticated tenant."
         ),
@@ -111,7 +125,11 @@ def build_mcp_server(
         current.require(required_scope)
         return current
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(
+        name=QUERY_KNOWLEDGE_TOOL.name,
+        description=QUERY_KNOWLEDGE_TOOL.protocol_description,
+        annotations=READ_ONLY,
+    )
     async def query_knowledge_base(
         question: Annotated[str, Field(min_length=1, max_length=2_000)],
         mode: Literal["standard", "deep"] = "standard",
@@ -132,7 +150,11 @@ def build_mcp_server(
         except Exception as error:
             return _error(error)
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(
+        name=SEARCH_DOCUMENTS_TOOL.name,
+        description=SEARCH_DOCUMENTS_TOOL.protocol_description,
+        annotations=READ_ONLY,
+    )
     async def search_documents(
         query: Annotated[str, Field(min_length=1, max_length=2_000)],
         strategy: Literal["dense", "sparse", "hybrid"] = "hybrid",
@@ -157,7 +179,11 @@ def build_mcp_server(
         except Exception as error:
             return _error(error)
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(
+        name=LIST_COLLECTIONS_TOOL.name,
+        description=LIST_COLLECTIONS_TOOL.protocol_description,
+        annotations=READ_ONLY,
+    )
     async def list_collections() -> CallToolResult:
         """List collections visible to the authenticated tenant."""
 
@@ -175,7 +201,11 @@ def build_mcp_server(
         except Exception as error:
             return _error(error)
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(
+        name=GET_DOCUMENT_SUMMARY_TOOL.name,
+        description=GET_DOCUMENT_SUMMARY_TOOL.protocol_description,
+        annotations=READ_ONLY,
+    )
     async def get_document_summary(document_id: str) -> CallToolResult:
         """Read an authorized document's bounded metadata summary."""
 
@@ -192,7 +222,11 @@ def build_mcp_server(
         except Exception as error:
             return _error(error)
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(
+        name=LIST_DOCUMENT_SECTIONS_TOOL.name,
+        description=LIST_DOCUMENT_SECTIONS_TOOL.protocol_description,
+        annotations=READ_ONLY,
+    )
     async def list_document_sections(
         document_id: str,
         cursor: Annotated[str | None, Field(max_length=1_000)] = None,
@@ -215,7 +249,11 @@ def build_mcp_server(
         except Exception as error:
             return _error(error)
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(
+        name=VERIFY_ANSWER_TOOL.name,
+        description=VERIFY_ANSWER_TOOL.protocol_description,
+        annotations=READ_ONLY,
+    )
     async def verify_answer(
         answer: Annotated[str, Field(min_length=1, max_length=20_000)],
         citations: Annotated[list[dict[str, object]], Field(max_length=100)] | None = None,
@@ -238,7 +276,11 @@ def build_mcp_server(
         except Exception as error:
             return _error(error)
 
-    @server.resource("rag://collections", mime_type="application/json")
+    @server.resource(
+        COLLECTIONS_RESOURCE.uri,
+        description=COLLECTIONS_RESOURCE.protocol_description,
+        mime_type="application/json",
+    )
     async def collections_resource() -> str:
         """Authorized collection directory."""
 
@@ -251,7 +293,11 @@ def build_mcp_server(
         ]
         return _json({"items": items})
 
-    @server.resource("rag://collections/{collection_id}", mime_type="application/json")
+    @server.resource(
+        COLLECTION_RESOURCE.uri,
+        description=COLLECTION_RESOURCE.protocol_description,
+        mime_type="application/json",
+    )
     async def collection_resource(collection_id: str) -> str:
         """Authorized collection metadata."""
 
@@ -266,7 +312,11 @@ def build_mcp_server(
             )
         )
 
-    @server.resource("rag://documents/{document_id}", mime_type="application/json")
+    @server.resource(
+        DOCUMENT_RESOURCE.uri,
+        description=DOCUMENT_RESOURCE.protocol_description,
+        mime_type="application/json",
+    )
     async def document_resource(document_id: str) -> str:
         """Authorized document metadata."""
 
@@ -280,7 +330,9 @@ def build_mcp_server(
         )
 
     @server.resource(
-        "rag://documents/{document_id}/sections/{root_id}", mime_type="application/json"
+        SECTION_RESOURCE.uri,
+        description=SECTION_RESOURCE.protocol_description,
+        mime_type="application/json",
     )
     async def section_resource(document_id: str, root_id: str) -> str:
         """One authorized, length-bounded Root section."""

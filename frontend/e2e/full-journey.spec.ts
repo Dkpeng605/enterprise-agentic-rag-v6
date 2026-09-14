@@ -51,6 +51,16 @@ test('anonymous full journey and isolated administrator login', async ({ page })
   await expect(page.getByTestId('ingestion-waterfall')).toBeVisible()
   await expect(page.getByTestId('ingestion-batches')).toBeVisible()
 
+  await page.getByRole('link', { name: 'MCP 生态' }).click()
+  await expect(page.getByRole('heading', { name: 'MCP 生态' })).toBeVisible()
+  await expect(page.locator('[aria-labelledby="mcp-tools-title"]')).toContainText(
+    'query_knowledge_base',
+  )
+  await expect(page.locator('[aria-labelledby="mcp-resources-title"]')).toContainText(
+    'rag://documents/{document_id}',
+  )
+  await expect(page.getByText('需要外部组合', { exact: true })).toBeVisible()
+
   await page.getByRole('link', { name: '评测中心' }).click()
   await page.getByLabel('最大 Case').fill('3')
   await page.getByRole('button', { name: '启动评测' }).click()
