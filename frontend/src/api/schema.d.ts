@@ -1339,6 +1339,23 @@ export interface components {
             /** Content */
             content: string;
         };
+        /** QueryPlanResponse */
+        QueryPlanResponse: {
+            /** Provider */
+            provider: string;
+            /** Degraded */
+            degraded: boolean;
+            /** Original Query */
+            original_query: string;
+            /** Rewritten Query */
+            rewritten_query: string;
+            /** Intent */
+            intent: string;
+            /** Language */
+            language: string;
+            /** Sub Queries */
+            sub_queries: string[];
+        };
         /** QueryRankChangeResponse */
         QueryRankChangeResponse: {
             /** Leaf Id */
@@ -1420,6 +1437,25 @@ export interface components {
             /** Trace Id */
             trace_id?: string | null;
         };
+        /** QueryRetrievalBranchResponse */
+        QueryRetrievalBranchResponse: {
+            /** Branch Index */
+            branch_index: number;
+            /** Query */
+            query: string;
+            /** Dense Requested */
+            dense_requested: number;
+            /** Dense Returned */
+            dense_returned: number;
+            /** Sparse Requested */
+            sparse_requested: number;
+            /** Sparse Returned */
+            sparse_returned: number;
+            /** Overlap Count */
+            overlap_count: number;
+            /** Unique Count */
+            unique_count: number;
+        };
         /** QueryScopeRequest */
         QueryScopeRequest: {
             /** Collection Ids */
@@ -1437,6 +1473,21 @@ export interface components {
             /** Sections */
             sections?: string[];
         };
+        /** QueryStageMetricResponse */
+        QueryStageMetricResponse: {
+            /** Stage */
+            stage: string;
+            /** Input Count */
+            input_count: number;
+            /** Output Count */
+            output_count: number;
+            /** Dropped Count */
+            dropped_count: number;
+            /** Attributes */
+            attributes: {
+                [key: string]: number | string;
+            };
+        };
         /** QueryTraceViewResponse */
         QueryTraceViewResponse: {
             summary: components["schemas"]["TraceSummaryResponse"];
@@ -1452,6 +1503,11 @@ export interface components {
             recovery_rounds: components["schemas"]["QueryRecoveryRoundResponse"][];
             /** Degradations */
             degradations: components["schemas"]["QueryDegradationResponse"][];
+            plan: components["schemas"]["QueryPlanResponse"] | null;
+            /** Retrieval Branches */
+            retrieval_branches: components["schemas"]["QueryRetrievalBranchResponse"][];
+            /** Stage Metrics */
+            stage_metrics: components["schemas"]["QueryStageMetricResponse"][];
         };
         /** QueryWaterfallStageResponse */
         QueryWaterfallStageResponse: {

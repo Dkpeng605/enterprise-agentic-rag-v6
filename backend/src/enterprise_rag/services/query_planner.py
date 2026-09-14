@@ -27,13 +27,18 @@ class PlannerOutcome:
 
 
 class QueryPlanningService:
-    def __init__(self, provider: QueryPlannerProvider, *, max_sub_queries: int = 4) -> None:
+    def __init__(
+        self, provider: QueryPlannerProvider | None = None, *, max_sub_queries: int = 4
+    ) -> None:
         if not 1 <= max_sub_queries <= 8:
             raise ValueError("max_sub_queries must be between 1 and 8")
         self._provider = provider
         self._max_sub_queries = max_sub_queries
 
     async def plan(self, request: PlannerRequest) -> PlannerOutcome:
+        if self._provider is None:
+            plan = self._deterministic_plan(request)
+            return PlannerOutcome(plan, "deterministic", False)
         provider_name = self._provider.info().name
         with start_span(
             "rag.query_planning.provider", attributes={"provider.name": provider_name}

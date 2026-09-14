@@ -453,6 +453,34 @@ h1 em { color: var(--mint-600); font-weight: inherit; }
 .trace-section-head .section-kicker { margin-bottom: 5px; }
 .trace-section-head h3 { margin: 0; font-family: Georgia, "Songti SC", serif; font-size: 20px; font-weight: 500; }
 .trace-section-head > span { color: var(--muted); font-size: 7px; }
+.query-plan-copy { display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; }
+.query-plan-copy article { min-width: 0; padding: 14px 16px; background: #f7f5ef; }
+.query-plan-copy article + article { background: #edf7f2; border-left: 1px solid var(--line); }
+.query-plan-copy span, .query-branches span, .retrieval-branch-grid header span, .stage-metric-flow > article > span { color: var(--mint-600); font-size: 6px; font-weight: 900; letter-spacing: .12em; }
+.query-plan-copy p { margin: 8px 0 0; font-size: 10px; line-height: 1.65; overflow-wrap: anywhere; }
+.query-branches { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 9px; }
+.query-branches article { padding: 13px 14px; border: 1px solid var(--line); border-radius: 7px; }
+.query-branches strong, .query-branches small { display: block; }
+.query-branches strong { margin-top: 7px; font-size: 9px; line-height: 1.5; }
+.query-branches small { margin-top: 6px; color: var(--muted); font-size: 6px; }
+.retrieval-branch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 9px; }
+.retrieval-branch-grid > article { overflow: hidden; border: 1px solid var(--line); border-radius: 7px; }
+.retrieval-branch-grid header { min-height: 64px; padding: 13px 15px; color: white; background: var(--ink-800); }
+.retrieval-branch-grid header strong { display: block; margin-top: 7px; color: white; font-size: 9px; line-height: 1.4; }
+.retrieval-branch-grid dl { display: grid; grid-template-columns: 1fr 1fr; margin: 0; }
+.retrieval-branch-grid dl div { padding: 11px 13px; border-top: 1px solid var(--line); }
+.retrieval-branch-grid dl div:nth-child(even) { border-left: 1px solid var(--line); }
+.retrieval-branch-grid dt { color: var(--muted); font-size: 6px; }
+.retrieval-branch-grid dd { margin: 4px 0 0; color: var(--mint-600); font-family: ui-monospace, monospace; font-size: 10px; font-weight: 800; }
+.stage-metric-flow { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); margin-top: 12px; overflow-x: auto; border: 1px solid var(--line); border-radius: 7px; }
+.stage-metric-flow article { min-width: 120px; padding: 13px; border-left: 1px solid var(--line); }
+.stage-metric-flow article:first-child { border-left: 0; }
+.stage-metric-flow strong, .stage-metric-flow small { display: block; }
+.stage-metric-flow strong { margin-top: 8px; color: var(--ink-800); font-family: Georgia, serif; font-size: 18px; }
+.stage-metric-flow small { margin-top: 3px; color: var(--muted); font-size: 6px; }
+.stage-metric-flow ul { display: grid; gap: 3px; margin: 9px 0 0; padding: 8px 0 0; list-style: none; border-top: 1px solid var(--line); }
+.stage-metric-flow li { color: var(--muted); font-size: 6px; }
+.metric-disclaimer { margin: 10px 0 0; padding-left: 10px; color: var(--muted); font-size: 7px; line-height: 1.6; border-left: 2px solid var(--mint-400); }
 .waterfall { padding: 9px 13px 12px; background: #f4f2eb; border: 1px solid var(--line); border-radius: 7px; }
 .waterfall article { display: grid; grid-template-columns: 135px minmax(0, 1fr); gap: 12px; align-items: center; padding: 6px 0; }
 .waterfall article > div:first-child { min-width: 0; }
@@ -613,6 +641,8 @@ h1 em { color: var(--mint-600); font-weight: inherit; }
   .trace-detail-head { display: block; }
   .trace-detail-head dl { justify-content: flex-start; margin-top: 18px; }
   .trace-detail-head dl div { text-align: left; }
+  .query-plan-copy { grid-template-columns: 1fr; }
+  .query-plan-copy article + article { border-top: 1px solid var(--line); border-left: 0; }
   .waterfall article { grid-template-columns: 105px minmax(0, 1fr); }
   .recovery-grid { grid-template-columns: 1fr; }
   .ingestion-trace-error { grid-template-columns: auto minmax(0, 1fr); align-items: start; }

@@ -85,6 +85,13 @@ evidence for synthesis. The multi-round Deep Recovery Controller specified in M4
 pluggable service and is not yet composed into this local QueryRunner, so the current Deep button
 must not be described as multi-round recovery.
 
+The Mac QueryRunner first creates a deterministic QueryPlan. It preserves the original query,
+resolves pronouns from recent conversation when needed, and splits conditions joined by semicolons,
+`simultaneously`, `as well as`, or `and` into at most four parallel sub-queries. After an answer,
+Query Trace shows whether rewriting/splitting occurred, per-branch Dense/Sparse returns and overlap,
+RRF deduplication and drops, authorization filtering, reranking, Root recovery, LLM tokens, and
+citations. These runtime counts are not Recall@K; gold-labelled quality metrics remain in Evaluations.
+
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
 To stop PostgreSQL only:
 
@@ -354,7 +361,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7 Vue3/TypeScript public and administration milestone: complete
 - M7-R1 macOS real-provider development composition: complete
 - M7-R2A document pipeline inspector: complete
-- Next: M7-R2B query planning and stage-level retrieval metrics
+- M7-R2B query planning and stage-level retrieval metrics: complete
+- Next: M7-R2C explicitly triggered one-pass LLM cleaning
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -386,10 +394,14 @@ retrieval text, tokens, offsets, and computed overlap. Both endpoints and the pa
 missing legacy metadata is shown as unavailable and is never replaced with an invented default.
 
 `/workspace/traces/queries` shows persisted Query Traces for the current tenant with Standard/Deep, outcome,
-and degradation filters. A sanitized backend projection drives the end-to-end latency waterfall,
-Dense/Sparse→RRF→Rerank rank movement, Deep Recovery rounds, and stable degraded components. Missing legacy
-telemetry remains absent instead of being inferred in the browser. Question text, prompts, evidence text,
-exception stacks, and hidden reasoning are not returned to this UI.
+and degradation filters. A sanitized backend projection shows the original/rewritten query, intent and
+sub-queries; per-branch Dense/Sparse requested/returned counts and overlap; RRF inputs, deduplication, Root quota,
+and Top-K drops; authorization filtering; reranking; Root recovery; LLM usage; the latency waterfall;
+Dense/Sparse→RRF→Rerank movement; Deep Recovery rounds; and stable degraded components. Multi-branch candidates
+use the best rank per method. Missing legacy telemetry remains absent instead of being inferred. Query text is
+returned only by this tenant-scoped projection; generic logs, Prometheus, prompts, evidence text, exception stacks,
+and hidden reasoning still exclude it. Per-run signals must not be read as Recall@K/MRR/NDCG; those require a
+gold-labelled Evaluation Run.
 
 `/workspace/traces/ingestion` shows persisted Ingestion Traces for the current tenant with succeeded, failed,
 retry-wait, and cancelled filters. A sanitized backend projection drives the actual Worker stage waterfall,

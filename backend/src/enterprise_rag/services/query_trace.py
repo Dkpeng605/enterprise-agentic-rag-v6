@@ -48,6 +48,38 @@ class QueryDegradation:
 
 
 @dataclass(frozen=True, slots=True)
+class QueryPlanSnapshot:
+    provider: str
+    degraded: bool
+    original_query: str
+    rewritten_query: str
+    intent: str
+    language: str
+    sub_queries: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class QueryRetrievalBranch:
+    branch_index: int
+    query: str
+    dense_requested: int
+    dense_returned: int
+    sparse_requested: int
+    sparse_returned: int
+    overlap_count: int
+    unique_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class QueryStageMetric:
+    stage: str
+    input_count: int
+    output_count: int
+    dropped_count: int
+    attributes: dict[str, int | float | str]
+
+
+@dataclass(frozen=True, slots=True)
 class QueryTraceView:
     summary: TraceSummary
     usage: dict[str, int | float]
@@ -55,6 +87,9 @@ class QueryTraceView:
     rankings: tuple[QueryRankChange, ...]
     recovery_rounds: tuple[QueryRecoveryRound, ...]
     degradations: tuple[QueryDegradation, ...]
+    plan: QueryPlanSnapshot | None
+    retrieval_branches: tuple[QueryRetrievalBranch, ...]
+    stage_metrics: tuple[QueryStageMetric, ...]
 
 
 def project_query_trace(detail: TraceDetail) -> QueryTraceView:
@@ -68,6 +103,9 @@ def project_query_trace(detail: TraceDetail) -> QueryTraceView:
         _rankings(detail.spans),
         _recovery_rounds(detail.spans),
         _degradations(detail),
+        _plan(detail.spans),
+        _retrieval_branches(detail.spans),
+        _stage_metrics(detail.spans),
     )
 
 
@@ -118,9 +156,11 @@ def _rankings(spans: tuple[StoredSpan, ...]) -> tuple[QueryRankChange, ...]:
             if name == "rag.retrieval.candidate":
                 method = _text(attributes.get("rag.method"))
                 if method in {"dense", "sparse"}:
-                    candidate[f"{method}_rank"] = rank
-                    candidate[f"{method}_score"] = _number(
-                        attributes.get("rag.score")
+                    _record_best_rank(
+                        candidate,
+                        method,
+                        rank,
+                        _number(attributes.get("rag.score")),
                     )
             elif name == "rag.fusion.candidate":
                 candidate["rrf_rank"] = rank
@@ -204,6 +244,147 @@ def _degradations(detail: TraceDetail) -> tuple[QueryDegradation, ...]:
     return tuple(sorted(values, key=lambda item: item.component))
 
 
+def _plan(spans: tuple[StoredSpan, ...]) -> QueryPlanSnapshot | None:
+    span = next((item for item in spans if item.name == "rag.query_planning"), None)
+    if span is None:
+        return None
+    values = span.attributes
+    provider = _text(values.get("provider.name"))
+    original = _text(values.get("rag.plan.original"))
+    rewritten = _text(values.get("rag.plan.rewritten"))
+    intent = _text(values.get("rag.plan.intent"))
+    language = _text(values.get("rag.plan.language"))
+    sub_queries = _texts(values.get("rag.plan.sub_queries"))
+    if None in {provider, original, rewritten, intent, language} or not sub_queries:
+        return None
+    return QueryPlanSnapshot(
+        provider or "",
+        _bool(values.get("rag.degraded")),
+        original or "",
+        rewritten or "",
+        intent or "",
+        language or "",
+        sub_queries,
+    )
+
+
+def _retrieval_branches(spans: tuple[StoredSpan, ...]) -> tuple[QueryRetrievalBranch, ...]:
+    branches: list[QueryRetrievalBranch] = []
+    for span in spans:
+        if span.name != "rag.retrieval.branch":
+            continue
+        values = span.attributes
+        index = _integer(values.get("rag.branch.index"))
+        query = _text(values.get("rag.branch.query"))
+        if index is None or query is None:
+            continue
+        branches.append(
+            QueryRetrievalBranch(
+                index,
+                query,
+                _integer(values.get("rag.branch.dense_requested")) or 0,
+                _integer(values.get("rag.branch.dense_returned")) or 0,
+                _integer(values.get("rag.branch.sparse_requested")) or 0,
+                _integer(values.get("rag.branch.sparse_returned")) or 0,
+                _integer(values.get("rag.branch.overlap_count")) or 0,
+                _integer(values.get("rag.branch.unique_count")) or 0,
+            )
+        )
+    return tuple(sorted(branches, key=lambda item: item.branch_index))
+
+
+def _stage_metrics(spans: tuple[StoredSpan, ...]) -> tuple[QueryStageMetric, ...]:
+    metrics: list[QueryStageMetric] = []
+    for span in spans:
+        values = span.attributes
+        if span.name == "rag.rrf_fusion":
+            input_count = _integer(values.get("rag.fusion.input_hit_count")) or 0
+            output_count = _integer(values.get("rag.candidate_count")) or 0
+            root_dropped = _integer(values.get("rag.fusion.root_quota_dropped")) or 0
+            top_k_dropped = _integer(values.get("rag.fusion.top_k_dropped")) or 0
+            unique_count = _integer(values.get("rag.fusion.unique_leaf_count")) or 0
+            metrics.append(
+                QueryStageMetric(
+                    "rrf_fusion",
+                    input_count,
+                    output_count,
+                    max(0, input_count - output_count),
+                    {
+                        "ranked_lists": _integer(
+                            values.get("rag.fusion.ranked_list_count")
+                        )
+                        or 0,
+                        "unique_leaves": unique_count,
+                        "duplicate_collapsed": max(0, input_count - unique_count),
+                        "root_quota_dropped": root_dropped,
+                        "top_k_dropped": top_k_dropped,
+                    },
+                )
+            )
+        elif span.name in {"rag.auth_and_scope", "rag.rerank", "rag.root_restore"}:
+            input_count = _integer(values.get("rag.input_count")) or 0
+            output_count = _integer(values.get("rag.output_count")) or 0
+            rejected = _integer(values.get("rag.rejected_count")) or 0
+            attributes: dict[str, int | float | str] = {}
+            if span.name == "rag.rerank":
+                attributes["rerank_candidates"] = (
+                    _integer(values.get("rag.candidate_count")) or 0
+                )
+            if span.name == "rag.root_restore":
+                attributes["truncated_roots"] = (
+                    _integer(values.get("rag.truncated_count")) or 0
+                )
+                attributes["used_chars"] = _integer(values.get("rag.used_chars")) or 0
+            metrics.append(
+                QueryStageMetric(
+                    span.name.removeprefix("rag."),
+                    input_count,
+                    output_count,
+                    rejected if span.name != "rag.rerank" else max(0, input_count - output_count),
+                    attributes,
+                )
+            )
+        elif span.name == "rag.answer_generation":
+            llm_calls = _integer(values.get("rag.llm_calls")) or 0
+            citations = _integer(values.get("rag.citation_count")) or 0
+            metrics.append(
+                QueryStageMetric(
+                    "answer_generation",
+                    citations,
+                    citations,
+                    0,
+                    {
+                        "llm_calls": llm_calls,
+                        "input_tokens": _integer(values.get("rag.input_tokens")) or 0,
+                        "output_tokens": _integer(values.get("rag.output_tokens")) or 0,
+                        "citations": citations,
+                    },
+                )
+            )
+    order = {
+        "rrf_fusion": 0,
+        "auth_and_scope": 1,
+        "rerank": 2,
+        "root_restore": 3,
+        "answer_generation": 4,
+    }
+    return tuple(sorted(metrics, key=lambda item: order.get(item.stage, 99)))
+
+
+def _record_best_rank(
+    candidate: dict[str, str | int | float | None],
+    method: str,
+    rank: int | None,
+    score: float | None,
+) -> None:
+    if rank is None:
+        return
+    current = _integer(candidate.get(f"{method}_rank"))
+    if current is None or rank < current:
+        candidate[f"{method}_rank"] = rank
+        candidate[f"{method}_score"] = score
+
+
 def _text(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
@@ -220,3 +401,9 @@ def _number(value: object) -> float | None:
 
 def _bool(value: object) -> bool:
     return value is True
+
+
+def _texts(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list | tuple):
+        return ()
+    return tuple(item for item in value if isinstance(item, str) and item)

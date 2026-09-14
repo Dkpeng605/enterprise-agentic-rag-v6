@@ -6718,6 +6718,53 @@
         ],
         "title": "QueryHistoryTurn"
       },
+      "QueryPlanResponse": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded"
+          },
+          "original_query": {
+            "type": "string",
+            "title": "Original Query"
+          },
+          "rewritten_query": {
+            "type": "string",
+            "title": "Rewritten Query"
+          },
+          "intent": {
+            "type": "string",
+            "title": "Intent"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "sub_queries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sub Queries"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider",
+          "degraded",
+          "original_query",
+          "rewritten_query",
+          "intent",
+          "language",
+          "sub_queries"
+        ],
+        "title": "QueryPlanResponse"
+      },
       "QueryRankChangeResponse": {
         "properties": {
           "leaf_id": {
@@ -6982,6 +7029,55 @@
         ],
         "title": "QueryResponseModel"
       },
+      "QueryRetrievalBranchResponse": {
+        "properties": {
+          "branch_index": {
+            "type": "integer",
+            "title": "Branch Index"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "dense_requested": {
+            "type": "integer",
+            "title": "Dense Requested"
+          },
+          "dense_returned": {
+            "type": "integer",
+            "title": "Dense Returned"
+          },
+          "sparse_requested": {
+            "type": "integer",
+            "title": "Sparse Requested"
+          },
+          "sparse_returned": {
+            "type": "integer",
+            "title": "Sparse Returned"
+          },
+          "overlap_count": {
+            "type": "integer",
+            "title": "Overlap Count"
+          },
+          "unique_count": {
+            "type": "integer",
+            "title": "Unique Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "branch_index",
+          "query",
+          "dense_requested",
+          "dense_returned",
+          "sparse_requested",
+          "sparse_returned",
+          "overlap_count",
+          "unique_count"
+        ],
+        "title": "QueryRetrievalBranchResponse"
+      },
       "QueryScopeRequest": {
         "properties": {
           "collection_ids": {
@@ -7047,6 +7143,53 @@
         "type": "object",
         "title": "QueryScopeRequest"
       },
+      "QueryStageMetricResponse": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "input_count": {
+            "type": "integer",
+            "title": "Input Count"
+          },
+          "output_count": {
+            "type": "integer",
+            "title": "Output Count"
+          },
+          "dropped_count": {
+            "type": "integer",
+            "title": "Dropped Count"
+          },
+          "attributes": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Attributes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "stage",
+          "input_count",
+          "output_count",
+          "dropped_count",
+          "attributes"
+        ],
+        "title": "QueryStageMetricResponse"
+      },
       "QueryTraceViewResponse": {
         "properties": {
           "summary": {
@@ -7093,6 +7236,30 @@
             },
             "type": "array",
             "title": "Degradations"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueryPlanResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retrieval_branches": {
+            "items": {
+              "$ref": "#/components/schemas/QueryRetrievalBranchResponse"
+            },
+            "type": "array",
+            "title": "Retrieval Branches"
+          },
+          "stage_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/QueryStageMetricResponse"
+            },
+            "type": "array",
+            "title": "Stage Metrics"
           }
         },
         "additionalProperties": false,
@@ -7103,7 +7270,10 @@
           "stages",
           "rankings",
           "recovery_rounds",
-          "degradations"
+          "degradations",
+          "plan",
+          "retrieval_branches",
+          "stage_metrics"
         ],
         "title": "QueryTraceViewResponse"
       },
