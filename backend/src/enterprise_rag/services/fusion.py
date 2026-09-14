@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from enterprise_rag.domain.retrieval import RetrievalHit
-from enterprise_rag.services.retrieval import DualSearchResult, SearchMethod
+from enterprise_rag.services.retrieval import DualSearchResult, SearchBranchResult, SearchMethod
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,29 +42,33 @@ class ReciprocalRankFusion:
         self._max_leaves_per_root = max_leaves_per_root
 
     def fuse(self, results: tuple[DualSearchResult, ...]) -> FusionResult:
+        return self.fuse_branches(
+            tuple(branch for result in results for branch in (result.dense, result.sparse))
+        )
+
+    def fuse_branches(self, branches: tuple[SearchBranchResult, ...]) -> FusionResult:
         accumulators: dict[str, _Accumulator] = {}
         input_count = 0
         ranked_list_count = 0
-        for result in results:
-            for branch in (result.dense, result.sparse):
-                ranked_list_count += 1
-                seen_in_list: set[str] = set()
-                for rank, vector_hit in enumerate(branch.hits, start=1):
-                    input_count += 1
-                    if vector_hit.leaf_id in seen_in_list:
-                        raise ValueError("a ranked list contains a duplicate leaf ID")
-                    seen_in_list.add(vector_hit.leaf_id)
-                    current = accumulators.get(vector_hit.leaf_id)
-                    if current is None:
-                        current = _Accumulator(vector_hit.root_id)
-                        accumulators[vector_hit.leaf_id] = current
-                    elif current.root_id != vector_hit.root_id:
-                        raise ValueError("one leaf ID maps to conflicting root IDs")
-                    current.score += 1.0 / (self._rrf_k + rank)
-                    if branch.method is SearchMethod.DENSE:
-                        current.dense_rank = self._minimum(current.dense_rank, rank)
-                    else:
-                        current.sparse_rank = self._minimum(current.sparse_rank, rank)
+        for branch in branches:
+            ranked_list_count += 1
+            seen_in_list: set[str] = set()
+            for rank, vector_hit in enumerate(branch.hits, start=1):
+                input_count += 1
+                if vector_hit.leaf_id in seen_in_list:
+                    raise ValueError("a ranked list contains a duplicate leaf ID")
+                seen_in_list.add(vector_hit.leaf_id)
+                current = accumulators.get(vector_hit.leaf_id)
+                if current is None:
+                    current = _Accumulator(vector_hit.root_id)
+                    accumulators[vector_hit.leaf_id] = current
+                elif current.root_id != vector_hit.root_id:
+                    raise ValueError("one leaf ID maps to conflicting root IDs")
+                current.score += 1.0 / (self._rrf_k + rank)
+                if branch.method is SearchMethod.DENSE:
+                    current.dense_rank = self._minimum(current.dense_rank, rank)
+                else:
+                    current.sparse_rank = self._minimum(current.sparse_rank, rank)
 
         ordered = sorted(
             accumulators.items(),

@@ -34,12 +34,12 @@ cost_guard:
   provider_timeout_seconds: 90.0
   provider_max_retries: 1
   provider_retry_backoff_seconds: 0.5
-  standard_reserved_llm_calls: 2
-  standard_reserved_input_tokens: 30000
-  standard_reserved_output_tokens: 2000
-  deep_reserved_llm_calls: 2
-  deep_reserved_input_tokens: 50000
-  deep_reserved_output_tokens: 2000
+  standard_reserved_llm_calls: 6
+  standard_reserved_input_tokens: 120000
+  standard_reserved_output_tokens: 12000
+  deep_reserved_llm_calls: 18
+  deep_reserved_input_tokens: 360000
+  deep_reserved_output_tokens: 36000
 
 security:
   anonymous_demo_full_access: true

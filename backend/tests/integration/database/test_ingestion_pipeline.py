@@ -1,3 +1,4 @@
+import json
 import os
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime, timedelta
@@ -119,6 +120,7 @@ class FakeReranker:
 class FakeLanguageModel:
     def __init__(self) -> None:
         self.requests: list[CompletionRequest] = []
+        self.assessor_calls = 0
 
     def info(self) -> ProviderInfo:
         return ProviderInfo(
@@ -132,7 +134,62 @@ class FakeLanguageModel:
 
     async def complete(self, request: CompletionRequest) -> CompletionResult:
         self.requests.append(request)
-        return CompletionResult("企业知识库策略来自已上传文档 [1]。", 81, 17)
+        payload = json.loads(request.user_prompt)
+        if "evidence assessor" in request.system_prompt:
+            self.assessor_calls += 1
+            requirements = payload["requirements"]
+            if self.assessor_calls == 1:
+                return CompletionResult(
+                    json.dumps(
+                        {
+                            "covered_requirements": [],
+                            "missing_requirements": requirements,
+                            "conflicts": [],
+                            "decision": "recover",
+                            "reason": "run one bounded recovery round",
+                        }
+                    ),
+                    81,
+                    17,
+                )
+            return CompletionResult(
+                json.dumps(
+                    {
+                        "covered_requirements": requirements,
+                        "missing_requirements": [],
+                        "conflicts": [],
+                        "decision": "answer",
+                        "reason": "test evidence covers the requirement",
+                    }
+                ),
+                81,
+                17,
+            )
+        root = payload["roots"][0]
+        return CompletionResult(
+            json.dumps(
+                {
+                    "paragraphs": [
+                        {
+                            "text": "企业知识库策略来自已上传文档 [1]。",
+                            "citation_ids": [1],
+                            "factual": True,
+                        }
+                    ],
+                    "citations": [
+                        {
+                            "id": 1,
+                            "root_id": root["root_id"],
+                            "leaf_ids": root["leaf_ids"],
+                            "quote": "Enterprise RAG policy evidence",
+                        }
+                    ],
+                    "covered_requirements": payload["requirements"],
+                }
+            ),
+            81,
+            17,
+        )
 
     async def aclose(self) -> None:
         return None
@@ -441,11 +498,15 @@ async def test_pipeline_output_is_queryable_with_citations_and_ordered_progress(
         assert semantic.status.value == "answered"
         assert semantic.answer.endswith("[1]。")
         assert semantic.citations[0].document_id == document_id
-        assert semantic.usage == {"llm_calls": 1, "input_tokens": 81, "output_tokens": 17}
+        assert semantic.usage == {"llm_calls": 3, "input_tokens": 243, "output_tokens": 51}
         assert semantic.diagnostics["mode"] == "deep"
+        assert semantic.diagnostics["recovery_rounds"] == 1
+        assert semantic.diagnostics["deep_decision"] == "answer"
         assert semantic.diagnostics["reranker_provider"] == "fake_cross_encoder"
         assert language_model.requests
-        assert "[证据 1]" in language_model.requests[0].user_prompt
+        assert "evidence assessor" in language_model.requests[0].system_prompt
+        assert "evidence assessor" in language_model.requests[1].system_prompt
+        assert '"roots"' in language_model.requests[2].user_prompt
         assert [item.stage.value for item in semantic_progress] == [
             "planning",
             "retrieving",
