@@ -16,6 +16,7 @@ import LoginView from './views/LoginView.vue'
 import IngestionView from './views/IngestionView.vue'
 import IngestionTraceView from './views/IngestionTraceView.vue'
 import OverviewView from './views/OverviewView.vue'
+import PipelineInspectorView from './views/PipelineInspectorView.vue'
 import PlaceholderView from './views/PlaceholderView.vue'
 import QueryTraceView from './views/QueryTraceView.vue'
 
@@ -45,6 +46,12 @@ const routes: RouteRecordRaw[] = [
     name: 'documents',
     component: DocumentsView,
     meta: { access: 'workspace', title: '文档管理' },
+  },
+  {
+    path: '/workspace/documents/:documentId/pipeline',
+    name: 'document-pipeline',
+    component: PipelineInspectorView,
+    meta: { access: 'workspace', title: '文档处理透视' },
   },
   {
     path: '/workspace/ingestion',

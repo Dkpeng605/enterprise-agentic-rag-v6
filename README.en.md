@@ -74,6 +74,12 @@ parsing and ingestion progress, then use Knowledge Chat to exercise Dense/Sparse
 CrossEncoder reranking, Root recovery, LLM generation, and citations. Inspect provider status in
 Tenant Overview or at `http://127.0.0.1:8000/health/doctor`.
 
+After a document reaches `ready`, open it in Documents and select “Inspect parsing, cleaning, and splitting.”
+The page shows the actual Parser, deterministic Cleaner, Splitter settings, Root raw/clean comparisons and rule
+audits, plus every Leaf's full text, token count, offsets, and adjacent overlap. It reads the PostgreSQL source of
+truth rather than inferring chunks in the browser. Documents ingested before audit metadata was introduced are
+explicitly labeled as legacy data; re-uploading creates a complete record.
+
 Both Standard and Deep use the real model chain in this Mac composition; Deep restores more Root
 evidence for synthesis. The multi-round Deep Recovery Controller specified in M4 remains a
 pluggable service and is not yet composed into this local QueryRunner, so the current Deep button
@@ -157,6 +163,7 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `/api/v1/collections` — demo-tenant collection CRUD
 - `/api/v1/documents` — streaming upload, filtering, and cursor pagination
 - `/api/v1/documents/{id}` — document detail and idempotent deletion
+- `GET /api/v1/documents/{id}/pipeline` and `/pipeline/roots/{root_id}` — tenant-scoped processing, Root/Leaf, and cleaning audit views
 - `GET /api/v1/ingestion-jobs` and `GET /api/v1/ingestion-jobs/{id}` — cursor-paginated job filtering and detail
 - `POST /api/v1/queries` and `POST /api/v1/queries/stream` — synchronous and SSE query contracts; the current entry point returns 503 until a QueryRunner is injected
 - `GET /api/v1/traces`, `/api/v1/traces/query`, and `/api/v1/traces/ingestion` — tenant-scoped Trace filtering and cursor pagination; Query lists support mode/status/degraded
@@ -346,7 +353,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-08 Browser E2E: complete
 - M7 Vue3/TypeScript public and administration milestone: complete
 - M7-R1 macOS real-provider development composition: complete
-- Next: M8-01 Images
+- M7-R2A document pipeline inspector: complete
+- Next: M7-R2B query planning and stage-level retrieval metrics
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -370,6 +378,12 @@ stage, progress, attempts, heartbeat, and stable errors, polling only while an a
 `demo_operator` users can complete this single-tenant business journey, while system routes and cross-tenant
 resources remain denied at both frontend and backend boundaries. The offline Compose composition includes a
 real ingestion Worker; the default composition root still requires deployments to provide a Worker process.
+
+`/workspace/documents/{document_id}/pipeline` is a PostgreSQL source-of-truth document processing inspector. It
+shows the Parser, Cleaner, Splitter, and settings actually used for the version, then exposes paged Roots and
+on-demand detail with raw/clean text, deterministic rule counts and before/after hashes, Leaf text, enriched
+retrieval text, tokens, offsets, and computed overlap. Both endpoints and the page are session-tenant scoped;
+missing legacy metadata is shown as unavailable and is never replaced with an invented default.
 
 `/workspace/traces/queries` shows persisted Query Traces for the current tenant with Standard/Deep, outcome,
 and degradation filters. A sanitized backend projection drives the end-to-end latency waterfall,

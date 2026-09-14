@@ -30,7 +30,7 @@ from enterprise_rag.adapters.sparse import HashingSparseEncoder
 from enterprise_rag.adapters.splitters import StructureAwareSplitter
 from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
 from enterprise_rag.adapters.vision import NoopVisionProvider
-from enterprise_rag.domain import ErrorCode, JobStatus, QueryMode, QueryScope
+from enterprise_rag.domain import AppError, ErrorCode, JobStatus, QueryMode, QueryScope
 from enterprise_rag.domain.common import new_uuid7
 from enterprise_rag.ports import (
     CompletionRequest,
@@ -49,6 +49,7 @@ from enterprise_rag.services import (
     ProjectionService,
     RegisterDocument,
     SemanticQueryRunner,
+    WorkspaceService,
 )
 from enterprise_rag.services.query_api import QueryCommand, QueryProgress
 
@@ -181,7 +182,7 @@ async def submit(
             source_name="policy.txt",
             media_type="text/plain",
         ),
-        payload("企业知识库 Enterprise RAG policy evidence. ".encode() * 12),
+        payload("企业知识库  Enterprise RAG policy evidence. ".encode() * 12),
         now=NOW,
     )
     assert registration.job_id is not None
@@ -264,6 +265,52 @@ async def test_pipeline_runs_registered_object_to_ready_postgres_and_milvus(
         assert version is not None and version.status == "indexed"
         assert root_count == 1 and leaf_count is not None and leaf_count > 1
         assert await vector_store.count_by_version(TENANT_ID, version_id) == leaf_count
+
+        workspace = WorkspaceService(
+            database,
+            store,
+            max_upload_bytes=1024 * 1024,
+            max_documents=100,
+            max_attempts=3,
+        )
+        inspection = await workspace.inspect_document_pipeline(
+            TENANT_ID, document_id, cursor=None, limit=50
+        )
+        assert inspection.root_count == 1
+        assert inspection.leaf_count == leaf_count
+        assert inspection.parser_provider == "text_documents"
+        assert inspection.parser_version == "1"
+        assert inspection.cleaner_provider == "deterministic"
+        assert inspection.splitter_provider == "structure_aware"
+        assert inspection.splitter_settings == {
+            "target_tokens": 20,
+            "max_tokens": 28,
+            "overlap_tokens": 4,
+            "tokenizer": "deterministic-multilingual-v1",
+        }
+        assert inspection.roots[0].changed
+        assert inspection.roots[0].cleaning_audit[0].rule == "whitespace"
+
+        detail = await workspace.inspect_pipeline_root(
+            TENANT_ID, document_id, inspection.roots[0].id
+        )
+        assert "知识库  Enterprise" in detail.raw_text
+        assert "知识库  Enterprise" not in detail.clean_text
+        assert len(detail.leaves) == leaf_count
+        assert detail.leaves[0].start_offset == 0
+        assert detail.leaves[0].token_count > 0
+        assert any(leaf.overlap_chars > 0 for leaf in detail.leaves[1:])
+        with pytest.raises(AppError) as hidden_document:
+            await workspace.inspect_document_pipeline(
+                UUID("01900000-0000-7000-8000-000000009999"),
+                document_id,
+                cursor=None,
+                limit=50,
+            )
+        assert hidden_document.value.code is ErrorCode.NOT_FOUND
+        with pytest.raises(AppError) as hidden_root:
+            await workspace.inspect_pipeline_root(TENANT_ID, document_id, "root_unknown")
+        assert hidden_root.value.code is ErrorCode.NOT_FOUND
         assert await pipeline.run_once(owner="worker-a") is None
         assert list((tmp_path / "temporary").iterdir()) == []
     finally:

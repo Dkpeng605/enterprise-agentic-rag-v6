@@ -29,7 +29,7 @@ from enterprise_rag.observability import (
     current_metrics,
     start_span,
 )
-from enterprise_rag.ports.cleaner import Cleaner
+from enterprise_rag.ports.cleaner import Cleaner, CleanResult
 from enterprise_rag.ports.loader import BinarySource, IngestionContext, LoadedRoot, Loader
 from enterprise_rag.ports.object_store import ObjectStore
 from enterprise_rag.ports.splitter import Splitter
@@ -117,6 +117,24 @@ class IngestionPipeline:
         self._trace_recorder = trace_recorder
         self._metrics = metrics
         self._clock = clock
+
+    def _with_cleaning_audit(self, result: CleanResult) -> CleanResult:
+        provider = self._cleaner.info()
+        metadata = dict(result.root.metadata)
+        metadata["cleaning"] = {
+            "provider": provider.name,
+            "version": provider.version,
+            "audit": [
+                {
+                    "rule": item.rule,
+                    "occurrences": item.occurrences,
+                    "before_sha256": item.before_sha256,
+                    "after_sha256": item.after_sha256,
+                }
+                for item in result.audit
+            ],
+        }
+        return replace(result, root=replace(result.root, metadata=metadata))
 
     async def run_once(self, *, owner: str) -> PipelineRunResult | None:
         async with self._database.session() as session:
@@ -223,6 +241,7 @@ class IngestionPipeline:
             current_span.set_attribute("app.document_id", str(work.document_id))
             await self._checkpoint(job.id, owner, 10, "loading")
             loader = self._select_loader(work.media_type, work.source_name)
+            loader_info = loader.info()
             with tempfile.TemporaryDirectory(
                 prefix="ingestion-", dir=self._temporary_root
             ) as temporary:
@@ -246,6 +265,8 @@ class IngestionPipeline:
                         context,
                     )
                     stage_span.set_attribute("rag.ingestion.root_count", len(loaded))
+                    stage_span.set_attribute("rag.provider.name", loader_info.name)
+                    stage_span.set_attribute("rag.provider.version", loader_info.version)
                 await self._checkpoint(job.id, owner, 30, "images")
                 with start_span(
                     "rag.ingestion.images", tracer_provider=self._tracer_provider
@@ -254,8 +275,25 @@ class IngestionPipeline:
                 await self._checkpoint(job.id, owner, 40, "cleaning")
                 with start_span(
                     "rag.ingestion.clean", tracer_provider=self._tracer_provider
-                ), _observe_ingestion_stage("clean"):
+                ) as stage_span, _observe_ingestion_stage("clean"):
                     cleaned = await self._cleaner.clean_all(enriched, context)
+                    cleaned = [self._with_cleaning_audit(result) for result in cleaned]
+                    stage_span.set_attribute(
+                        "rag.ingestion.changed_root_count",
+                        sum(result.root.raw_text != result.root.clean_text for result in cleaned),
+                    )
+                    stage_span.set_attribute(
+                        "rag.ingestion.cleaning_rule_count",
+                        sum(len(result.audit) for result in cleaned),
+                    )
+                    stage_span.set_attribute(
+                        "rag.ingestion.cleaning_occurrence_count",
+                        sum(
+                            audit.occurrences
+                            for result in cleaned
+                            for audit in result.audit
+                        ),
+                    )
                 await self._checkpoint(job.id, owner, 55, "splitting")
                 with start_span(
                     "rag.ingestion.split", tracer_provider=self._tracer_provider
@@ -275,7 +313,11 @@ class IngestionPipeline:
             ), _observe_ingestion_stage("persist"):
                 async with self._database.session() as session:
                     await IngestionContentRepository(session).replace_content(
-                        version_id=work.version_id, roots=roots, leaves=leaves
+                        version_id=work.version_id,
+                        roots=roots,
+                        leaves=leaves,
+                        parser_provider=loader_info.name,
+                        parser_version=loader_info.version,
                     )
             await self._checkpoint(job.id, owner, 75, "projecting")
             with start_span(

@@ -91,12 +91,22 @@ class IngestionContentRepository:
         version_id: UUID,
         roots: Sequence[RootChunk],
         leaves: Sequence[LeafChunk],
+        parser_provider: str,
+        parser_version: str,
     ) -> None:
         if not roots or not leaves:
             raise ValueError("persisted ingestion content must not be empty")
         root_ids = {root.id for root in roots}
         if any(leaf.root_id not in root_ids for leaf in leaves):
             raise ValueError("every persisted Leaf must belong to a persisted Root")
+        version = await self.session.get(DocumentVersionModel, version_id)
+        if version is None:
+            raise IngestionPersistenceError(
+                ErrorCode.NOT_FOUND,
+                "The ingestion document version was not found.",
+            )
+        version.parser_provider = parser_provider
+        version.parser_version = parser_version
         await self.session.execute(delete(RootModel).where(RootModel.version_id == version_id))
         await self.session.flush()
         self.session.add_all(

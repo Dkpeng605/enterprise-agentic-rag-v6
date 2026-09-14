@@ -3,13 +3,14 @@
 import base64
 import binascii
 import json
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from enterprise_rag.adapters.database.engine import Database
 from enterprise_rag.adapters.database.jobs import IngestionJobRepository
@@ -81,6 +82,67 @@ class DocumentDetail:
     recent_job: JobSnapshot | None
     version_error_code: str | None
     version_error_message: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CleaningAuditSnapshot:
+    rule: str
+    occurrences: int
+    before_sha256: str
+    after_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineRootSummary:
+    id: str
+    ordinal: int
+    kind: str
+    source_locator: Mapping[str, object]
+    raw_chars: int
+    clean_chars: int
+    changed: bool
+    leaf_count: int
+    cleaning_audit: tuple[CleaningAuditSnapshot, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineLeafSnapshot:
+    id: str
+    ordinal: int
+    text: str
+    retrieval_text: str
+    start_offset: int | None
+    end_offset: int | None
+    token_count: int
+    overlap_chars: int
+    metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineRootDetail:
+    summary: PipelineRootSummary
+    raw_text: str
+    clean_text: str
+    metadata: Mapping[str, object]
+    leaves: tuple[PipelineLeafSnapshot, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentPipelineSnapshot:
+    document_id: UUID
+    version_id: UUID
+    source_name: str
+    parser_provider: str | None
+    parser_version: str | None
+    cleaner_provider: str | None
+    cleaner_version: str | None
+    splitter_provider: str | None
+    splitter_version: str | None
+    splitter_settings: Mapping[str, object]
+    root_count: int
+    leaf_count: int
+    roots: tuple[PipelineRootSummary, ...]
+    next_cursor: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -463,6 +525,170 @@ class WorkspaceService:
                 version.error_message,
             )
 
+    async def inspect_document_pipeline(
+        self,
+        tenant_id: UUID,
+        document_id: UUID,
+        *,
+        cursor: int | None,
+        limit: int,
+    ) -> DocumentPipelineSnapshot:
+        if cursor is not None and cursor < 0:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "The Root cursor is invalid.")
+        if not 1 <= limit <= 100:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "The Root page size is invalid.")
+        async with self._database.session() as session:
+            document, version = await self._document_version(
+                session, tenant_id, document_id
+            )
+            root_count = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(RootModel)
+                    .where(RootModel.version_id == version.id)
+                )
+                or 0
+            )
+            leaf_count = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(LeafModel)
+                    .where(LeafModel.version_id == version.id)
+                )
+                or 0
+            )
+            statement = (
+                select(RootModel, func.count(LeafModel.id))
+                .outerjoin(LeafModel, LeafModel.root_id == RootModel.id)
+                .where(RootModel.version_id == version.id)
+                .group_by(RootModel.id)
+                .order_by(RootModel.ordinal, RootModel.id)
+                .limit(limit + 1)
+            )
+            if cursor is not None:
+                statement = statement.where(RootModel.ordinal > cursor)
+            rows = list((await session.execute(statement)).all())
+        has_more = len(rows) > limit
+        selected = rows[:limit]
+        roots = tuple(
+            self._pipeline_root(root, int(count)) for root, count in selected
+        )
+        metadata = selected[0][0].metadata_json if selected else {}
+        cleaning = _mapping(metadata.get("cleaning"))
+        splitter = _mapping(metadata.get("splitter"))
+        return DocumentPipelineSnapshot(
+            document.id,
+            version.id,
+            version.source_name,
+            version.parser_provider,
+            version.parser_version,
+            _text(cleaning.get("provider")),
+            _text(cleaning.get("version")),
+            _text(splitter.get("provider")),
+            _text(splitter.get("version")),
+            _mapping(splitter.get("settings")),
+            root_count,
+            leaf_count,
+            roots,
+            roots[-1].ordinal if has_more and roots else None,
+        )
+
+    async def inspect_pipeline_root(
+        self, tenant_id: UUID, document_id: UUID, root_id: str
+    ) -> PipelineRootDetail:
+        async with self._database.session() as session:
+            _, version = await self._document_version(session, tenant_id, document_id)
+            root = await session.scalar(
+                select(RootModel).where(
+                    RootModel.id == root_id,
+                    RootModel.tenant_id == tenant_id,
+                    RootModel.document_id == document_id,
+                    RootModel.version_id == version.id,
+                )
+            )
+            if root is None:
+                raise self._not_found("Root", root_id)
+            leaves = tuple(
+                await session.scalars(
+                    select(LeafModel)
+                    .where(
+                        LeafModel.root_id == root.id,
+                        LeafModel.tenant_id == tenant_id,
+                        LeafModel.document_id == document_id,
+                        LeafModel.version_id == version.id,
+                    )
+                    .order_by(LeafModel.ordinal, LeafModel.id)
+                )
+            )
+        previous_end: int | None = None
+        projected: list[PipelineLeafSnapshot] = []
+        for leaf in leaves:
+            overlap = 0
+            if previous_end is not None and leaf.start_offset is not None:
+                overlap = max(0, previous_end - leaf.start_offset)
+            projected.append(
+                PipelineLeafSnapshot(
+                    leaf.id,
+                    leaf.ordinal,
+                    leaf.text,
+                    leaf.retrieval_text,
+                    leaf.start_offset,
+                    leaf.end_offset,
+                    leaf.token_count,
+                    overlap,
+                    leaf.metadata_json,
+                )
+            )
+            if leaf.end_offset is not None:
+                previous_end = leaf.end_offset
+        return PipelineRootDetail(
+            self._pipeline_root(root, len(leaves)),
+            root.raw_text,
+            root.clean_text,
+            root.metadata_json,
+            tuple(projected),
+        )
+
+    async def _document_version(
+        self, session: AsyncSession, tenant_id: UUID, document_id: UUID
+    ) -> tuple[DocumentModel, DocumentVersionModel]:
+        row = (
+            await session.execute(
+                select(DocumentModel, DocumentVersionModel)
+                .join(
+                    DocumentVersionModel,
+                    DocumentVersionModel.document_id == DocumentModel.id,
+                )
+                .where(
+                    DocumentModel.id == document_id,
+                    DocumentModel.tenant_id == tenant_id,
+                    DocumentModel.status != "deleted",
+                )
+                .order_by(
+                    DocumentVersionModel.created_at.desc(),
+                    DocumentVersionModel.id.desc(),
+                )
+                .limit(1)
+            )
+        ).one_or_none()
+        if row is None:
+            raise self._not_found("document", document_id)
+        return row[0], row[1]
+
+    @staticmethod
+    def _pipeline_root(root: RootModel, leaf_count: int) -> PipelineRootSummary:
+        return PipelineRootSummary(
+            root.id,
+            root.ordinal,
+            root.kind,
+            root.source_locator,
+            len(root.raw_text),
+            len(root.clean_text),
+            root.raw_text != root.clean_text,
+            leaf_count,
+            _cleaning_audit(root.metadata_json),
+        )
+
     async def get_job(self, tenant_id: UUID, job_id: UUID) -> JobSnapshot:
         async with self._database.session() as session:
             model = await session.scalar(
@@ -583,9 +809,46 @@ class WorkspaceService:
             raise AppError(ErrorCode.VALIDATION_ERROR, "The cursor is invalid.") from error
 
     @staticmethod
-    def _not_found(kind: str, identity: UUID) -> AppError:
+    def _not_found(kind: str, identity: UUID | str) -> AppError:
         return AppError(
             ErrorCode.NOT_FOUND,
             f"The {kind} was not found.",
             {"id": str(identity)},
         )
+
+
+def _mapping(value: object) -> Mapping[str, object]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _integer(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _cleaning_audit(metadata: Mapping[str, object]) -> tuple[CleaningAuditSnapshot, ...]:
+    values = _mapping(metadata.get("cleaning")).get("audit")
+    if not isinstance(values, list):
+        return ()
+    result: list[CleaningAuditSnapshot] = []
+    for item in values:
+        audit = _mapping(item)
+        rule = _text(audit.get("rule"))
+        occurrences = _integer(audit.get("occurrences"))
+        before = _text(audit.get("before_sha256"))
+        after = _text(audit.get("after_sha256"))
+        if (
+            rule is not None
+            and occurrences is not None
+            and before is not None
+            and after is not None
+        ):
+            result.append(
+                CleaningAuditSnapshot(
+                    rule, occurrences, before, after
+                )
+            )
+    return tuple(result)

@@ -71,6 +71,11 @@ pnpm --dir=frontend dev
 Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引用。Provider 状态可在
 “租户总览”或 `http://127.0.0.1:8000/health/doctor` 查看。
 
+文档进入 `ready` 后，在“文档管理”打开详情并选择“查看解析、清洗与切分”，可检查实际 Parser、
+确定性 Cleaner、Splitter 参数、每个 Root 的原文/清洗后对照、规则 audit，以及每个 Leaf 的完整
+文本、token 数、offset 和相邻 overlap。该页面读取 PostgreSQL 事实源，不根据前端猜测切分结果；
+升级前摄取且没有 audit 元数据的旧文档会明确标为“旧数据未记录”，重新上传后即可生成完整记录。
+
 当前 Mac 组合的 Standard 与 Deep 都走真实模型链路；Deep 会为综合回答恢复更多 Root 证据。M4
 定义的多轮 Deep Recovery Controller 仍是可插拔服务，尚未装配到这个本地 QueryRunner，不能把
 当前 Deep 按钮描述为已经执行多轮检索恢复。
@@ -149,6 +154,7 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `/api/v1/collections` — demo tenant 集合 CRUD
 - `/api/v1/documents` — 流式上传、筛选与 cursor 分页
 - `/api/v1/documents/{id}` — 文档详情与幂等删除
+- `GET /api/v1/documents/{id}/pipeline`、`/pipeline/roots/{root_id}` — 租户隔离的处理链路、Root/Leaf 与清洗 audit
 - `GET /api/v1/ingestion-jobs`、`GET /api/v1/ingestion-jobs/{id}` — 摄取任务 cursor 列表、筛选与详情
 - `POST /api/v1/queries`、`POST /api/v1/queries/stream` — 同步与 SSE 查询契约；未注入 QueryRunner 的当前启动入口会返回 503
 - `GET /api/v1/traces`、`/api/v1/traces/query`、`/api/v1/traces/ingestion` — 租户内 Trace 筛选与 cursor 分页；Query 列表支持 mode/status/degraded
@@ -346,7 +352,8 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-08 Browser E2E：已完成
 - M7 Vue3/TypeScript 公共端与管理端里程碑：已完成
 - M7-R1 macOS 真实 Provider 开发组合：已完成
-- 下一项：M8-01 Images
+- M7-R2A 文档处理透视：已完成
+- 下一项：M7-R2B 查询计划与逐阶段召回指标
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -367,6 +374,11 @@ LLM，供 Mac 完整开发演示。两者都不是 M8 生产入口。
 attempt、heartbeat 与稳定错误，只在存在活跃任务时轮询。匿名 `demo_operator` 可完成单租户业务
 旅程，但系统路由和跨租户资源仍由前后端双重拒绝。离线 Compose 组合包含实际摄取 Worker；默认
 组合根仍要求部署方显式提供 Worker 进程。
+
+`/workspace/documents/{document_id}/pipeline` 是 PostgreSQL 事实驱动的文档处理检查器。它展示版本实际
+使用的 Parser/Cleaner/Splitter 及切分参数，以分页 Root 列表和按需详情呈现 raw/clean 全文对照、每条
+确定性清洗规则的发生次数与前后 hash、Leaf 文本、检索增强文本、token、offset 和计算得到的 overlap。
+接口和页面都由当前 session tenant 限定；旧版本缺少新增 metadata 时只显示“未记录”，不会伪造默认值。
 
 `/workspace/traces/queries` 展示当前 tenant 的持久化 Query Trace，可按 Standard/Deep、结果和降级
 状态筛选。详情使用后端净化投影显示全链路耗时瀑布、Dense/Sparse→RRF→Rerank 排名变化、Deep

@@ -140,6 +140,62 @@ class DocumentDetailResponse(DocumentResponse):
     version_error_message: str | None
 
 
+class CleaningAuditResponse(ApiModel):
+    rule: str
+    occurrences: int
+    before_sha256: str
+    after_sha256: str
+
+
+class PipelineRootSummaryResponse(ApiModel):
+    id: str
+    ordinal: int
+    kind: str
+    source_locator: dict[str, object]
+    raw_chars: int
+    clean_chars: int
+    changed: bool
+    leaf_count: int
+    cleaning_audit: list[CleaningAuditResponse]
+
+
+class PipelineLeafResponse(ApiModel):
+    id: str
+    ordinal: int
+    text: str
+    retrieval_text: str
+    start_offset: int | None
+    end_offset: int | None
+    token_count: int
+    overlap_chars: int
+    metadata: dict[str, object]
+
+
+class PipelineRootDetailResponse(ApiModel):
+    summary: PipelineRootSummaryResponse
+    raw_text: str
+    clean_text: str
+    metadata: dict[str, object]
+    leaves: list[PipelineLeafResponse]
+
+
+class DocumentPipelineResponse(ApiModel):
+    document_id: UUID
+    version_id: UUID
+    source_name: str
+    parser_provider: str | None
+    parser_version: str | None
+    cleaner_provider: str | None
+    cleaner_version: str | None
+    splitter_provider: str | None
+    splitter_version: str | None
+    splitter_settings: dict[str, object]
+    root_count: int
+    leaf_count: int
+    roots: list[PipelineRootSummaryResponse]
+    next_cursor: int | None
+
+
 class DocumentListResponse(ApiModel):
     items: list[DocumentResponse]
     next_cursor: str | None
