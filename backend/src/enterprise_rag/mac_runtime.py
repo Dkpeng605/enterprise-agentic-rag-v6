@@ -11,13 +11,19 @@ from fastapi import FastAPI
 from enterprise_rag.adapters.cleaners import DeterministicCleaner
 from enterprise_rag.adapters.database import Database
 from enterprise_rag.adapters.database.jobs import IngestionJobRepository
-from enterprise_rag.adapters.embeddings import LocalMultilingualEmbedding
+from enterprise_rag.adapters.embeddings import (
+    LocalMultilingualEmbedding,
+    OpenAICompatibleEmbedding,
+)
 from enterprise_rag.adapters.embeddings.fastembed_local import DEFAULT_MODEL as EMBEDDING_MODEL
 from enterprise_rag.adapters.llms import OpenAICompatibleLanguageModel
 from enterprise_rag.adapters.loaders import PdfLoader, SpreadsheetLoader, TextDocumentLoader
 from enterprise_rag.adapters.object_store import LocalObjectStore
 from enterprise_rag.adapters.ocr import TesseractOcrEngine
-from enterprise_rag.adapters.rerankers import LocalFastEmbedReranker
+from enterprise_rag.adapters.rerankers import (
+    LocalFastEmbedReranker,
+    OpenAICompatibleReranker,
+)
 from enterprise_rag.adapters.sparse import HashingSparseEncoder
 from enterprise_rag.adapters.splitters import StructureAwareSplitter
 from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
@@ -37,6 +43,9 @@ from enterprise_rag.services import (
     build_persistent_tracing,
 )
 from enterprise_rag.services.provider_catalog import (
+    SILICONFLOW_BASE_URL,
+    SILICONFLOW_EMBEDDING_MODEL,
+    SILICONFLOW_RERANKER_MODEL,
     RuntimeProviderCatalog,
     load_provider_selection,
     selected_embedding_dimension,
@@ -96,28 +105,80 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
     )
     index_revision = _index_revision(embedding_model)
 
+    shared_remote_key = (
+        credentials.siliconflow_api_key.get_secret_value()
+        if credentials.siliconflow_api_key is not None
+        else None
+    )
+    embedding_remote_key = (
+        credentials.embedding_api_key.get_secret_value()
+        if credentials.embedding_api_key is not None
+        else shared_remote_key
+    )
+    reranker_remote_key = (
+        credentials.rerank_api_key.get_secret_value()
+        if credentials.rerank_api_key is not None
+        else shared_remote_key
+    )
+    shared_remote_base_url = str(credentials.siliconflow_base_url or SILICONFLOW_BASE_URL)
+
     database = Database(credentials.database_url.get_secret_value())
     object_store = LocalObjectStore(runtime_root)
-    embedding = LocalMultilingualEmbedding(
-        model_name=embedding_model,
-        cache_dir=model_cache / "embedding",
-        batch_size=active.ingestion.embedding_batch_size,
-        max_batch_tokens=active.ingestion.embedding_batch_tokens,
-    )
-    embedding.warm_tokenizer()
     configured_embedding_dimension = selected_embedding_dimension(
         selection, active.ingestion.embedding_dimension
     )
+    embedding: LocalMultilingualEmbedding | OpenAICompatibleEmbedding
+    if embedding_model == SILICONFLOW_EMBEDDING_MODEL:
+        if not embedding_remote_key:
+            raise RuntimeError(
+                "SILICONFLOW_API_KEY or EMBEDDING_API_KEY is required for BAAI/bge-m3"
+            )
+        embedding = OpenAICompatibleEmbedding(
+            base_url=str(credentials.embedding_base_url or shared_remote_base_url),
+            api_key=embedding_remote_key,
+            model=embedding_model,
+            provider_name="siliconflow",
+            dimension=1024,
+            input_token_limit=8192,
+            tokenizer_name=f"estimated-tokenizer:{embedding_model}",
+            batch_size=active.ingestion.embedding_batch_size,
+            max_batch_tokens=active.ingestion.embedding_batch_tokens,
+            timeout_seconds=active.cost_guard.provider_timeout_seconds,
+            max_retries=active.cost_guard.provider_max_retries,
+        )
+    else:
+        embedding = LocalMultilingualEmbedding(
+            model_name=embedding_model,
+            cache_dir=model_cache / "embedding",
+            batch_size=active.ingestion.embedding_batch_size,
+            max_batch_tokens=active.ingestion.embedding_batch_tokens,
+        )
+        embedding.warm_tokenizer()
     if embedding.dimension != configured_embedding_dimension:
         raise RuntimeError(
-            "Configured ingestion.embedding_dimension does not match the local embedding model"
+            "Configured ingestion.embedding_dimension does not match the selected embedding model"
         )
     sparse = HashingSparseEncoder()
     vector_store = MilvusLiteVectorStore(runtime_root.parent / "milvus" / "vectors.db")
-    reranker = LocalFastEmbedReranker(
-        model_name=reranker_model,
-        cache_dir=model_cache / "reranker",
-    )
+    reranker: LocalFastEmbedReranker | OpenAICompatibleReranker
+    if reranker_model == SILICONFLOW_RERANKER_MODEL:
+        if not reranker_remote_key:
+            raise RuntimeError(
+                "SILICONFLOW_API_KEY or RERANK_API_KEY is required for BAAI/bge-reranker-v2-m3"
+            )
+        reranker = OpenAICompatibleReranker(
+            base_url=str(credentials.rerank_base_url or shared_remote_base_url),
+            api_key=reranker_remote_key,
+            model=reranker_model,
+            provider_name="siliconflow",
+            timeout_seconds=active.cost_guard.provider_timeout_seconds,
+            max_retries=active.cost_guard.provider_max_retries,
+        )
+    else:
+        reranker = LocalFastEmbedReranker(
+            model_name=reranker_model,
+            cache_dir=model_cache / "reranker",
+        )
     raw_language_model = OpenAICompatibleLanguageModel(
         base_url=str(credentials.llm_base_url),
         api_key=credentials.llm_api_key.get_secret_value(),
@@ -224,6 +285,14 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         },
         current_embedding_dimension=embedding.dimension,
         current_embedding_input_token_limit=embedding.input_token_limit,
+        remote_credentials=frozenset(
+            kind
+            for kind, configured in (
+                ("embedding", embedding_remote_key),
+                ("reranker", reranker_remote_key),
+            )
+            if configured
+        ),
     )
 
     async def worker() -> None:

@@ -1,3 +1,4 @@
+import json
 import math
 import os
 from collections.abc import Iterable, Sequence
@@ -28,9 +29,7 @@ class FakeCrossEncoder:
         self.scores = scores
         self.calls: list[tuple[str, tuple[str, ...], int]] = []
 
-    def rerank(
-        self, query: str, documents: Iterable[str], batch_size: int = 64
-    ) -> Iterable[float]:
+    def rerank(self, query: str, documents: Iterable[str], batch_size: int = 64) -> Iterable[float]:
         self.calls.append((query, tuple(documents), batch_size))
         return iter(self.scores)
 
@@ -104,6 +103,45 @@ async def test_http_provider_aligns_indexes_and_retries_transient_status() -> No
         candidates()[2].candidate_id,
         candidates()[0].candidate_id,
     ]
+
+
+@pytest.mark.anyio
+async def test_siliconflow_bge_reranker_uses_official_rerank_contract() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == "https://api.siliconflow.cn/v1/rerank"
+        assert request.headers["Authorization"] == "Bearer test-secret"
+        assert json.loads(request.read()) == {
+            "model": "BAAI/bge-reranker-v2-m3",
+            "query": "AI",
+            "documents": [candidate.text for candidate in candidates()],
+            "top_n": 2,
+        }
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"index": 2, "relevance_score": 0.91},
+                    {"index": 0, "relevance_score": 0.82},
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatibleReranker(
+            base_url="https://api.siliconflow.cn/v1",
+            api_key="test-secret",
+            model="BAAI/bge-reranker-v2-m3",
+            provider_name="siliconflow",
+            client=client,
+        )
+        result = await provider.rerank("AI", candidates(), top_k=2)
+
+    assert [entry.candidate_id for entry in result] == [
+        candidates()[2].candidate_id,
+        candidates()[0].candidate_id,
+    ]
+    assert provider.info().name == "siliconflow"
+    assert provider.info().version == "BAAI/bge-reranker-v2-m3"
 
 
 @pytest.mark.anyio

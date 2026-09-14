@@ -102,7 +102,7 @@ onMounted(load)
       <div>
         <p class="section-kicker">SYSTEM · PROVIDER CATALOG</p>
         <h1>Provider 管理</h1>
-        <p>查看当前运行时真实注册的 Provider，并选择下一次启动要使用的本地 Embedding 与 Reranker profile。</p>
+        <p>查看当前运行时真实注册的 Provider，并选择下一次启动要使用的本地或远程 Embedding 与 Reranker profile。</p>
       </div>
       <button class="button button--secondary" type="button" :disabled="state === 'loading'" @click="load">刷新目录</button>
     </header>
@@ -137,10 +137,11 @@ onMounted(load)
         <div class="provider-option-groups">
           <article v-for="group in optionsByKind" :key="group.kind" class="provider-option-group">
             <header><div><strong>{{ group.label }}</strong><small>当前：{{ optionValue(group.kind) || '未配置' }}</small></div><span>{{ group.options.length }} 个 profile</span></header>
-            <label v-for="option in group.options" :key="option.key" class="provider-option" :class="{ 'provider-option--selected': option.selected }">
-              <input type="radio" :name="group.kind" :value="option.key" :checked="option.selected" :disabled="Boolean(savingKey)" @change="selectProvider(group.kind, option.key)">
-              <span class="provider-option__body"><strong>{{ option.label }}</strong><b>{{ option.model }}</b><small>{{ formatOptionMeta(option) }}<template v-if="option.note"> · {{ option.note }}</template></small></span>
+            <label v-for="option in group.options" :key="option.key" class="provider-option" :class="{ 'provider-option--selected': option.selected, 'provider-option--unavailable': !option.available }">
+              <input type="radio" :name="group.kind" :value="option.key" :checked="option.selected" :disabled="Boolean(savingKey) || !option.available" @change="selectProvider(group.kind, option.key)">
+              <span class="provider-option__body"><strong>{{ option.label }} <i>{{ option.provider }} · {{ option.is_remote ? 'REMOTE' : 'LOCAL' }}</i></strong><b>{{ option.model }}</b><small>{{ formatOptionMeta(option) }}<template v-if="option.note"> · {{ option.note }}</template><template v-if="option.unavailable_reason"> · {{ option.unavailable_reason }}</template></small></span>
               <em v-if="option.selected">当前</em><em v-else-if="savingKey === `${group.kind}:${option.key}`">保存中</em>
+              <em v-else-if="!option.available">未配置</em>
             </label>
           </article>
         </div>
@@ -149,7 +150,8 @@ onMounted(load)
       <section class="provider-admin-section provider-admin-note" aria-labelledby="provider-policy-title">
         <div class="section-heading"><div><p class="section-kicker">SELECTION POLICY</p><h2 id="provider-policy-title">生效边界</h2></div></div>
         <p>Embedding 的维度和 tokenizer 上限属于索引契约，不能在已有进程中静默热切换。切换 Embedding 后请重启 Mac backend，并重新摄取需要检索的文档；旧索引不会被自动伪装成新模型的结果。</p>
-        <p v-if="currentLlm.length">当前 LLM：<strong>{{ currentLlm.map((provider) => `${provider.name} · ${provider.version}`).join(' / ') }}</strong>。LLM endpoint 与密钥仍由本机环境变量管理，不在前端回显或编辑。</p>
+        <p>远程 Embedding/Reranker 的 endpoint 与密钥只由 backend 环境变量管理；前端仅显示是否已配置，不回显密钥。`BAAI/bge-m3` 为 1024 维，切换会生成隔离的新索引 revision。</p>
+        <p v-if="currentLlm.length">当前 LLM：<strong>{{ currentLlm.map((provider) => `${provider.name} · ${provider.version}`).join(' / ') }}</strong>。LLM endpoint 与密钥同样不在前端回显或编辑。</p>
         <p v-else>当前没有注册 LLM Provider；endpoint、模型与密钥由本机环境变量管理。</p>
       </section>
     </template>

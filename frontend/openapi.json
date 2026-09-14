@@ -7374,6 +7374,10 @@
             "type": "string",
             "title": "Label"
           },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
           "capabilities": {
             "items": {
               "type": "string"
@@ -7437,6 +7441,17 @@
             "type": "boolean",
             "title": "Available"
           },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
           "requires_restart": {
             "type": "boolean",
             "title": "Requires Restart"
@@ -7450,6 +7465,7 @@
           "name",
           "model",
           "label",
+          "provider",
           "capabilities",
           "is_remote",
           "selected",

@@ -35,9 +35,10 @@ pnpm install --frozen-lockfile
 
 ### macOS 完整语义演示（推荐）
 
-这个入口运行真实的本地多语 Embedding、本地多语 CrossEncoder Reranker、Milvus Lite、后台文档
-解析/摄取 Worker，并通过 OpenAI-compatible Chat Completions 调用 LLM。文档原文和查询文本只在
-本机参与 Embedding/Rerank；发送给 LLM 的是经过租户权限复核后恢复的有限 Root 证据。
+这个入口运行可切换的本地/远程多语 Embedding 与 CrossEncoder Reranker、Milvus Lite、后台文档
+解析/摄取 Worker，并通过 OpenAI-compatible Chat Completions 调用 LLM。默认本地 Embedding/Rerank
+不会把文档和查询发送到外部；选择 SiliconFlow 远程 profile 后，相应的 Leaf/查询或候选文本会发送给
+SiliconFlow。发送给 LLM 的仍是经过租户权限复核后恢复的有限 Root 证据。
 
 先安装系统依赖并准备仅本机使用的配置：
 
@@ -46,8 +47,9 @@ brew install tesseract tesseract-lang
 cp .env.mac.example .env
 ```
 
-编辑 `.env`，只把 `LLM_API_KEY` 改为自己的 TokenHub Token。TokenHub 当前返回的模型 ID 是大小写
-敏感的 `MiniMax-M3`；`.env` 已被 Git 忽略，不能提交、复制进 Issue 或写入日志。然后在第一个终端
+编辑 `.env`，把 `LLM_API_KEY` 改为自己的 TokenHub Token；如需使用远程 BGE profile，再填写
+`SILICONFLOW_API_KEY`。TokenHub 当前返回的模型 ID 是大小写敏感的 `MiniMax-M3`；`.env` 已被 Git
+忽略，不能提交、复制进 Issue 或写入日志。然后在第一个终端
 启动 PostgreSQL、迁移和完整 FastAPI+Worker 组合：
 
 ```bash
@@ -66,6 +68,13 @@ Splitter 以运行时实测值为准。Provider 管理页会同时显示 profile
 `EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5`，并设置
 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`。这是可插拔的本地模型 profile，首次运行会下载
 对应模型；切换模型或维度会创建新的 index revision，旧向量不会与新向量混用。
+
+管理员可在 `/admin/providers` 选择 SiliconFlow 的 `BAAI/bge-m3`（1024 维、官方输入上限 8192
+tokens）和 `BAAI/bge-reranker-v2-m3`。两者共用 `SILICONFLOW_API_KEY`，也可分别用
+`EMBEDDING_API_KEY`/`RERANK_API_KEY` 覆盖；endpoint 默认是 `https://api.siliconflow.cn/v1`，可用
+`EMBEDDING_BASE_URL`/`RERANK_BASE_URL` 单独覆盖。未配置密钥时远程选项会显示“未配置”且不可选择，
+密钥永远不会返回前端。BGE-M3 的远程 API 不提供本地 tokenizer 对象，因此页面明确把切分 token
+计数标为估算；当前 Leaf 上限远低于 8192，不会把估算冒充精确 tokenizer 结果。
 
 在第二个终端启动 Vue 3 前端：
 
@@ -530,7 +539,7 @@ PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr
 
 图片增强服务先把 Loader 提取的原始图片写入内容寻址 ObjectStore，再调用可插拔 Vision 端口。默认 `vision: none` 会保留图片并跳过 caption；Vision 异常只将 caption 标记为降级，不会丢弃已存图片或泄露供应商错误。ObjectStore 写入失败仍会中止摄取，因为图片持久化不是可选数据。
 
-Embedding 端口提供本地多语和 OpenAI-compatible 两种实现，并通过 `EMBEDDING_MODEL` 选择 FastEmbed profile。本地默认使用 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling、registry 描述为 512 input tokens），首次调用会下载约 0.22GB 模型；运行时不会盲信 registry：优先读取实际 truncation limit；如果 FastEmbed ONNX wrapper 不暴露该字段，则用超出 registry 上限的探测文本调用 `token_count`，识别被 tokenizer 截断后的真实上限（当前缓存模型实际报告 128）。可选 `BAAI/bge-small-zh-v1.5` profile 实测为 512 维、512 input tokens，适合中文本地部署；切换时同时设置 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`，并通过新 index revision 隔离旧向量。Provider 暴露真实 tokenizer 的 `count_tokens` 与输入上限，拒绝达到模型上限的单项输入，Splitter 与 Embedding 使用同一个计数器。远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试，但在未配置模型 tokenizer 时不会虚构远程模型上限。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
+Embedding 端口提供本地多语和 OpenAI-compatible 两种实现，并通过 `EMBEDDING_MODEL` 选择 FastEmbed profile。本地默认使用 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling、registry 描述为 512 input tokens），首次调用会下载约 0.22GB 模型；运行时不会盲信 registry：优先读取实际 truncation limit；如果 FastEmbed ONNX wrapper 不暴露该字段，则用超出 registry 上限的探测文本调用 `token_count`，识别被 tokenizer 截断后的真实上限（当前缓存模型实际报告 128）。可选 `BAAI/bge-small-zh-v1.5` profile 实测为 512 维、512 input tokens，适合中文本地部署；切换时同时设置 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`，并通过新 index revision 隔离旧向量。Provider 暴露真实 tokenizer 的 `count_tokens` 与输入上限，拒绝达到模型上限的单项输入，Splitter 与 Embedding 使用同一个计数器。远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试；SiliconFlow `BAAI/bge-m3` profile 固定校验 1024 维并采用官方 8192 token 上限，但因为 HTTP API 不暴露 tokenizer，本地计数明确标记为 deterministic estimate。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
 
 ```bash
 (cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \
@@ -547,7 +556,7 @@ Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化�
 
 RRF Fusion 按每个 query 的 Dense/Sparse 排名列表计算 `Σ 1/(k+rank)`，不直接混加不可比较的原始分数。同一 Leaf 跨分路去重，同一 Root 默认最多保留 3 个 Leaf，全局默认保留 30 个；完全同分使用 Leaf ID 稳定排序，并报告各类配额丢弃数量。
 
-Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种实现。默认 `local_cross_encoder` 使用约 0.08GB 的 `Xenova/ms-marco-MiniLM-L-6-v2`，该默认模型只按英文能力声明；中文或多语场景必须显式选择对应模型，2GB 生产服务器应使用远程 Reranker。服务默认重排前 20 个 RRF 候选并选择 8 个，严格按候选 ID 对齐；超时、坏响应、重复/未知 ID 和非有限分数都会净化诊断并降级为稳定的 RRF 选择。真实本地模型可单独验证：
+Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种实现。默认 `local_cross_encoder` 使用约 0.08GB 的 `Xenova/ms-marco-MiniLM-L-6-v2`，该默认模型只按英文能力声明；中文或多语场景必须显式选择对应模型，2GB 生产服务器可选择 SiliconFlow `BAAI/bge-reranker-v2-m3`，通过官方 `/v1/rerank` 请求 `model/query/documents/top_n`。服务默认重排前 20 个 RRF 候选并选择 8 个，严格按候选 ID 对齐；超时、坏响应、重复/未知 ID 和非有限分数都会净化诊断并降级为稳定的 RRF 选择。真实本地模型可单独验证：
 
 ```bash
 (cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \

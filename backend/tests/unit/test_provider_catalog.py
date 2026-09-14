@@ -1,10 +1,17 @@
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from enterprise_rag.adapters.embeddings.fastembed_local import BGE_SMALL_ZH_MODEL
 from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, ProviderKind
 from enterprise_rag.ports.registry import ProviderRegistry
-from enterprise_rag.services.provider_catalog import RuntimeProviderCatalog, load_provider_selection
+from enterprise_rag.services.provider_catalog import (
+    SILICONFLOW_EMBEDDING_MODEL,
+    SILICONFLOW_RERANKER_MODEL,
+    RuntimeProviderCatalog,
+    load_provider_selection,
+)
 
 
 class FakeProvider:
@@ -73,3 +80,43 @@ def test_provider_catalog_rejects_non_selectable_provider_kind(tmp_path: Path) -
         assert "not available" in str(error)
     else:
         raise AssertionError("LLM selection should remain environment-managed")
+
+
+def test_siliconflow_profiles_require_backend_credentials(tmp_path: Path) -> None:
+    catalog = RuntimeProviderCatalog(
+        registry=ProviderRegistry(),
+        selection_path=tmp_path / "provider-selection.json",
+        current_models={},
+    )
+
+    options = cast(list[dict[str, object]], catalog.to_dict()["options"])
+    remote = {
+        str(option["key"]): option
+        for option in options
+        if option["key"] in {SILICONFLOW_EMBEDDING_MODEL, SILICONFLOW_RERANKER_MODEL}
+    }
+    assert remote[SILICONFLOW_EMBEDDING_MODEL]["dimension"] == 1024
+    assert remote[SILICONFLOW_EMBEDDING_MODEL]["input_token_limit"] == 8192
+    assert remote[SILICONFLOW_EMBEDDING_MODEL]["available"] is False
+    assert remote[SILICONFLOW_RERANKER_MODEL]["available"] is False
+
+    with pytest.raises(ValueError, match="SILICONFLOW_API_KEY"):
+        catalog.select(kind="embedding", key=SILICONFLOW_EMBEDDING_MODEL)
+
+
+def test_siliconflow_profiles_are_selectable_with_kind_credentials(tmp_path: Path) -> None:
+    catalog = RuntimeProviderCatalog(
+        registry=ProviderRegistry(),
+        selection_path=tmp_path / "provider-selection.json",
+        current_models={},
+        remote_credentials=frozenset({"embedding", "reranker"}),
+    )
+
+    catalog.select(kind="embedding", key=SILICONFLOW_EMBEDDING_MODEL)
+    catalog.select(kind="reranker", key=SILICONFLOW_RERANKER_MODEL)
+
+    assert load_provider_selection(tmp_path / "provider-selection.json") == {
+        "embedding_dimension": "1024",
+        "embedding_model": SILICONFLOW_EMBEDDING_MODEL,
+        "reranker_model": SILICONFLOW_RERANKER_MODEL,
+    }

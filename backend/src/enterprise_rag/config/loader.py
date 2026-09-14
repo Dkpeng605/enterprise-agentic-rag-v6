@@ -32,6 +32,8 @@ ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "RERANK_BASE_URL": ("credentials", "rerank_base_url"),
     "RERANK_API_KEY": ("credentials", "rerank_api_key"),
     "RERANK_MODEL": ("credentials", "rerank_model"),
+    "SILICONFLOW_BASE_URL": ("credentials", "siliconflow_base_url"),
+    "SILICONFLOW_API_KEY": ("credentials", "siliconflow_api_key"),
     "MCP_TOKEN_PEPPER": ("credentials", "mcp_token_pepper"),
     "METRICS_TOKEN": ("credentials", "metrics_token"),
 }

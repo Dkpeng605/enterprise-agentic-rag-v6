@@ -35,10 +35,11 @@ pnpm install --frozen-lockfile
 
 ### Full semantic demo on macOS (recommended)
 
-This entry point runs a real local multilingual embedding model, a local multilingual CrossEncoder
-reranker, Milvus Lite, and the background document parsing/ingestion worker. It calls the LLM through
-OpenAI-compatible Chat Completions. Document text and query text remain on the Mac for embedding and
-reranking; only bounded Root evidence recovered after tenant authorization is sent to the LLM.
+This entry point runs selectable local/remote multilingual embedding and CrossEncoder reranker providers,
+Milvus Lite, and the background document parsing/ingestion worker. It calls the LLM through OpenAI-compatible
+Chat Completions. The defaults keep document and query text on the Mac. Selecting a SiliconFlow remote
+profile sends the corresponding Leaf/query or candidate text to SiliconFlow; only bounded Root evidence
+recovered after tenant authorization is sent to the LLM.
 
 Install the system dependencies and prepare an untracked local configuration:
 
@@ -47,9 +48,10 @@ brew install tesseract tesseract-lang
 cp .env.mac.example .env
 ```
 
-Edit `.env` and replace only `LLM_API_KEY` with your TokenHub token. TokenHub currently exposes the
-case-sensitive model ID `MiniMax-M3`. Git ignores `.env`; never commit it or paste it into an issue
-or log. Start PostgreSQL, migrations, and the full FastAPI+Worker composition in the first terminal:
+Edit `.env` and replace `LLM_API_KEY` with your TokenHub token. To use the remote BGE profiles, also set
+`SILICONFLOW_API_KEY`. TokenHub currently exposes the case-sensitive model ID `MiniMax-M3`. Git ignores
+`.env`; never commit it or paste it into an issue or log. Start PostgreSQL, migrations, and the full
+FastAPI+Worker composition in the first terminal:
 
 ```bash
 ./scripts/mac-backend.sh
@@ -68,6 +70,14 @@ also shows the profile declaration and the effective limit detected by the curre
 local profile, set `EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5` and
 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`. Model selection is pluggable; switching a model or
 dimension creates a new index revision, so old and new vectors are never mixed.
+
+System administrators can select SiliconFlow `BAAI/bge-m3` (1,024 dimensions and an official 8,192-token
+input limit) and `BAAI/bge-reranker-v2-m3` at `/admin/providers`. Both use the shared
+`SILICONFLOW_API_KEY`; `EMBEDDING_API_KEY` and `RERANK_API_KEY` may override it independently. The default
+endpoint is `https://api.siliconflow.cn/v1`, with per-kind base URL overrides available. Remote profiles
+are visibly disabled when credentials are missing, and secrets are never returned to the UI. Because the
+remote BGE-M3 API does not expose a local tokenizer object, its split counter is explicitly labelled as an
+estimate; the configured Leaf budget remains far below 8,192.
 
 Start the Vue 3 frontend in a second terminal:
 
@@ -549,7 +559,7 @@ The structure-aware Splitter uses a versioned paragraph- and sentence-aware stra
 
 Image enrichment writes the original image extracted by a Loader to the content-addressed ObjectStore before invoking the pluggable Vision port. The default `vision: none` keeps the image and skips captioning. A Vision failure degrades only the caption, without discarding the stored image or exposing provider errors. ObjectStore failure still aborts ingestion because image persistence is not optional data.
 
-The Embedding port has local multilingual and OpenAI-compatible implementations, with FastEmbed profiles selected by `EMBEDDING_MODEL`. The local default is `paraphrase-multilingual-MiniLM-L12-v2` (384 dimensions, mean pooling, and a registry description reporting 512 input tokens), which downloads approximately 0.22GB on first use. The runtime does not blindly trust the registry: it first reads the actual truncation limit; if a FastEmbed ONNX wrapper hides that field, it probes `token_count` with text beyond the registry limit and detects the tokenizer's capped runtime limit (the current cached model reports 128). The optional Chinese-focused `BAAI/bge-small-zh-v1.5` profile is verified at 512 dimensions and 512 input tokens; set `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512` when selecting it, and isolate the change in a new index revision. The Provider exposes the real tokenizer's `count_tokens` and limit, rejects an individual input at the model limit, and shares that counter with the Splitter. The remote adapter applies item/token batch limits plus bounded retries for timeouts, rate limits, and 5xx responses, but does not invent a remote model limit when no model tokenizer is configured. Both validate count, order, dimension, and finite values and return L2-normalized vectors. Run the real-model check explicitly with:
+The Embedding port has local multilingual and OpenAI-compatible implementations, with FastEmbed profiles selected by `EMBEDDING_MODEL`. The local default is `paraphrase-multilingual-MiniLM-L12-v2` (384 dimensions, mean pooling, and a registry description reporting 512 input tokens), which downloads approximately 0.22GB on first use. The runtime does not blindly trust the registry: it first reads the actual truncation limit; if a FastEmbed ONNX wrapper hides that field, it probes `token_count` with text beyond the registry limit and detects the tokenizer's capped runtime limit (the current cached model reports 128). The optional Chinese-focused `BAAI/bge-small-zh-v1.5` profile is verified at 512 dimensions and 512 input tokens; set `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512` when selecting it, and isolate the change in a new index revision. The Provider exposes the real tokenizer's `count_tokens` and limit, rejects an individual input at the model limit, and shares that counter with the Splitter. The remote adapter applies item/token batch limits plus bounded retries for timeouts, rate limits, and 5xx responses. The SiliconFlow `BAAI/bge-m3` profile validates 1,024-dimensional output and uses the provider's documented 8,192-token limit while explicitly labelling its local counter as a deterministic estimate because the HTTP API does not expose a tokenizer. Both validate count, order, dimension, and finite values and return L2-normalized vectors. Run the real-model check explicitly with:
 
 ```bash
 (cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \
@@ -566,7 +576,7 @@ The dual Search Service creates Dense and Sparse query vectors separately and ru
 
 RRF Fusion evaluates every query's Dense/Sparse ranked lists with `Σ 1/(k+rank)` and never adds incomparable raw scores. A Leaf is deduplicated across paths, each Root keeps at most three Leaves by default, and the global default is 30 candidates. Exact score ties use the Leaf ID for stable ordering, and diagnostics report every quota drop.
 
-The Reranker port provides local FastEmbed CrossEncoder, HTTP, and explicit Noop implementations. The default `local_cross_encoder` uses the approximately 0.08GB `Xenova/ms-marco-MiniLM-L-6-v2`; that default model is claimed only as English-capable. Chinese or multilingual deployments must explicitly select a suitable model, while the 2GB production server should use a remote Reranker. The service reranks the first 20 RRF candidates and selects eight by default with strict candidate-ID alignment. Timeouts, malformed responses, duplicate or unknown IDs, and non-finite scores produce sanitized diagnostics and a stable RRF fallback. Run the real local model check with:
+The Reranker port provides local FastEmbed CrossEncoder, HTTP, and explicit Noop implementations. The default `local_cross_encoder` uses the approximately 0.08GB `Xenova/ms-marco-MiniLM-L-6-v2`; that default model is claimed only as English-capable. Chinese or multilingual deployments must explicitly select a suitable model; the 2GB production server can use SiliconFlow `BAAI/bge-reranker-v2-m3` through the official `/v1/rerank` contract. The service reranks the first 20 RRF candidates and selects eight by default with strict candidate-ID alignment. Timeouts, malformed responses, duplicate or unknown IDs, and non-finite scores produce sanitized diagnostics and a stable RRF fallback. Run the real local model check with:
 
 ```bash
 (cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \

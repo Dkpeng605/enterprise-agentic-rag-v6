@@ -51,6 +51,21 @@ def test_secret_values_are_masked_in_models() -> None:
     assert settings.credentials.model_dump(mode="json")["session_secret"] == "**********"
 
 
+def test_siliconflow_shared_credentials_are_loaded_and_masked() -> None:
+    secret = "siliconflow-must-not-appear"
+    settings = load_settings(
+        environ={
+            "SILICONFLOW_BASE_URL": "https://api.siliconflow.cn/v1",
+            "SILICONFLOW_API_KEY": secret,
+        }
+    )
+
+    assert str(settings.credentials.siliconflow_base_url) == "https://api.siliconflow.cn/v1"
+    assert settings.credentials.siliconflow_api_key is not None
+    assert settings.credentials.siliconflow_api_key.get_secret_value() == secret
+    assert secret not in repr(settings)
+
+
 def test_production_missing_secrets_has_stable_sanitized_error() -> None:
     with pytest.raises(SettingsError) as raised:
         load_settings(
@@ -111,9 +126,7 @@ def test_production_rejects_local_admin_admin_bootstrap_credentials() -> None:
         )
 
     assert raised.value.code is SettingsErrorCode.CONFIG_VALUE_INVALID
-    assert raised.value.details == {
-        "fields": ("ADMIN_BOOTSTRAP_EMAIL", "ADMIN_BOOTSTRAP_PASSWORD")
-    }
+    assert raised.value.details == {"fields": ("ADMIN_BOOTSTRAP_EMAIL", "ADMIN_BOOTSTRAP_PASSWORD")}
 
 
 def test_remote_reranker_requires_its_own_production_credentials() -> None:
@@ -138,9 +151,7 @@ def test_remote_reranker_requires_its_own_production_credentials() -> None:
             },
         )
 
-    assert raised.value.details == {
-        "fields": ("RERANK_API_KEY", "RERANK_BASE_URL", "RERANK_MODEL")
-    }
+    assert raised.value.details == {"fields": ("RERANK_API_KEY", "RERANK_BASE_URL", "RERANK_MODEL")}
 
 
 @pytest.mark.parametrize(

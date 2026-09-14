@@ -554,6 +554,7 @@ class ProviderOptionResponse(ApiModel):
     name: str
     model: str
     label: str
+    provider: str
     capabilities: list[str]
     is_remote: bool
     dimension: int | None = None
@@ -562,6 +563,7 @@ class ProviderOptionResponse(ApiModel):
     note: str | None = None
     selected: bool
     available: bool
+    unavailable_reason: str | None = None
     requires_restart: bool
 
 

@@ -22,18 +22,25 @@ class OpenAICompatibleReranker:
         base_url: str,
         api_key: str,
         model: str,
+        provider_name: str = "openai_compatible",
         timeout_seconds: float = 20.0,
         max_retries: int = 2,
         client: httpx.AsyncClient | None = None,
         sleeper: Sleeper = asyncio.sleep,
     ) -> None:
-        if not base_url.strip() or not api_key.strip() or not model.strip():
+        if (
+            not base_url.strip()
+            or not api_key.strip()
+            or not model.strip()
+            or not provider_name.strip()
+        ):
             raise ValueError("remote reranker configuration must not be blank")
         if timeout_seconds <= 0 or not 0 <= max_retries <= 10:
             raise ValueError("timeout and retry settings are invalid")
         self._endpoint = base_url.rstrip("/") + "/rerank"
         self._api_key = api_key
         self._model = model
+        self._provider_name = provider_name
         self._timeout = timeout_seconds
         self._max_retries = max_retries
         self._client = client or httpx.AsyncClient()
@@ -44,7 +51,7 @@ class OpenAICompatibleReranker:
     def info(self) -> ProviderInfo:
         return ProviderInfo(
             kind=ProviderKind.RERANKER,
-            name="openai_compatible",
+            name=self._provider_name,
             version=self._model,
             capabilities=frozenset({"cross-encoder", "http", "retry"}),
             is_remote=True,

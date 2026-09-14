@@ -1010,7 +1010,8 @@ Recovery 结果与现有 Evidence Ledger 按 Leaf ID 去重。每轮至少为 Re
 - `GET /admin/providers`：仅系统管理员可调用；返回当前 `ProviderRegistry` 的真实注册实例、kind/name/version、capabilities、health 和 remote 属性，不返回密钥、Cookie 或 endpoint secret；
 - `POST /admin/providers/select`：仅系统管理员可调用，输入 `kind` 与 profile `key`；当前支持 `embedding` 与 `reranker`，未知 profile、LLM 环境管理项和未知 kind 均返回稳定 validation error；
 - 选择以原子 JSON 写入本机 `data/runtime/provider-selection.json` 的同级运行目录，服务重启时由 Composition Root 读取；接口返回 `pending_restart=true` 直到运行实例与持久化选择一致；
-- Embedding profile 至少提供默认 MiniLM（384 维，profile 声明 512 tokens，但当前缓存可能有效 128）与 `BAAI/bge-small-zh-v1.5`（512 维/512 tokens）；当前运行时有效 dimension/input limit 必须覆盖在 selected option 中；
+- Embedding profile 至少提供默认 MiniLM（384 维，profile 声明 512 tokens，但当前缓存可能有效 128）、本地 `BAAI/bge-small-zh-v1.5`（512 维/512 tokens），以及 SiliconFlow `BAAI/bge-m3`（1024 维/官方 8192 tokens）；Reranker 至少提供本地 Jina/MS MARCO 与 SiliconFlow `BAAI/bge-reranker-v2-m3`；当前运行时有效 dimension/input limit 必须覆盖在 selected option 中；
+- SiliconFlow profile 通过共享 `SILICONFLOW_API_KEY` 或按 kind 覆盖的密钥启用；目录只返回 `available`/`unavailable_reason`，不得返回 key 或 secret endpoint。未配置凭据的远程选项必须禁用且后端拒绝持久化；
 - 切换 Embedding 不得热替换已有索引：启动时由模型名计算新的 index revision，旧 revision 不与新维度混用；管理员界面必须提示重启 backend 和重新摄取；
 - 匿名用户仍可在总览查看非敏感 Provider 状态，但不能读取系统 Provider 目录或改变选择。
 
@@ -1830,6 +1831,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - 端口：EmbeddingProvider 固定暴露 dimension、文档批量向量化、查询向量化和 Provider 生命周期；返回顺序必须与输入严格一致；
 - 本地：默认通过 FastEmbed 0.8.x + ONNX 运行 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`，384 维、mean pooling；Provider revision 同时记录模型名、FastEmbed 版本和 pooling，首次运行按需下载约 0.22GB 模型；
 - 远程：OpenAI-compatible Adapter 调用 `/embeddings`，密钥只进入 Authorization header；401/4xx 不重试，网络错误、超时、429 和 5xx 使用 0.25 秒起始的指数退避，最多按配置重试；
+- SiliconFlow：`BAAI/bge-m3` 固定 dense 输出 1024 维，输入上限按官方 API 合同为 8192 tokens；远程 API 未提供本地 tokenizer 时只能使用并明确标记 deterministic estimate，不能展示为精确模型 token 数；模型名参与 index revision，切换后必须重新摄取；
 - 批处理：按最大条数和 token 总数双重分批；本地 FastEmbed 使用真实 tokenizer，其他未提供 tokenizer 的 Provider 必须明确声明估算或未知，不能把估算冒充模型上限；空文本和达到单项模型上限的输入在调用 Provider 前失败；
 - 校验：严格检查返回数量、index 完整且唯一、维度固定、数值有限且非零；所有输出统一 L2 归一化，供应商正文和密钥不进入错误；
 - 验收：fake local 与 HTTP MockTransport 契约覆盖顺序、batch、token、归一化、维度、限流、重试和坏响应；另提供 opt-in 真实中英文 ONNX 模型测试，本 PR 已实际运行通过。
@@ -1887,6 +1889,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - 端口：`Reranker.rerank(query, candidates, top_k)` 只接收带稳定 candidate ID、检索文本和 fused score 的候选，并返回 candidate ID 与有限分数；候选必须非空、ID 唯一，`top_k` 必须落在候选范围内；
 - 本地：`local_cross_encoder` 使用 FastEmbed ONNX `TextCrossEncoder`，延迟加载并在线程中执行阻塞推理；默认 `Xenova/ms-marco-MiniLM-L-6-v2` 约 0.08GB，明确仅按英文模型能力声明，不把它描述为多语模型；需要中文/多语时必须显式配置相应 CrossEncoder，2GB 生产机默认改用远程 Reranker；
 - HTTP：`openai_compatible` 调用 `{base_url}/rerank`，请求包含 model/query/documents/top_n，认证密钥只进入 Authorization header；超时、网络错误、429 与 5xx 执行最多 2 次的 0.25s 指数退避，其他 4xx 不重试；响应只接受唯一且范围内的 index、有限 relevance_score 和精确 Top-K 数量，禁止回显供应商 body 或密钥；
+- SiliconFlow：目录提供 `BAAI/bge-reranker-v2-m3` 多语远程 profile，默认调用 `https://api.siliconflow.cn/v1/rerank`；服务只发送已授权的候选 Leaf 文本，不发送整个原文件，调用仍受 Rerank candidate/top-k 和超时重试预算约束；
 - Noop：显式 `reranker: none` 按 RRF 顺序和 fused score 选择，不标记降级；它用于无模型环境，不能伪装成 CrossEncoder；
 - 服务：默认只将前 20 个 RRF 候选送入重排并选择前 8 个；按 ID 回填 `rerank_score`，同分保持原 RRF 顺序。缺失、重复、未知 ID、非有限分数、超时或 Provider 异常均安全降级到前 8 个 RRF 候选，清空 rerank score，并只暴露 `RERANKER_UNAVAILABLE` 或 `RERANKER_INVALID_RESPONSE`；
 - 配置：默认 Provider 名从含糊且未实现的 `local_mmarco` 修正为 `local_cross_encoder`；生产选择远程实现时 `RERANK_BASE_URL`、`RERANK_API_KEY`、`RERANK_MODEL` 必填；
@@ -2496,9 +2499,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   ObjectStore、Milvus Lite、多格式 Loader、Tesseract OCR、Cleaner、Root/Leaf Splitter、Projection、
   后台摄取 Worker、QueryRunner、Trace Store 与 Provider Registry；运行数据、模型缓存和密钥文件
   均位于 Git 忽略路径。Milvus Lite 仍只允许一个应用进程打开，不启用 Uvicorn 多 Worker；
-- Provider 选择：Dense Embedding 固定使用 FastEmbed ONNX
-  `paraphrase-multilingual-MiniLM-L12-v2` 及 384 维索引；Sparse 继续使用明确标注的 Hashing Lexical；
-  Reranker 显式改为 `jina-reranker-v2-base-multilingual`，避免将 M4-03 的英文默认模型用于中文演示；
+- Provider 选择：Dense Embedding 默认使用 FastEmbed ONNX `paraphrase-multilingual-MiniLM-L12-v2`
+  及 384 维索引，也可在管理员目录切换本地 BGE small 或 SiliconFlow `BAAI/bge-m3`；Sparse 继续使用
+  明确标注的 Hashing Lexical；Reranker 默认使用 `jina-reranker-v2-base-multilingual`，也可切换
+  SiliconFlow `BAAI/bge-reranker-v2-m3`。远程选择使用后端环境密钥并在重启时由 Composition Root 装配；
   LLM 使用 OpenAI-compatible `POST /chat/completions`，base URL、token 和模型只从环境读取；
 - LLM Adapter：请求仅包含 system/user messages、`max_tokens`、temperature 和非流式标记；响应必须
   恰有一个非空 message、非负整数 prompt/completion usage。429、5xx 和网络错误映射为可重试的
