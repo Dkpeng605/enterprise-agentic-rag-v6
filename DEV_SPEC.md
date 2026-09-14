@@ -545,6 +545,8 @@ class Splitter(Protocol):
 - `overlap_tokens=50`；
 - macOS 真实 Provider 通过 FastEmbed `token_count` 提供实际 tokenizer；有效 `max_tokens` 为配置上限与
   `embedding_token_limit - embedding_safety_margin` 的较小值，默认安全余量为 1，保证每个 embedding 输入严格小于模型上限；
+- FastEmbed wrapper 不一定暴露 tokenizer 的 truncation 字段；此时启动预热必须用超过 registry 声明上限的探测文本调用
+  `token_count`，若返回更小的截断值，则以该运行时值作为 `embedding_token_limit`，Splitter 不得继续使用过时的 registry 上限；
 - 单个句子/结构单元仍超过有效预算时才允许 token 硬切，并在 Leaf metadata 标记 `hard_cut=true`，不得把正常句子拆分伪装成自然边界；
 - overlap 不得跨 Root；
 - overlap 优先携带完整句子，只有无完整句子可携带时才退化为无 overlap；
