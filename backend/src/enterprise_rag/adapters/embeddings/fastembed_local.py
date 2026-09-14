@@ -164,3 +164,16 @@ class LocalMultilingualEmbedding:
         limit = truncation.get("max_length") if isinstance(truncation, dict) else None
         if isinstance(limit, int) and limit > 1:
             self._input_token_limit = limit
+            return
+
+        # Some FastEmbed ONNX wrappers expose only token_count(). Their model
+        # registry description can be stale (for example, it may say 512 while
+        # the bundled tokenizer actually truncates at 128), so probe beyond the
+        # advertised limit and use a smaller capped result when one is observed.
+        counter = getattr(model, "token_count", None)
+        advertised = self._input_token_limit
+        if not callable(counter) or advertised is None:
+            return
+        observed = int(counter("x " * max(advertised * 2, 1_024)))
+        if 1 < observed < advertised:
+            self._input_token_limit = observed

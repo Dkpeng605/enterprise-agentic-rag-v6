@@ -28,6 +28,15 @@ class FakeLocalModel:
         return max(1, len(text.split()))
 
 
+class CappedTokenModel(FakeLocalModel):
+    def __init__(self, limit: int) -> None:
+        super().__init__(())
+        self.limit = limit
+
+    def token_count(self, text: str) -> int:
+        return min(self.limit, max(1, len(text.split())))
+
+
 @pytest.mark.anyio
 async def test_local_provider_batches_normalizes_and_preserves_order() -> None:
     model = FakeLocalModel(
@@ -83,6 +92,17 @@ async def test_local_provider_rejects_inputs_at_model_limit_before_embedding() -
 
     assert raised.value.code is ErrorCode.EMBEDDING_INPUT_INVALID
     assert raised.value.details == {"tokens": 512, "max_input_tokens": 512}
+
+
+def test_local_provider_probes_a_runtime_limit_smaller_than_registry() -> None:
+    provider = LocalMultilingualEmbedding(
+        model=CappedTokenModel(128), dimension=3, max_batch_tokens=512
+    )
+
+    provider.warm_tokenizer()
+
+    assert provider.input_token_limit == 128
+    assert provider.count_tokens("x " * 1_000) == 128
 
 
 @pytest.mark.anyio
