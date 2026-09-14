@@ -1,7 +1,7 @@
 """Deep evidence ledger, dual-threshold routing, and bounded Recovery."""
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol
@@ -38,6 +38,7 @@ class EvidenceItem:
     covered_requirements: tuple[str, ...]
     round_number: int
     route: RecoveryRoute | None
+    text: str
 
     def __post_init__(self) -> None:
         if not self.leaf_id.startswith("leaf_") or not self.root_id.startswith("root_"):
@@ -52,6 +53,7 @@ class EvidenceItem:
             raise ValueError("Recovery evidence must identify its route")
         if any(not value.strip() for value in self.covered_requirements):
             raise ValueError("covered requirements must not be blank")
+        require_non_empty(self.text, "text")
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,11 +64,17 @@ class EvidenceAssessment:
     conflicts: tuple[str, ...]
     decision: EvidenceDecision
     reason: str
+    llm_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    degraded: bool = False
 
     def __post_init__(self) -> None:
         if not 0 <= self.score <= 1:
             raise ValueError("assessment score must be between zero and one")
         require_non_empty(self.reason, "reason")
+        if min(self.llm_calls, self.input_tokens, self.output_tokens) < 0:
+            raise ValueError("assessment usage must not be negative")
         for name, values in (
             ("covered_requirements", self.covered_requirements),
             ("missing_requirements", self.missing_requirements),
@@ -130,6 +138,9 @@ class DeepRecoveryOutcome:
     recovery_rounds: int
     duplicate_count: int
     assessor_calls: int
+    assessor_input_tokens: int
+    assessor_output_tokens: int
+    assessor_degraded: bool
 
 
 class EvidenceAssessor(Protocol):
@@ -233,6 +244,7 @@ class DeepRecoveryController:
         low_threshold: float = 0.45,
         high_threshold: float = 0.80,
         max_rounds: int = 2,
+        always_assess: bool = False,
     ) -> None:
         if not 0 <= low_threshold < high_threshold <= 1:
             raise ValueError("Deep thresholds are invalid")
@@ -244,6 +256,7 @@ class DeepRecoveryController:
         self._low = low_threshold
         self._high = high_threshold
         self._max_rounds = max_rounds
+        self._always_assess = always_assess
 
     async def run(self, request: DeepRecoveryRequest) -> DeepRecoveryOutcome:
         with start_span(
@@ -263,6 +276,9 @@ class DeepRecoveryController:
         ledger = EvidenceLedger(request.initial_evidence)
         actions: list[RecoveryAction] = []
         assessor_calls = 0
+        assessor_input_tokens = 0
+        assessor_output_tokens = 0
+        assessor_degraded = False
         for round_number in range(self._max_rounds + 1):
             with start_span(
                 "rag.deep_recovery.assess",
@@ -271,6 +287,9 @@ class DeepRecoveryController:
                     "rag.recovery.evidence_count": len(ledger.all()),
                 },
             ) as assessment_span:
+                provider_name = getattr(self._assessor, "provider_name", None)
+                if isinstance(provider_name, str) and provider_name:
+                    assessment_span.set_attribute("provider.name", provider_name)
                 assessment, used_assessor = await self._assess(
                     request.requirements, ledger.all()
                 )
@@ -281,16 +300,43 @@ class DeepRecoveryController:
                 assessment_span.set_attribute(
                     "rag.recovery.missing_count", len(assessment.missing_requirements)
                 )
-            assessor_calls += int(used_assessor)
+                assessment_span.set_attribute(
+                    "rag.recovery.covered_count", len(assessment.covered_requirements)
+                )
+                assessment_span.set_attribute("rag.llm_calls", assessment.llm_calls)
+                assessment_span.set_attribute("rag.input_tokens", assessment.input_tokens)
+                assessment_span.set_attribute("rag.output_tokens", assessment.output_tokens)
+                assessment_span.set_attribute("rag.degraded", assessment.degraded)
+            if used_assessor:
+                assessor_calls += max(1, assessment.llm_calls)
+                assessor_input_tokens += assessment.input_tokens
+                assessor_output_tokens += assessment.output_tokens
+                assessor_degraded = assessor_degraded or assessment.degraded
             if assessment.decision is not EvidenceDecision.RECOVER:
-                return _outcome(assessment, ledger, actions, assessor_calls)
+                return _outcome(
+                    assessment,
+                    ledger,
+                    actions,
+                    assessor_calls,
+                    assessor_input_tokens,
+                    assessor_output_tokens,
+                    assessor_degraded,
+                )
             if round_number >= self._max_rounds:
                 assessment = replace(
                     assessment,
                     decision=EvidenceDecision.ABSTAIN,
                     reason="Maximum Recovery rounds reached with unresolved evidence gaps.",
                 )
-                return _outcome(assessment, ledger, actions, assessor_calls)
+                return _outcome(
+                    assessment,
+                    ledger,
+                    actions,
+                    assessor_calls,
+                    assessor_input_tokens,
+                    assessor_output_tokens,
+                    assessor_degraded,
+                )
             action = self._planner.plan(request, assessment, round_number=round_number + 1)
             actions.append(action)
             if (metrics := current_metrics()) is not None:
@@ -338,6 +384,36 @@ class DeepRecoveryController:
         coverage = len(covered) / len(requirements)
         confidence = max((item.confidence for item in evidence), default=0.0)
         score = 0.7 * coverage + 0.3 * confidence
+        should_use_assessor = bool(evidence) and (
+            self._always_assess or self._low <= score < self._high
+        )
+        if should_use_assessor:
+            try:
+                assessed = await self._assessor.assess(requirements, evidence, score)
+            except Exception as error:
+                llm_calls, input_tokens, output_tokens = _error_usage(error)
+                return (
+                    EvidenceAssessment(
+                        score,
+                        covered,
+                        missing,
+                        (),
+                        EvidenceDecision.RECOVER,
+                        "Evidence assessor unavailable; continuing with bounded recovery.",
+                        llm_calls=llm_calls,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        degraded=True,
+                    ),
+                    True,
+                )
+            if set(assessed.covered_requirements) - set(requirements):
+                raise ValueError("Evidence Assessor returned unknown covered requirements")
+            if set(assessed.missing_requirements) - set(requirements):
+                raise ValueError("Evidence Assessor returned unknown missing requirements")
+            if set(assessed.covered_requirements) & set(assessed.missing_requirements):
+                raise ValueError("Evidence Assessor returned overlapping requirements")
+            return assessed, True
         if score >= self._high:
             return (
                 EvidenceAssessment(
@@ -357,12 +433,7 @@ class DeepRecoveryController:
                 ),
                 False,
             )
-        assessed = await self._assessor.assess(requirements, evidence, score)
-        if assessed.score != score or set(assessed.covered_requirements) - set(requirements):
-            raise ValueError("Evidence Assessor returned an inconsistent assessment")
-        if set(assessed.missing_requirements) - set(requirements):
-            raise ValueError("Evidence Assessor returned unknown missing requirements")
-        return assessed, True
+        raise AssertionError("middle-band evidence must be assessed")
 
 
 _EXACT_TERM = re.compile(r"(?:[A-Z]{2,}[\w-]*|\w*\d[\w.-]*|型号|编号|版本号)")
@@ -406,6 +477,9 @@ def _outcome(
     ledger: EvidenceLedger,
     actions: list[RecoveryAction],
     assessor_calls: int,
+    assessor_input_tokens: int,
+    assessor_output_tokens: int,
+    assessor_degraded: bool,
 ) -> DeepRecoveryOutcome:
     return DeepRecoveryOutcome(
         assessment.decision,
@@ -415,4 +489,19 @@ def _outcome(
         len(actions),
         ledger.duplicate_count,
         assessor_calls,
+        assessor_input_tokens,
+        assessor_output_tokens,
+        assessor_degraded,
     )
+
+
+def _error_usage(error: Exception) -> tuple[int, int, int]:
+    details = getattr(error, "details", {})
+    values: list[int] = []
+    for name in ("llm_calls", "input_tokens", "output_tokens"):
+        item = details.get(name) if isinstance(details, dict | Mapping) else None
+        values.append(
+            item if isinstance(item, int) and not isinstance(item, bool) and item >= 0 else 0
+        )
+    calls, input_tokens, output_tokens = values
+    return max(1, calls), input_tokens, output_tokens

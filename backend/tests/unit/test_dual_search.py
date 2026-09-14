@@ -171,6 +171,27 @@ async def test_empty_results_remain_two_explicit_successful_branches() -> None:
     assert result.sparse.diagnostic.returned_count == 0
 
 
+@pytest.mark.anyio
+async def test_single_mode_search_does_not_call_the_other_provider() -> None:
+    embedding = FakeEmbedding()
+    sparse = FakeSparse()
+    store = SpyVectorStore([hit("a", "1", 0.9)], [hit("b", "2", 2.0)])
+    service = DualSearchService(embedding=embedding, sparse=sparse, vector_store=store)
+
+    dense = await service.search_dense(
+        query="policy", tenant_id=TENANT_ID, index_revision="r1"
+    )
+    assert dense.method is SearchMethod.DENSE
+    assert embedding.queries == ["policy"]
+    assert sparse.queries == []
+
+    sparse_result = await service.search_sparse(
+        query="AB-120", tenant_id=TENANT_ID, index_revision="r1"
+    )
+    assert sparse_result.method is SearchMethod.SPARSE
+    assert sparse.queries == ["AB-120"]
+
+
 @pytest.mark.parametrize("dense,sparse", [(0, 40), (51, 40), (40, 0), (40, 51)])
 def test_top_k_is_bounded_before_provider_calls(dense: int, sparse: int) -> None:
     with pytest.raises(ValueError, match="between 1 and 50"):

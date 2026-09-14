@@ -241,6 +241,25 @@ def _degradations(detail: TraceDetail) -> tuple[QueryDegradation, ...]:
         component = key.removesuffix("_degraded")
         provider = _text(detail.attributes.get(f"{component}_provider"))
         values.append(QueryDegradation(component, provider))
+    span_components = {
+        "rag.query_planning": "planner",
+        "rag.rerank": "reranker",
+        "rag.deep_recovery.assess": "evidence_assessor",
+        "rag.answer_generation": "answer_generation",
+    }
+    existing = {item.component for item in values}
+    for span in detail.spans:
+        span_component = span_components.get(span.name)
+        if (
+            span_component is None
+            or span_component in existing
+            or not _bool(span.attributes.get("rag.degraded"))
+        ):
+            continue
+        values.append(
+            QueryDegradation(span_component, _text(span.attributes.get("provider.name")))
+        )
+        existing.add(span_component)
     return tuple(sorted(values, key=lambda item: item.component))
 
 
@@ -274,6 +293,8 @@ def _retrieval_branches(spans: tuple[StoredSpan, ...]) -> tuple[QueryRetrievalBr
         if span.name != "rag.retrieval.branch":
             continue
         values = span.attributes
+        if _bool(values.get("rag.branch.recovery")):
+            continue
         index = _integer(values.get("rag.branch.index"))
         query = _text(values.get("rag.branch.query"))
         if index is None or query is None:
@@ -376,13 +397,51 @@ def _stage_metrics(spans: tuple[StoredSpan, ...]) -> tuple[QueryStageMetric, ...
                     },
                 )
             )
+        elif span.name == "rag.deep_recovery.assess":
+            evidence = _integer(values.get("rag.recovery.evidence_count")) or 0
+            covered = _integer(values.get("rag.recovery.covered_count")) or 0
+            metrics.append(
+                QueryStageMetric(
+                    "evidence_assessment",
+                    evidence,
+                    covered,
+                    _integer(values.get("rag.recovery.missing_count")) or 0,
+                    {
+                        "llm_calls": _integer(values.get("rag.llm_calls")) or 0,
+                        "input_tokens": _integer(values.get("rag.input_tokens")) or 0,
+                        "output_tokens": _integer(values.get("rag.output_tokens")) or 0,
+                        "decision": _text(values.get("rag.recovery.decision")) or "unknown",
+                    },
+                )
+            )
+        elif span.name == "rag.answer_verification":
+            input_count = _integer(values.get("rag.answer.draft_citation_count")) or 0
+            citations = _integer(values.get("rag.citation_count")) or 0
+            metrics.append(
+                QueryStageMetric(
+                    "answer_verification",
+                    input_count,
+                    citations,
+                    max(0, input_count - citations),
+                    {
+                        "status": _text(values.get("rag.answer.status")) or "unknown",
+                        "issues": _integer(values.get("rag.answer.issue_count")) or 0,
+                        "repairs": _integer(values.get("rag.answer.repair_count")) or 0,
+                        "llm_calls": _integer(values.get("rag.llm_calls")) or 0,
+                        "input_tokens": _integer(values.get("rag.input_tokens")) or 0,
+                        "output_tokens": _integer(values.get("rag.output_tokens")) or 0,
+                    },
+                )
+            )
     order = {
         "query_planning": 0,
         "rrf_fusion": 1,
         "auth_and_scope": 2,
         "rerank": 3,
         "root_restore": 4,
-        "answer_generation": 5,
+        "evidence_assessment": 5,
+        "answer_generation": 6,
+        "answer_verification": 7,
     }
     return tuple(sorted(metrics, key=lambda item: order.get(item.stage, 99)))
 

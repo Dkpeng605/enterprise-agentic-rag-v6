@@ -111,17 +111,25 @@ Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引
 重试次数和持久化 hash audit；失败会尝试恢复原向量与 ready 状态。这个同步、进程内互斥实现仅适合
 当前单进程 Mac 演示，多副本生产协调仍属于 M8。
 
-当前 Mac 组合的 Standard 与 Deep 都走真实模型链路；Deep 会为综合回答恢复更多 Root 证据。M4
-定义的多轮 Deep Recovery Controller 仍是可插拔服务，尚未装配到这个本地 QueryRunner，不能把
-当前 Deep 按钮描述为已经执行多轮检索恢复。
+当前 Mac 组合的 Standard 与 Deep 都走真实模型链路。Deep 已装配 M4 的 Evidence Ledger 与最多两轮
+Recovery Controller：有证据时由当前 OpenAI-compatible LLM 逐项判断 requirements 覆盖、缺口与冲突；
+缺口会实际执行 Rewrite Hybrid、HyDE Dense-only 或 Exact-term Sparse-only，再次经过 RRF、PostgreSQL
+权限回源、Rerank 和 Root 恢复。Scope repair 只能移除 Planner 新增且调用方未显式指定的条件，不能放宽
+用户选择的 Collection/Document。评估失败会明确标记降级并继续有界恢复，仍无法验证则拒答。
+
+Standard 与 Deep 的回答都不再直接信任自由文本：LLM 必须返回段落、引用 ID、Root/Leaf ID、Root 原文
+连续 quote 和覆盖 requirements 的结构化草稿。后端确定性核验每个事实段落、引用归属、quote 与覆盖率；
+JSON/schema 错误最多原证据重生成一次；结构有效但核验失败时，再使用完全相同的授权证据修复一次，
+重新核验失败就返回空引用拒答。
 
 Mac QueryRunner 会先调用同一个受 timeout/retry 保护的 OpenAI-compatible LLM 生成严格 JSON
 QueryPlan：把依赖会话的问题改写为独立检索问题，并按复杂度生成 1～4 条不重复子查询；简单事实问题保留
 1 条精确子查询，比较、多条件和多跳问题才拆成多条，不能为了展示而无意义扩增。后端继续严格校验字段、
 数量、UUID 与 Scope；坏 JSON、越权 Scope 或 Provider 故障会整体降级为确定性改写/拆分。
 完成问答后到“Query Trace”可查看本次改写、子查询、Planner Provider/降级、Planner token、每个分支的
-Dense/Sparse 返回量、交集、RRF 去重与淘汰、权限过滤、Rerank、Root 恢复、回答 token 和引用。Planner
-与回答调用都会计入查询 usage；即使没有召回结果，已发生的 Planner 调用仍会如实计费。这里的运行计数
+Dense/Sparse 返回量、交集、RRF 去重与淘汰、权限过滤、Rerank、Root 恢复、Deep 证据评估/恢复轮次、
+回答生成、引用核验/修复及各自 token。Planner、Assessor、回答与 Repair 调用都会计入查询 usage；即使
+没有召回结果，已发生的 Planner 调用仍会如实计费。这里的运行计数
 不是 Recall@K；带 gold 的质量指标只在“评测中心”计算。
 
 若旧版本曾让测试库与应用共用，先停止后端，再做只读检查；确认后才应用删除。命令只会删除 PostgreSQL
@@ -415,7 +423,8 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R2B 查询计划与逐阶段召回指标：已完成
 - M7-R2C 人工触发的一次 LLM 清洗：已完成
 - M7-R3 开发/测试数据库隔离、向量修复工具与 LLM Query Planner：已完成
-- 下一项：M8-01 生产镜像
+- M7-R4 真实 Deep Recovery 与引用核验/修复：已完成
+- 下一项：M7-R5 Provider 切换后的索引状态与重建
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -591,7 +600,7 @@ Query Planning Service 将结构化 Planner 输出视为不可信输入，严格
 
 Standard Query Graph 使用显式状态机串联 Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer。每次运行返回真实状态转移；RRF、授权 Leaf 或二次校验 Root 为空都会进入 NoResults 并跳过答案模型。Standard 固定把 Planner 尝试计为第 1 次 LLM 调用、最终答案计为第 2 次并执行硬上限；Planner 降级不触发额外调用。未分类故障进入带净化错误码的 Failed 状态，不把异常文本交给客户端。
 
-Deep Recovery 使用按 Leaf ID 跨轮去重的 Evidence Ledger，并给 Recovery 新证据预留最终名额。确定性证据分数在 0.80 及以上直接回答、低于 0.45 直接恢复，中间区间才调用 Evidence Assessor；默认最多两轮，仍有缺口则 Abstain。四条恢复路径为 Rewrite Hybrid、HyDE Dense-only、Exact-term Sparse-only 和仅放宽已证明错误字段的 Scope repair。当前 Sparse 实现是 hashing lexical，不是 BM25，因此代码和文档都不会把精确术语路径虚称为 BM25；未来可替换真正 BM25 Provider。
+Deep Recovery 使用按 Leaf ID 跨轮去重的 Evidence Ledger，并给 Recovery 新证据预留最终名额。通用 Controller 默认以 0.45/0.80 双阈值决定直接恢复、调用 Assessor 或直接回答；Mac 真实组合采用更严格的 `always_assess` 策略，对每次有证据的 Deep 决策调用当前 LLM，模型只判断 requirement 覆盖、冲突和决策，最终分数仍由覆盖率与检索置信度计算。默认最多两轮，仍有缺口则 Abstain。四条恢复路径为 Rewrite Hybrid、HyDE Dense-only、Exact-term Sparse-only 和仅放宽 Planner 新增且调用方未指定字段的 Scope repair；每条路径都重新执行检索、RRF、权限校验、Rerank 与 Root 恢复。当前 Sparse 实现是 hashing lexical，不是 BM25，因此代码和文档都不会把精确术语路径虚称为 BM25；未来可替换真正 BM25 Provider。
 
 Answer Verification 要求每个事实段落绑定引用；引用 Root 必须来自本轮授权上下文、Leaf 必须属于该 Root，quote 必须是 Root clean text 中真实存在的连续片段，同时覆盖 QueryPlan 的全部 requirements。结构或覆盖错误最多 Repair 一次，并使用完全相同的证据集合再次校验；Evidence conflict 不会通过改写掩盖，而是直接 Abstain。最终只有验证通过的答案会生成带 document/root/Leaf、page/section、quote 和 score 的领域 Citation；其余返回有边界拒答和空引用，不泄露供应商错误。
 

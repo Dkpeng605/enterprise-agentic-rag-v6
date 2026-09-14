@@ -122,10 +122,19 @@ before/after Leaf counts, token usage, retries, and persisted hash
 audits. Failures attempt to restore the previous vectors and ready state. This synchronous process-local lock is
 for the single-process Mac demo; multi-replica production coordination remains M8 work.
 
-Both Standard and Deep use the real model chain in this Mac composition; Deep restores more Root
-evidence for synthesis. The multi-round Deep Recovery Controller specified in M4 remains a
-pluggable service and is not yet composed into this local QueryRunner, so the current Deep button
-must not be described as multi-round recovery.
+Both Standard and Deep use the real model chain in this Mac composition. Deep now composes the M4
+Evidence Ledger and a maximum two-round Recovery Controller. Whenever evidence exists, the current
+OpenAI-compatible LLM assesses requirement coverage, gaps, and conflicts. A gap executes Rewrite
+Hybrid, HyDE Dense-only, or Exact-term Sparse-only and then repeats RRF, PostgreSQL authorization,
+reranking, and Root restoration. Scope repair may remove only a Planner-added condition that the caller
+did not explicitly select. It cannot relax caller Collection or Document scope. Assessor failure is
+reported as degradation and continues only through bounded recovery before abstention.
+
+Neither mode trusts free-form answer text. The LLM must return structured paragraphs, citation IDs,
+Root and Leaf IDs, contiguous quotes copied from Root evidence, and covered requirements. The backend
+deterministically verifies factual paragraphs, ownership, quotes, and coverage. A rejected draft gets at
+most one schema regeneration for malformed JSON and one semantic repair with exactly the same authorized
+roots. Each result is fully verified again; otherwise the query abstains with no citations.
 
 The Mac QueryRunner first calls the same timeout/retry-bounded OpenAI-compatible LLM for a strict JSON
 QueryPlan. It rewrites context-dependent questions into standalone retrieval queries and produces one to
@@ -134,8 +143,9 @@ sub-query; comparison, multi-part, and multi-hop requests are decomposed instead
 The backend still validates every field, list bound, UUID, and Scope. Malformed JSON, expanded Scope, or a
 Provider failure falls back atomically to the deterministic planner. Query Trace displays the rewrite,
 sub-queries, Planner Provider/degradation, Planner tokens, per-branch Dense/Sparse returns and overlap,
-RRF deduplication and drops, authorization filtering, reranking, Root recovery, answer tokens, and
-citations. Planner and answer calls both count toward query usage; a completed Planner call is still
+RRF deduplication and drops, authorization filtering, reranking, Root recovery, Deep evidence
+assessment/recovery rounds, answer generation, citation verification/repair, and per-stage tokens.
+Planner, Assessor, answer, and Repair calls all count toward query usage; a completed Planner call is still
 reported when retrieval finds no evidence. These runtime counts are not Recall@K; gold-labelled quality
 metrics remain in Evaluations.
 
@@ -430,7 +440,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R2B query planning and stage-level retrieval metrics: complete
 - M7-R2C explicitly triggered one-pass LLM cleaning: complete
 - M7-R3 development/test database isolation, vector repair tool, and LLM Query Planner: complete
-- Next: M8-01 production images
+- M7-R4 real Deep Recovery and citation verification/repair: complete
+- Next: M7-R5 index state and rebuild after Provider switching
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -615,7 +626,7 @@ The Query Planning Service treats structured Planner output as untrusted input a
 
 The Standard Query Graph is an explicit state machine connecting Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer. Every run returns its actual transitions. Empty RRF output, authorized Leaves, or rechecked Roots terminate as NoResults without invoking the answer model. Standard counts the Planner attempt as LLM call one and final answer generation as call two, with a runtime hard ceiling; Planner degradation adds no call. Unclassified failures terminate as Failed with a sanitized error code and no exception text exposed to clients.
 
-Deep Recovery uses an Evidence Ledger deduplicated by Leaf ID across rounds and reserves final slots for new Recovery evidence. Deterministic evidence scores answer at or above 0.80, recover below 0.45, and invoke the Evidence Assessor only in the middle band. Recovery is capped at two rounds before Abstain. Its four routes are Rewrite Hybrid, HyDE Dense-only, Exact-term Sparse-only, and Scope repair that removes only a proven bad field. The current Sparse implementation is hashing lexical, not BM25, so neither code nor documentation mislabels the exact-term route; a true BM25 Provider can replace it later.
+Deep Recovery uses an Evidence Ledger deduplicated by Leaf ID across rounds and reserves final slots for new Recovery evidence. The reusable controller defaults to 0.45/0.80 thresholds for direct recovery, assessor use, or direct answer. The real Mac composition enables the stricter `always_assess` policy: every evidence-bearing Deep decision calls the current LLM for requirement coverage, conflicts, and a decision, while the score remains derived from coverage and retrieval confidence. Recovery is capped at two rounds before Abstain. Its four routes are Rewrite Hybrid, HyDE Dense-only, Exact-term Sparse-only, and Scope repair that removes only a Planner-added field absent from explicit caller scope. Every route repeats retrieval, RRF, authorization, reranking, and Root restoration. The current Sparse implementation is hashing lexical, not BM25, so neither code nor documentation mislabels the exact-term route; a true BM25 Provider can replace it later.
 
 Answer Verification requires every factual paragraph to bind citations. A cited Root must come from the current authorized context, each Leaf must belong to that Root, and every quote must be a real contiguous substring of Root clean text, while all QueryPlan requirements must be covered. Structural or coverage errors get at most one Repair using exactly the same evidence and are then fully revalidated. Evidence conflicts are not hidden by rewriting and instead cause immediate Abstain. Only verified answers produce domain Citations carrying document, Root and Leaf IDs, page or section, quote, and score; every other result returns a bounded abstention with no citations or leaked provider error.
 

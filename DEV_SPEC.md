@@ -2694,6 +2694,73 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   明确选择事实库，禁止重新指向会被 fixture 清理的 test 库；
 - PR：`fix/dev-db-and-llm-query-planner`。
 
+##### M7-R4 真实 Deep Recovery 与 Citation Verify/Repair（已完成）
+
+- 缺陷事实：M4 已有 `DeepRecoveryController` 与 `AnswerVerificationService` 的独立单元测试，但
+  `enterprise_rag.mac_runtime:app` 的 `SemanticQueryRunner` 没有组合二者；旧 Deep 仅把最终 Root 上限从
+  3 提高到 5，回答模型返回自由文本后，运行时按 Root 顺序直接生成引用。因此旧 UI 即使能投影 Recovery
+  Span，也没有真实运行数据；简历中的 Deep Recovery、Citation Verify、Repair/Abstain 在 Mac 演示链路
+  中不成立；
+- EDD 顺序：先加入会失败的行为测试，要求高分 Deep 也能按 Mac 策略调用 Evidence Assessor、HyDE
+  只能调用 Dense、Exact-term 只能调用 Sparse、无效 quote 必须触发一次 Repair，随后才实现 Adapter 和
+  运行时编排。测试不得仅断言类存在或前端文案；PostgreSQL+Milvus Lite 集成测试必须观察到一次真实
+  Recovery、第二次评估和最终验证通过的 Citation；
+- Evidence 输入：每个 Ledger item 保存 Leaf ID、Root ID、归一化检索置信度、轮次、route 和有界 Root
+  clean text。正文只存在于进程内请求，不写入 Recovery Span；Trace 仅保存数量、route、mode、usage、
+  decision 与稳定降级字段。Ledger 继续按 Leaf ID 跨轮去重，最终至少为 Recovery 新证据预留 2 个位置；
+- LLM Assessor Adapter：复用应用级 timeout/retry `LanguageModel`，要求只返回 JSON object：
+  `covered_requirements`、`missing_requirements`、`conflicts`、`decision`、`reason`。两组 requirement 必须无
+  重叠、无未知值且完整分区；存在 missing/conflict 时不得返回 Answer。模型不能直接指定数值分数，服务
+  始终按 `0.7 * coverage + 0.3 * max_confidence` 计算，避免模型伪造阈值；
+- 双阈值与 Mac 策略：通用 Controller 保留 low=0.45/high=0.80 的可复用默认策略；Mac 组合显式启用
+  `always_assess`，初始或恢复后只要存在证据，每次 Deep 决策都调用真实 LLM Assessor。零证据不发送
+  空上下文给 LLM而直接进入 Recovery；Assessor timeout、坏 JSON 或不一致分区会记录 usage/degraded，
+  保守进入下一次有界恢复，最多两轮后 Abstain，不把供应商错误或响应正文返回客户端；
+- Recovery 执行语义：Rewrite Hybrid 同时运行 Dense/Sparse；HyDE Dense-only 只生成 query embedding 并
+  调用 dense search；Exact-term Sparse-only 只生成 lexical vector 并调用 sparse search。单路结果通过
+  `fuse_branches` 进入 RRF，不能为了复用旧接口而暗中调用另一 Provider。每轮随后完整执行 RRF Root 配额、
+  PostgreSQL tenant/ready/index revision 回源、Reranker 和 Root 恢复，并把真实 returned/added/duplicate
+  数量写入 `rag.deep_recovery.round`；
+- Scope 安全：Recovery 绝不移除调用方明确提供的 Collection、Document 或 metadata 条件。只有 Planner
+  在空调用方字段上新增的可推断条件可以列入 `repairable_scope_fields`，每轮最多移除一个并记录字段数量；
+  当前 Planner 的 UUID 规则不允许从空 Scope 新增 ID，因此模型不能借 Scope Recovery 扩大租户边界；
+- 证据终态：Deep 在每次评估后按 decision 继续、回答或拒答；超过两轮仍为 Recover 会转换成 Abstain。
+  最终答案只使用 Ledger 选出的、当前 executor 实际持有的授权 Root，最多 5 个；Standard 保持最多 3 个，
+  但与 Deep 共用下面的结构化答案与核验链路；
+- Answer Author Adapter：LLM 必须返回 `paragraphs`、`citations`、`covered_requirements`。每个事实段落显式
+  列 citation IDs；每条 citation 列正整数 ID、当前 Root ID、该 Root 的 Leaf IDs，以及从 Root clean text
+  连续复制的非空 quote。JSON 类型、重复项和领域值在进入 Verifier 前校验；首次坏 JSON/schema 可在
+  同一证据上执行一次 schema regeneration，仍失败才净化为 `LLM_INVALID_RESPONSE` 并安全拒答；
+- Citation Verify：确定性服务核对 Citation ID 唯一性、Root 属于本次授权上下文、Leaf 属于 Root、quote
+  是 Root 正文连续子串、事实段落有有效引用、引用 ID 存在，并覆盖 QueryPlan 全部 requirements。Evidence
+  conflict 直接拒答，不能通过措辞修复掩盖；只有验证通过才生成含 document/root/Leaf、page/section、
+  quote 与 score 的领域 Citation；
+- Repair/Abstain：schema regeneration 与语义 Repair 分开计数；首次草稿结构有效但引用/覆盖校验失败时，使用完全相同的 QueryPlan 与 Root 集合调用
+  LLM Repair 一次，Prompt 带稳定 issue code 与缺失 requirement；Repair 不允许新增证据，结果从头重新
+  核验。第二次失败、Repair 异常或 evidence conflict 都返回 `abstained`、空 citations 和有边界中文说明；
+- Usage/Cost Guard：`QueryExecution.usage` 精确累加 Planner、每轮 Assessor（含 retry）、初次 Answer、
+  一次 schema regeneration 和一次 Repair 的 call/input/output token；生成结构异常也从已净化 AppError
+  detail 回收实际 usage。Answer 单次输出上限为 3,000 token，避免 reasoning 模型在最终 JSON 前耗尽旧的
+  1,000 token 上限；Mac 配置使用 `standard_reserved_llm_calls=6`、`deep_reserved_llm_calls=18` 及对应
+  12k/36k output reservation 覆盖最坏调用数量，无需放宽匿名日限额；
+- Trace/UI：`rag.deep_recovery.assess` 保存 evidence/covered/missing、decision、provider、usage、degraded；
+  `rag.deep_recovery.round` 保存 route、Dense-only/Sparse-only/Hybrid、目标、返回、新增与重复；
+  `rag.answer_generation` 保存结构化草稿调用与 citation 数；`rag.answer_verification` 保存状态、issue、repair、
+  最终 citation 与 Repair usage。Query Trace 阶段漏斗新增“证据覆盖评估”和“引用核验/修复”，瀑布新增
+  Citation Verify/Repair 标签，并使用 stage+index key 正确显示多轮同名阶段；不显示 Prompt、Root 正文、
+  模型隐藏推理或密钥；
+- 降级语义：Planner 与 Reranker 保持各自既有 fallback；Evidence Assessor 降级和 Answer generation 降级
+  使用独立组件名。Assessor 降级允许在轮次预算内继续找证据，Answer 结构不可验证时禁止把原始自由文本
+  直接透传；这两种情况均在 Query diagnostics、持久化 Trace 与前端红色降级提示中可区分；
+- 验收：Ruff、Mypy、后端全量测试、前端 typecheck/test/build、OpenAPI drift、质量门禁和浏览器 E2E
+  为 required checks；真实 TokenHub+MiniMax-M3 smoke 需使用已有已索引文档，确认 Trace 至少包含
+  Planner、Assessor、按需 Recovery、Answer Author 与 Verify，且 usage 等于各 Span 之和。远程 smoke
+  不进入 CI，不记录 token 或响应正文；
+- 回滚：移除 Mac runner 的 Controller/Author 组合即可恢复旧执行，但不得保留声称已运行 Recovery/Verify
+  的 README 或 UI。该 Slice 不增加 migration，不改变 Root/Leaf ID 与现有向量；回滚不会破坏已摄取数据。
+  单路检索 API 和 Trace 新字段保持向后兼容，可独立保留；
+- PR：`feat/m7-r4-real-deep-recovery`。
+
 ### M8：首次公网发布
 
 #### M8-01 Images

@@ -125,6 +125,78 @@ class DualSearchService:
         )
         return DualSearchResult(query, dense, sparse)
 
+    async def search_dense(
+        self,
+        *,
+        query: str,
+        tenant_id: UUID,
+        index_revision: str,
+        scope: QueryScope | None = None,
+    ) -> SearchBranchResult:
+        """Execute only the dense path for an explicit HyDE recovery action."""
+        query_hash, active_scope = self._validate_request(
+            query, tenant_id, index_revision, scope
+        )
+        vector = await trace_async(
+            "rag.query_embedding",
+            self._embedding.embed_query(query),
+            attributes={"provider.name": self._embedding.info().name},
+        )
+        hits = await self._search_dense(
+            DenseSearchRequest(
+                index_revision=index_revision,
+                tenant_id=tenant_id,
+                vector=tuple(vector),
+                top_k=self._dense_top_k,
+                collection_ids=active_scope.collection_ids,
+                document_ids=active_scope.document_ids,
+            ),
+            query_hash,
+        )
+        return self._branch(SearchMethod.DENSE, hits, self._dense_top_k, active_scope)
+
+    async def search_sparse(
+        self,
+        *,
+        query: str,
+        tenant_id: UUID,
+        index_revision: str,
+        scope: QueryScope | None = None,
+    ) -> SearchBranchResult:
+        """Execute only the sparse path for an exact-term recovery action."""
+        query_hash, active_scope = self._validate_request(
+            query, tenant_id, index_revision, scope
+        )
+        vector = await trace_async(
+            "rag.sparse_encoding",
+            self._sparse.encode_query(query),
+            attributes={"provider.name": self._sparse.info().name},
+        )
+        hits = await self._search_sparse(
+            SparseSearchRequest(
+                index_revision=index_revision,
+                tenant_id=tenant_id,
+                vector=vector,
+                top_k=self._sparse_top_k,
+                collection_ids=active_scope.collection_ids,
+                document_ids=active_scope.document_ids,
+            ),
+            query_hash,
+        )
+        return self._branch(SearchMethod.SPARSE, hits, self._sparse_top_k, active_scope)
+
+    @staticmethod
+    def _validate_request(
+        query: str,
+        tenant_id: UUID,
+        index_revision: str,
+        scope: QueryScope | None,
+    ) -> tuple[str, QueryScope]:
+        require_non_empty(query, "query")
+        require_non_empty(index_revision, "index_revision")
+        require_uuid7(tenant_id, "tenant_id")
+        return hashlib.sha256(query.encode()).hexdigest(), scope or QueryScope()
+
     async def _search_dense(
         self, request: DenseSearchRequest, query_hash: str
     ) -> list[VectorHit]:

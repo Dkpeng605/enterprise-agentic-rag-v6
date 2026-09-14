@@ -27,6 +27,7 @@ def evidence(
     covered: tuple[str, ...] = (),
     round_number: int = 0,
     route: RecoveryRoute | None = None,
+    text: str = "可验证的证据正文",
 ) -> EvidenceItem:
     return EvidenceItem(
         f"leaf_{letter * 64}",
@@ -35,6 +36,7 @@ def evidence(
         covered,
         round_number,
         route,
+        text,
     )
 
 
@@ -197,6 +199,27 @@ async def test_middle_band_uses_assessor_once() -> None:
     assert 0.45 <= result.assessment.score < 0.8
     assert result.decision is EvidenceDecision.ANSWER
     assert result.assessor_calls == 1 and assessor.calls == 1
+
+
+@pytest.mark.anyio
+async def test_deep_policy_can_require_llm_assessment_for_high_scoring_evidence() -> None:
+    assessor = FakeAssessor()
+    request = DeepRecoveryRequest(
+        "问题",
+        ("需求",),
+        QueryScope(),
+        (evidence("a", confidence=1.0, covered=("需求",)),),
+    )
+
+    result = await DeepRecoveryController(
+        assessor=assessor,
+        executor=FakeExecutor(),
+        always_assess=True,
+    ).run(request)
+
+    assert result.decision is EvidenceDecision.ANSWER
+    assert result.assessor_calls == 1 and assessor.calls == 1
+    assert result.assessment.llm_calls == 0
 
 
 @pytest.mark.anyio

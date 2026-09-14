@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from enterprise_rag.ports import StoredSpan, TraceDetail, TraceSummary
-from enterprise_rag.services.query_trace import project_query_trace
+from enterprise_rag.services.query_trace import QueryDegradation, project_query_trace
 
 NOW = datetime(2026, 9, 14, 1, 2, 3, tzinfo=UTC)
 TRACE_ID = "a" * 32
@@ -31,6 +31,18 @@ def span(
 
 def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank() -> None:
     spans = (
+        span(
+            0,
+            "rag.retrieval.branch",
+            {
+                "rag.branch.index": 0,
+                "rag.branch.query": "HyDE recovery query",
+                "rag.branch.recovery": True,
+                "rag.branch.dense_requested": 40,
+                "rag.branch.dense_returned": 3,
+                "rag.branch.unique_count": 3,
+            },
+        ),
         span(
             1,
             "rag.query_planning",
@@ -187,3 +199,64 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
         "truncated_roots": 1,
         "used_chars": 4096,
     }
+
+
+def test_projects_evidence_assessment_answer_verification_and_span_degradation() -> None:
+    spans = (
+        span(
+            1,
+            "rag.deep_recovery.assess",
+            {
+                "rag.recovery.evidence_count": 3,
+                "rag.recovery.covered_count": 1,
+                "rag.recovery.missing_count": 1,
+                "rag.recovery.decision": "recover",
+                "rag.llm_calls": 1,
+                "rag.input_tokens": 200,
+                "rag.output_tokens": 50,
+                "rag.degraded": True,
+                "provider.name": "remote-assessor",
+            },
+        ),
+        span(
+            2,
+            "rag.answer_verification",
+            {
+                "rag.answer.draft_citation_count": 2,
+                "rag.citation_count": 1,
+                "rag.answer.status": "repaired",
+                "rag.answer.issue_count": 1,
+                "rag.answer.repair_count": 1,
+                "rag.llm_calls": 1,
+                "rag.input_tokens": 100,
+                "rag.output_tokens": 30,
+            },
+        ),
+    )
+    summary = TraceSummary(
+        TRACE_ID,
+        "query",
+        QUERY_ID,
+        "deep",
+        "answered",
+        NOW,
+        NOW + timedelta(milliseconds=10),
+        10.0,
+        len(spans),
+        True,
+    )
+
+    projected = project_query_trace(
+        TraceDetail(summary, "anonymous", None, {"llm_calls": 2}, {}, spans)
+    )
+
+    assert [item.stage for item in projected.stage_metrics] == [
+        "evidence_assessment",
+        "answer_verification",
+    ]
+    assert projected.stage_metrics[0].attributes["decision"] == "recover"
+    assert projected.stage_metrics[1].attributes["repairs"] == 1
+    assert projected.degradations == (
+        QueryDegradation("evidence_assessor", "remote-assessor"),
+    )
+    assert projected.retrieval_branches == ()

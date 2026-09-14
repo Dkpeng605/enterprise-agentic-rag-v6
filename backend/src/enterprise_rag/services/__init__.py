@@ -70,6 +70,12 @@ from enterprise_rag.services.knowledge import (
     KnowledgeQuery,
     McpApplicationService,
 )
+from enterprise_rag.services.language_model_reasoning import (
+    AuthoredAnswer,
+    LanguageModelAnswerAuthor,
+    LanguageModelEvidenceAssessor,
+    ModelUsage,
+)
 from enterprise_rag.services.lifecycle import (
     DeletionResult,
     DeletionStep,
@@ -192,6 +198,10 @@ __all__ = [
     "FusionResult",
     "ImageEnricher",
     "ImageEnrichmentResult",
+    "AuthoredAnswer",
+    "LanguageModelAnswerAuthor",
+    "LanguageModelEvidenceAssessor",
+    "ModelUsage",
     "ComponentHealth",
     "ConfigurationHealthProbe",
     "HealthProbe",
