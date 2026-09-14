@@ -30,6 +30,19 @@ const standardDetail: QueryTraceView = {
     rerank_score: 0.97,
   }],
   recovery_rounds: [], degradations: [],
+  plan: {
+    provider: 'deterministic', degraded: false,
+    original_query: '如何部署；同时如何回滚', rewritten_query: '如何部署；同时如何回滚',
+    intent: 'procedural', language: 'zh', sub_queries: ['如何部署', '如何回滚'],
+  },
+  retrieval_branches: [{
+    branch_index: 0, query: '如何部署', dense_requested: 40, dense_returned: 8,
+    sparse_requested: 40, sparse_returned: 6, overlap_count: 3, unique_count: 11,
+  }],
+  stage_metrics: [{
+    stage: 'rrf_fusion', input_count: 14, output_count: 10, dropped_count: 4,
+    attributes: { ranked_lists: 4, unique_leaves: 10 },
+  }],
 }
 
 function mountView() {
@@ -52,7 +65,9 @@ describe('query trace workspace', () => {
     expect(wrapper.get('[data-testid="rank-table"]').text()).toContain('leaf_01')
     expect(wrapper.get('[data-testid="rank-table"]').text()).toContain('#4')
     expect(wrapper.get('[data-testid="rank-table"]').text()).toContain('0.970')
-    expect(wrapper.text()).not.toContain('private question')
+    expect(wrapper.get('[data-testid="query-plan"]').text()).toContain('共 2 条并行检索分支')
+    expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('8 / 40')
+    expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('不等同于 Recall@K')
   })
 
   it('distinguishes Deep recovery rounds and provenance counts', async () => {

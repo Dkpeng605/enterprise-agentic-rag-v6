@@ -80,6 +80,11 @@ Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引
 定义的多轮 Deep Recovery Controller 仍是可插拔服务，尚未装配到这个本地 QueryRunner，不能把
 当前 Deep 按钮描述为已经执行多轮检索恢复。
 
+Mac QueryRunner 会先运行确定性 QueryPlan：保留原查询、必要时结合最近对话完成指代改写，并把以
+分号、`同时`、`以及` 或 `and` 连接的多条件拆成最多 4 条并行子查询。完成问答后到“Query Trace”可查看
+本次是否改写/拆分，以及每个分支的 Dense/Sparse 返回量、交集、RRF 去重与淘汰、权限过滤、Rerank、
+Root 恢复、LLM token 和引用。这里的运行计数不是 Recall@K；带 gold 的质量指标只在“评测中心”计算。
+
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
 
 ```bash
@@ -353,7 +358,8 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7 Vue3/TypeScript 公共端与管理端里程碑：已完成
 - M7-R1 macOS 真实 Provider 开发组合：已完成
 - M7-R2A 文档处理透视：已完成
-- 下一项：M7-R2B 查询计划与逐阶段召回指标
+- M7-R2B 查询计划与逐阶段召回指标：已完成
+- 下一项：M7-R2C 人工触发的一次 LLM 清洗
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -381,9 +387,12 @@ attempt、heartbeat 与稳定错误，只在存在活跃任务时轮询。匿名
 接口和页面都由当前 session tenant 限定；旧版本缺少新增 metadata 时只显示“未记录”，不会伪造默认值。
 
 `/workspace/traces/queries` 展示当前 tenant 的持久化 Query Trace，可按 Standard/Deep、结果和降级
-状态筛选。详情使用后端净化投影显示全链路耗时瀑布、Dense/Sparse→RRF→Rerank 排名变化、Deep
-Recovery 轮次与稳定降级组件；缺失的旧遥测保持空值，不由浏览器推断。该界面不返回问题正文、
-Prompt、证据正文、异常堆栈或隐藏推理。
+状态筛选。详情使用后端净化投影显示原查询/改写/intent/子查询、每个分支的 Dense/Sparse 请求与返回、
+两路交集、RRF 输入/去重/Root 配额/Top-K、权限过滤、Rerank、Root 恢复、LLM usage、全链路耗时瀑布、
+Dense/Sparse→RRF→Rerank 排名变化、Deep Recovery 轮次与稳定降级组件。多分支候选表显示各方法最佳
+名次；缺失的旧遥测保持空值，不由浏览器推断。查询正文仅通过 tenant-scoped 专用 Trace 投影返回；
+通用日志、Prometheus、Prompt、证据正文、异常堆栈和隐藏推理仍不包含该数据。单次运行指标不得解释为
+Recall@K/MRR/NDCG，真正质量指标需使用评测中心带 gold 的 Dataset Run。
 
 `/workspace/traces/ingestion` 展示当前 tenant 的持久化 Ingestion Trace，可按成功、失败、等待重试
 和取消筛选。详情使用后端净化投影展示 Worker 实际执行的阶段瀑布、Root/Leaf 与投影校验数量，以及

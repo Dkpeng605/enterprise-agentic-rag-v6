@@ -2542,7 +2542,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   migration 或向量重建；
 - PR：`feat/m7-r2-pipeline-inspector`。
 
-##### M7-R2B 查询计划与逐阶段召回指标（待实现）
+##### M7-R2B 查询计划与逐阶段召回指标（已完成）
 
 - 查询计划：保存并展示 original query、deterministic/LLM planner、rewritten query、intent、language、
   有序 sub-queries、mode 与调用方 scope。Planner 只能收窄 scope，不能加入客户端未授权 ID；
@@ -2558,6 +2558,21 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   或异常消息。隐藏思维链、供应商 `<think>` 内容、完整 Prompt 和 Authorization 永不返回；
 - 验收：Standard 单查询、比较型多子查询、Planner 降级、Dense/Sparse 某路为空、授权过滤、Reranker
   降级、Deep recovery 和旧 Trace 缺字段均有后端投影及 Vue 测试；真实 Mac QueryRunner 必须装配计划。
+- 实现边界：Mac 组合当前装配无额外费用的确定性 Planner；结构化远程 Planner 端口仍可注入，失败会
+  整体回退。多条件按分号、`并且`、`同时`、`以及`、`and` 确定性拆分，最多 4 条；指代问题只读取
+  最近 user turn 补足上下文；
+- 持久化投影：`rag.query_planning` 保存 original/rewritten/intent/language/sub-queries/provider/degraded；
+  每个 `rag.retrieval.branch` 保存 branch index/query、Dense/Sparse requested/returned、交集与 unique；
+  RRF、Scope Guard、Rerank、Root Restore 与 Answer spans 保存输入/输出/拒绝/截断/usage。专用 API 将其
+  投影为 `plan`、`retrieval_branches`、`stage_metrics`，旧 Trace 返回 null/空数组；
+- UI：QueryPlan 双栏展示 original/rewritten，有序子查询明确标注未拆分或 N 条并行分支；分支卡展示
+  Dense/Sparse 精确计数与交集，阶段漏斗展示 input→output、重复合并、Root quota、Top-K、授权拒绝、
+  重排候选、Root 字符预算、LLM token 与引用；排名表对多分支 Dense/Sparse 取最佳 rank/score；
+- EDD：QueryPlan 无 Provider 路径、Trace 投影和跨分支最佳排名由单元测试覆盖；既有租户 Trace API、
+  Mac PostgreSQL+Milvus 查询集成与 Vue Query Trace 测试扩展；OpenAPI 重新生成并保持一致；
+- 回滚：移除新增 span attributes 与 UI sections 即可；Trace JSONB 允许旧/新字段并存，不需要 migration，
+  不影响回答、引用或向量内容；
+- PR：`feat/m7-r2-query-inspector`。
 
 ##### M7-R2C 人工触发的一次 LLM 清洗（待实现）
 

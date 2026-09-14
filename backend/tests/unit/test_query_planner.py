@@ -63,6 +63,24 @@ class FakePlanner:
 
 
 @pytest.mark.anyio
+async def test_explicit_deterministic_planner_exposes_rewrite_and_sub_queries() -> None:
+    request = PlannerRequest(
+        "如何部署；同时如何回滚",
+        (),
+        QueryScope(collection_ids=(COLLECTION_A,)),
+        QueryMode.STANDARD,
+    )
+
+    outcome = await QueryPlanningService().plan(request)
+
+    assert outcome.provider == "deterministic"
+    assert outcome.degraded is False
+    assert outcome.plan.rewritten_query == request.query
+    assert outcome.plan.sub_queries == ("如何部署", "如何回滚")
+    assert outcome.plan.scope == request.requested_scope
+
+
+@pytest.mark.anyio
 async def test_valid_structured_plan_is_parsed_and_cannot_override_mode() -> None:
     request = PlannerRequest(
         "比较甲和乙",

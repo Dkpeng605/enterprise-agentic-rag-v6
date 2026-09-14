@@ -330,6 +330,35 @@ class QueryDegradationResponse(ApiModel):
     provider: str | None
 
 
+class QueryPlanResponse(ApiModel):
+    provider: str
+    degraded: bool
+    original_query: str
+    rewritten_query: str
+    intent: str
+    language: str
+    sub_queries: list[str]
+
+
+class QueryRetrievalBranchResponse(ApiModel):
+    branch_index: int
+    query: str
+    dense_requested: int
+    dense_returned: int
+    sparse_requested: int
+    sparse_returned: int
+    overlap_count: int
+    unique_count: int
+
+
+class QueryStageMetricResponse(ApiModel):
+    stage: str
+    input_count: int
+    output_count: int
+    dropped_count: int
+    attributes: dict[str, int | float | str]
+
+
 class QueryTraceViewResponse(ApiModel):
     summary: TraceSummaryResponse
     usage: dict[str, int | float]
@@ -337,6 +366,9 @@ class QueryTraceViewResponse(ApiModel):
     rankings: list[QueryRankChangeResponse]
     recovery_rounds: list[QueryRecoveryRoundResponse]
     degradations: list[QueryDegradationResponse]
+    plan: QueryPlanResponse | None
+    retrieval_branches: list[QueryRetrievalBranchResponse]
+    stage_metrics: list[QueryStageMetricResponse]
 
 
 class IngestionTraceStageResponse(ApiModel):
