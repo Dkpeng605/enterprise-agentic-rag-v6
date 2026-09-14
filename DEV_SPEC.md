@@ -542,7 +542,7 @@ class Splitter(Protocol):
 
 - `target_tokens=350`；
 - `max_tokens=480`；
-- `overlap_tokens=50`；
+- `overlap_tokens=0`；Leaf 不重叠，由 Root 在检索后恢复完整上下文；
 - macOS 真实 Provider 通过 FastEmbed 的同一 tokenizer 计算完整 token 数；有效 `max_tokens` 为配置上限与
   `embedding_token_limit - embedding_safety_margin` 的较小值，默认安全余量为 1，保证每个 embedding 输入严格小于模型上限；
 - FastEmbed wrapper 不一定暴露 tokenizer 的 truncation 字段；此时启动预热必须用超过 registry 声明上限的探测文本调用
@@ -552,9 +552,7 @@ class Splitter(Protocol):
   profile `BAAI/bge-small-zh-v1.5` 已验证为 512 维、512 input tokens；选择它时必须同步设置
   `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`，并创建新的 index revision，禁止与旧向量混写；
 - 单个句子/结构单元仍超过有效预算时才允许 token 硬切，并在 Leaf metadata 标记 `hard_cut=true`，不得把正常句子拆分伪装成自然边界；
-- overlap 不得跨 Root；
-- overlap 优先携带完整句子，只有无完整句子可携带时才退化为无 overlap；
-- overlap 计算必须保证下一起点严格前进；短结构行不能因为自身小于 overlap budget 被重复作为下一块起点；
+- 新摄取不得复制相邻 Leaf 内容；Leaf 的 `start_offset` 必须不小于前一个 Leaf 的 `end_offset`，Root 恢复是唯一的上下文扩展机制；
 - 表格头在每个续块中重复，表头 token 计入预算，便于独立理解。
 
 ### 6.4 Embedding
@@ -668,7 +666,7 @@ ingestion:
   allowed_suffixes: [.pdf, .docx, .xlsx, .xls, .csv, .html, .htm, .txt, .md]
   target_tokens: 350
   max_tokens: 480
-  overlap_tokens: 50
+  overlap_tokens: 0
   max_attempts: 3
 
 retrieval:
@@ -1813,11 +1811,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 - 端口：Splitter 将 `CleanRoot` 转为一个稳定 `RootChunk` 和至少一个隶属它的 `LeafChunk`；`IngestionContext.index_revision` 参与 Root ID，配置或 tokenizer 变化必须使用新 revision；
 - tokenizer：离线/测试默认 `deterministic-multilingual-v1`，中文统一表意文字按字、英文数字按词、标点独立计数；macOS 真实组合使用 `fastembed-tokenizer:<model>` 和 FastEmbed 的 `token_count`，不再声称正则估算等同模型 tokenizer；
-- 边界：优先在标题、段落、列表、代码围栏、表格行和完整句子边界结束，任何 Leaf 必须小于 embedding 输入上限且不超过有效 `max_tokens`；默认配置 target/max/overlap 为 350/480/50，overlap 只在同一 Root 内发生；
+- 边界：优先在标题、段落、列表、代码围栏、表格行和完整句子边界结束，任何 Leaf 必须小于 embedding 输入上限且不超过有效 `max_tokens`；默认配置 target/max/overlap 为 350/480/0，新摄取 Leaf 不重叠，Root 在检索后恢复完整上下文；
 - 降级：仅当单个句子或结构单元本身超限时才 token 硬切，Root metadata 保存 `hard_cut_count`，Leaf metadata 保存 `boundary`、`hard_cut`、`token_budget` 和真实 tokenizer；
 - 表格：续块重复 Markdown 表头，表头 token 计入最大限制，metadata 标记是否重复；offset 始终指向 Root 原始 clean text 中的主体范围；
 - 稳定性：相同 version、revision、Root 内容与配置重跑得到相同 Root/Leaf ID；revision 或内容变化得到不同 ID；
-- 验收：中英文混排、结构边界、可容纳代码块不拆分、表格续块表头、token 上限、overlap、超长无空格文本、稳定 ID、revision 隔离和关闭幂等。
+- 验收：中英文混排、结构边界、可容纳代码块不拆分、表格续块表头、token 上限、无 Leaf overlap、超长无空格文本、稳定 ID、revision 隔离和关闭幂等。
 
 #### M3-06 图片增强
 
@@ -2507,8 +2505,8 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   `LLM_UNAVAILABLE`，4xx 不重试，畸形响应映射为 `LLM_INVALID_RESPONSE`；供应商 body、token、Prompt
   不进入客户端错误或日志。外层统一执行 timeout、指数退避和最大重试次数；实际重试计入 Query usage；
 - MiniMax 兼容：以 TokenHub `/models` 返回的大小写敏感 ID `MiniMax-M3` 为准。该模型可能把推理过程
-  放进 `<think>...</think>`，Adapter 只返回标签之后的最终回答；未闭合标签或只有推理而无最终文本
-  视为坏响应，不能把隐藏推理展示到 UI；
+  放进 `<think>...</think>` 或把 JSON 包在 ```json code fence 中，Adapter 必须只解包这些供应商展示外壳，
+  再把最终文本交给严格 JSON/内容校验；未闭合标签、只有推理或非 JSON 外壳视为坏响应，不能把隐藏推理展示到 UI；
 - Query 链路：每次查询严格执行服务端 Scope 校验、Dense/Sparse、RRF、PostgreSQL 二次授权、
   CrossEncoder、Root 恢复、grounded LLM answer 和领域 Citation；无 Root 时跳过 LLM 并返回
   `no_results`。LLM Prompt 明确只能使用编号证据并要求 `[n]` 引用；UI Citation 的 quote 仍直接截取

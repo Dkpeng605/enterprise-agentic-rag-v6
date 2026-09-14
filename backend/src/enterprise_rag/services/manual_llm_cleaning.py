@@ -654,38 +654,34 @@ def _layout_lexical_sequence(text: str) -> list[str]:
 def _remove_repeated_edge_lines(
     before: str, after: str, repeated_edges: Counter[str]
 ) -> tuple[tuple[str, ...], Counter[str]] | None:
-    """Allow deletion only for repeated lines at the original Root edges."""
+    """Allow edge-noise deletion while still permitting layout reflow."""
 
     before_lines = _non_empty_lines(before)
-    target_lines = _non_empty_lines(after)
-    source = [
-        (line, index in {0, len(before_lines) - 1})
-        for index, line in enumerate(before_lines)
-    ]
-    removed: Counter[str] = Counter()
-    for target in target_lines:
-        while source and source[0][0] != target:
-            line, is_edge = source[0]
-            if not is_edge or repeated_edges[line] < 2:
-                return None
-            removed[line] += 1
-            source.pop(0)
-        if not source:
-            return None
-        source.pop(0)
-    while source:
-        line, is_edge = source[0]
-        if is_edge and repeated_edges[line] >= 2:
-            removed[line] += 1
-            source.pop(0)
-            continue
-        line, is_edge = source[-1]
-        if is_edge and repeated_edges[line] >= 2:
-            removed[line] += 1
-            source.pop()
-            continue
+    actual_sequence = _layout_lexical_sequence(after)
+    if not before_lines:
         return None
-    return tuple(target_lines), removed
+    candidates: list[tuple[int, int]] = [(0, 0)]
+    if repeated_edges[before_lines[0]] >= 2:
+        candidates.append((1, 0))
+    if len(before_lines) > 1 and repeated_edges[before_lines[-1]] >= 2:
+        candidates.append((0, 1))
+    if (
+        len(before_lines) > 2
+        and repeated_edges[before_lines[0]] >= 2
+        and repeated_edges[before_lines[-1]] >= 2
+    ):
+        candidates.append((1, 1))
+    for prefix, suffix in candidates:
+        remaining = before_lines[prefix : len(before_lines) - suffix or None]
+        if _layout_lexical_sequence("\n".join(remaining)) != actual_sequence:
+            continue
+        removed: Counter[str] = Counter()
+        if prefix:
+            removed[before_lines[0]] += 1
+        if suffix:
+            removed[before_lines[-1]] += 1
+        return tuple(remaining), removed
+    return None
 
 
 def _non_empty_lines(text: str) -> tuple[str, ...]:

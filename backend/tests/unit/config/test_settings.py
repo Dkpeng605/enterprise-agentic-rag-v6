@@ -14,6 +14,7 @@ def test_default_settings_are_valid_and_immutable() -> None:
     assert settings.providers.ocr == "tesseract"
     assert settings.providers.reranker == "local_cross_encoder"
     assert settings.ingestion.pdf_ocr_languages == ("chi_sim", "eng")
+    assert settings.ingestion.overlap_tokens == 0
     field_name = "low_threshold"
     with pytest.raises(ValidationError):
         setattr(settings.deep, field_name, 0.1)

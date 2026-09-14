@@ -49,7 +49,8 @@ class IngestionSettings(SettingsModel):
     )
     target_tokens: PositiveInt = 350
     max_tokens: PositiveInt = 480
-    overlap_tokens: Annotated[int, Field(ge=0)] = 50
+    # Root recovery supplies surrounding context; new Leaves are non-overlapping.
+    overlap_tokens: Annotated[int, Field(ge=0)] = 0
     max_attempts: PositiveInt = 3
     pdf_ocr_min_chars: Annotated[int, Field(ge=0, le=10_000)] = 20
     pdf_render_scale: Annotated[float, Field(ge=1.0, le=4.0)] = 2.5

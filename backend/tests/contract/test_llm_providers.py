@@ -59,6 +59,39 @@ async def test_openai_compatible_llm_sends_chat_request_and_parses_usage() -> No
 
 
 @pytest.mark.anyio
+async def test_openai_compatible_llm_unwraps_reasoning_and_json_fence() -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": (
+                                    "<think>private reasoning</think>\n"
+                                    "```json\n{\"roots\":[]}\n```"
+                                )
+                            }
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 6},
+                },
+            )
+        )
+    ) as client:
+        provider = OpenAICompatibleLanguageModel(
+            base_url="https://provider.example/v1",
+            api_key="test-secret",
+            model="chat-model",
+            client=client,
+        )
+        result = await provider.complete(request())
+
+    assert result.text == '{"roots":[]}'
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("status", "payload", "code"),
     [

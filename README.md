@@ -83,13 +83,14 @@ Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引
 
 文档进入 `ready` 后，在“文档管理”打开详情并选择“查看解析、清洗与切分”，可检查实际 Parser、
 确定性 Cleaner、Splitter 参数、每个 Root 的原文/清洗后对照、规则 audit，以及每个 Leaf 的完整
-文本、token 数、offset 和相邻 overlap。该页面读取 PostgreSQL 事实源，不根据前端猜测切分结果；
+文本、token 数、offset 和 Leaf 边界（新摄取默认不重叠）。该页面读取 PostgreSQL 事实源，不根据前端猜测切分结果；
 升级前摄取且没有 audit 元数据的旧文档会明确标为“旧数据未记录”，重新上传后即可生成完整记录。
 
 同一页面还提供默认关闭的“一次远程 LLM 清洗”。预检会显示 Provider/Model、Root 数、发送字符数、
 一次调用预算和数据离开本机的风险；只有勾选确认后，当前版本的 `clean_text`（不是原文件）才会发送。
 单次最多 20 Roots、12,000 输入字符和 8,000 output tokens；超限、非 ready、版本变化或已经执行过的
-版本会拒绝。响应必须保持 Root ordinal，并通过完整词法序列、数字、URL、邮箱、引号值、标题、表头和 fenced code
+版本会拒绝。适配器会去除 MiniMax 常见的 `<think>...</think>` 推理外壳和 JSON code fence，但不会把推理内容送入清洗校验。
+响应必须保持 Root ordinal，并通过完整词法序列、数字、URL、邮箱、引号值、标题、表头和 fenced code
 锚点校验，成功后才重切分和重建 Dense/Sparse 索引。LLM 只能修复 PDF/OCR 常见的空白、段落换行、标题/表格间距，
 以及单词内部的跨行断字符；不得合并两个不同单词，不得改变词法顺序、数字、事实或代码。唯一允许删除的是跨 Root
 重复且位于原始 Root 首/尾的完整噪声行。页面显示 Root 变化、Leaf 前后数量、token usage、
@@ -407,7 +408,8 @@ attempt、heartbeat 与稳定错误，只在存在活跃任务时轮询。匿名
 
 `/workspace/documents/{document_id}/pipeline` 是 PostgreSQL 事实驱动的文档处理检查器。它展示版本实际
 使用的 Parser/Cleaner/Splitter 及切分参数，以分页 Root 列表和按需详情呈现 raw/clean 全文对照、每条
-确定性清洗规则的发生次数与前后 hash、Leaf 文本、检索增强文本、token、offset 和计算得到的 overlap。
+确定性清洗规则的发生次数与前后 hash、Leaf 文本、检索增强文本、token、offset 和边界。新摄取的 Leaf 不重叠，Root
+负责检索后的完整上下文恢复。
 接口和页面都由当前 session tenant 限定；旧版本缺少新增 metadata 时只显示“未记录”，不会伪造默认值。
 
 `/workspace/traces/queries` 展示当前 tenant 的持久化 Query Trace，可按 Standard/Deep、结果和降级
@@ -524,7 +526,7 @@ PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr
 
 确定性 Cleaner 同时保留原文和清洗文本，并为每项实际变更记录规则、次数及前后内容 hash。它处理不可见控制字符、常见 OCR 异常和空白，并通过批量 Root 统计移除重复页眉页脚；清洗会隔离 fenced code，不改代码缩进、空行和跨行内容。相同文本重复清洗不会继续变化，默认不会使用 LLM 改写文档。人工触发的 LLM 清洗只作为版面修复补充：允许修复 PDF/OCR 的空白、段落换行、标题/表格间距和跨行断词，但受后端词法、顺序、数字、事实及代码围栏校验保护。
 
-结构化 Splitter 使用版本化的段落/句子感知策略：在 Root 内优先保留标题、段落、列表、代码围栏、表格行和完整句子，再应用 target/max/overlap 限制。只有单个结构单元本身超过预算时才降级为 token 硬切，并在 Leaf metadata 标记 `boundary=token_limit_hard_cut`、`hard_cut=true`。macOS 真实运行时直接复用 FastEmbed tokenizer 与模型输入上限，实际安全预算为配置上限和 `model_input_limit - 1` 的较小值；每个 Root/Leaf 都保存实际 tokenizer、预算、边界和硬切计数，前端可逐块核对。表格续块会重复表头且计入 token 上限；Root/Leaf ID 对相同 version、index revision、内容和顺序保持稳定。
+结构化 Splitter 使用版本化的段落/句子感知策略：在 Root 内优先保留标题、段落、列表、代码围栏、表格行和完整句子，再应用 target/max 限制；新摄取的 Leaf 不重叠，Root 在检索后负责恢复完整上下文。只有单个结构单元本身超过预算时才降级为 token 硬切，并在 Leaf metadata 标记 `boundary=token_limit_hard_cut`、`hard_cut=true`。macOS 真实运行时直接复用 FastEmbed tokenizer 与模型输入上限，实际安全预算为配置上限和 `model_input_limit - 1` 的较小值；每个 Root/Leaf 都保存实际 tokenizer、预算、边界和硬切计数，前端可逐块核对。表格续块会重复表头且计入 token 上限；Root/Leaf ID 对相同 version、index revision、内容和顺序保持稳定。
 
 图片增强服务先把 Loader 提取的原始图片写入内容寻址 ObjectStore，再调用可插拔 Vision 端口。默认 `vision: none` 会保留图片并跳过 caption；Vision 异常只将 caption 标记为降级，不会丢弃已存图片或泄露供应商错误。ObjectStore 写入失败仍会中止摄取，因为图片持久化不是可选数据。
 

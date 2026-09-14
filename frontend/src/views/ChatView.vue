@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { ApiError } from '../api/client'
 import {
@@ -25,6 +25,7 @@ const result = ref<QueryResult | null>(null)
 const streamError = ref('')
 const retryAfter = ref<number>()
 const history = ref<ChatTurn[]>([])
+const conversationFeed = ref<HTMLElement>()
 let controller: AbortController | undefined
 
 const canSend = computed(
@@ -41,6 +42,21 @@ const stageLabel = computed(() => {
   }
   return labels[currentStage.value] ?? '已接收，准备检索'
 })
+
+function scrollConversationToBottom(behavior: ScrollBehavior = 'smooth'): void {
+  void nextTick(() => {
+    const feed = conversationFeed.value
+    if (!feed) return
+    if (typeof feed.scrollTo === 'function') {
+      feed.scrollTo({ top: feed.scrollHeight, behavior })
+    } else {
+      feed.scrollTop = feed.scrollHeight
+    }
+  })
+}
+
+watch(history, () => scrollConversationToBottom(), { deep: true })
+watch(result, () => scrollConversationToBottom())
 
 onMounted(async () => {
   try {
@@ -77,6 +93,7 @@ async function submit(): Promise<void> {
   if (!canSend.value || !text) return
   const requestHistory = history.value.slice(-12)
   history.value.push({ role: 'user', content: text })
+  scrollConversationToBottom('auto')
   question.value = ''
   runState.value = 'streaming'
   currentStage.value = ''
@@ -153,6 +170,7 @@ function stop(): void {
       </aside>
 
       <div class="conversation-panel">
+        <div ref="conversationFeed" class="conversation-feed">
         <div v-if="!history.length && runState === 'idle'" class="empty-conversation">
           <span class="empty-conversation__mark">?</span>
           <h2>从一个可验证的问题开始</h2>
@@ -190,6 +208,7 @@ function stop(): void {
         </div>
         <div v-if="runState === 'error'" class="query-alert query-alert--error" role="alert">
           <strong>本次查询未完成</strong><p>{{ streamError }}</p><code v-if="queryId">{{ queryId }}</code>
+        </div>
         </div>
 
         <form class="composer" data-testid="chat-composer" @submit.prevent="submit">

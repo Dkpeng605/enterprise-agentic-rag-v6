@@ -9,7 +9,8 @@ from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.ports.llm import CompletionRequest, CompletionResult
 from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, ProviderKind
 
-_THINK_BLOCK = re.compile(r"^\s*<think>.*?</think>\s*", re.DOTALL)
+_THINK_BLOCK = re.compile(r"^\s*<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
+_JSON_FENCE = re.compile(r"^\s*```(?:json)?\s*\n(?P<body>.*?)\n?```\s*$", re.DOTALL | re.IGNORECASE)
 
 
 class OpenAICompatibleLanguageModel:
@@ -137,13 +138,17 @@ class OpenAICompatibleLanguageModel:
 
 
 def _visible_answer(text: str) -> str:
-    """Remove one provider reasoning block without altering the final answer."""
+    """Remove provider presentation wrappers without altering the final answer."""
 
     stripped = text.strip()
-    if stripped.startswith("<think>"):
-        if "</think>" not in stripped:
+    while stripped.lower().startswith("<think>"):
+        visible = _THINK_BLOCK.sub("", stripped, count=1)
+        if visible == stripped:
             raise TypeError("completion reasoning block is incomplete")
-        stripped = _THINK_BLOCK.sub("", stripped, count=1)
+        stripped = visible.strip()
+    fenced = _JSON_FENCE.fullmatch(stripped)
+    if fenced is not None:
+        stripped = fenced.group("body").strip()
     if not stripped:
         raise TypeError("completion content is invalid")
     return stripped

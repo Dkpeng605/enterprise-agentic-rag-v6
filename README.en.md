@@ -86,7 +86,8 @@ Selection is not a hot swap; restart the backend to apply it, then re-ingest doc
 
 After a document reaches `ready`, open it in Documents and select “Inspect parsing, cleaning, and splitting.”
 The page shows the actual Parser, deterministic Cleaner, Splitter settings, Root raw/clean comparisons and rule
-audits, plus every Leaf's full text, token count, offsets, and adjacent overlap. It reads the PostgreSQL source of
+audits, plus every Leaf's full text, token count, offsets, and boundaries. New ingestion uses disjoint Leaves by
+default, with Root recovery providing the surrounding context. It reads the PostgreSQL source of
 truth rather than inferring chunks in the browser. Documents ingested before audit metadata was introduced are
 explicitly labeled as legacy data; re-uploading creates a complete record.
 
@@ -94,7 +95,8 @@ The same page offers an opt-in, one-pass remote LLM cleaning action that is off 
 the Provider/Model, Root and character counts, one-call budget, and the risk of data leaving the Mac. Only after
 the checkbox confirmation does the current version's `clean_text`—not the original file—leave the machine. One
 pass is limited to 20 Roots, 12,000 input characters, and 8,000 output tokens; oversized, non-ready, stale, or
-already-cleaned versions are rejected. The response must preserve Root ordinals and pass checks for the complete lexical
+already-cleaned versions are rejected. The adapter removes MiniMax's common `<think>...</think>` reasoning wrapper and
+JSON code fence before validation, without sending hidden reasoning into the cleaning validator. The response must preserve Root ordinals and pass checks for the complete lexical
 sequence, numbers, URLs, emails, quoted values, headings, table headers, and fenced code before the service rechunks and
 rebuilds the Dense/Sparse index. The LLM may repair PDF/OCR whitespace, paragraph line reflow, heading/table spacing,
 and a word broken by a line-break hyphen, but it may not merge distinct words or change lexical order, facts, numbers,
@@ -420,7 +422,8 @@ real ingestion Worker; the default composition root still requires deployments t
 `/workspace/documents/{document_id}/pipeline` is a PostgreSQL source-of-truth document processing inspector. It
 shows the Parser, Cleaner, Splitter, and settings actually used for the version, then exposes paged Roots and
 on-demand detail with raw/clean text, deterministic rule counts and before/after hashes, Leaf text, enriched
-retrieval text, tokens, offsets, and computed overlap. Both endpoints and the page are session-tenant scoped;
+retrieval text, tokens, offsets, and boundaries. New ingestion uses disjoint Leaves while Root recovery restores
+the full context after retrieval. Both endpoints and the page are session-tenant scoped;
 missing legacy metadata is shown as unavailable and is never replaced with an invented default.
 
 `/workspace/traces/queries` shows persisted Query Traces for the current tenant with Standard/Deep, outcome,
@@ -542,7 +545,7 @@ The spreadsheet Loader parses XLSX, legacy XLS, and CSV independently. Each work
 
 The deterministic Cleaner preserves both raw and cleaned text and records each effective rule, occurrence count, and before/after content hash. It normalizes invisible controls, common OCR artifacts, and whitespace, and uses batch Root statistics to remove repeated headers and footers; fenced code is isolated so indentation, blank lines, and wrapped code content are not rewritten. Re-cleaning the same text makes no further changes, and no LLM rewrites document content by default. The manually triggered LLM pass is only a layout-repair supplement: it may fix PDF/OCR whitespace, paragraph line reflow, heading/table spacing, and line-break hyphenation, subject to backend lexical, order, fact, and code-fence validation.
 
-The structure-aware Splitter uses a versioned paragraph- and sentence-aware strategy: within each Root it preserves headings, paragraphs, lists, code fences, table rows, and complete sentences before applying target/max/overlap limits. It falls back to a token hard cut only when one structural unit itself exceeds the budget, and records `boundary=token_limit_hard_cut` and `hard_cut=true` in Leaf metadata. The real macOS runtime reuses the FastEmbed tokenizer and model input limit; the effective safe budget is the smaller of the configured cap and `model_input_limit - 1`. Each Root/Leaf records the actual tokenizer, budget, boundary, and hard-cut count for inspection. Continuation table chunks repeat headers and count them toward the token cap; Root/Leaf IDs remain stable for the same version, index revision, content, and order.
+The structure-aware Splitter uses a versioned paragraph- and sentence-aware strategy: within each Root it preserves headings, paragraphs, lists, code fences, table rows, and complete sentences before applying target/max limits. New macOS ingestion creates disjoint Leaves; Root recovery restores the complete context after retrieval. It falls back to a token hard cut only when one structural unit itself exceeds the budget, and records `boundary=token_limit_hard_cut` and `hard_cut=true` in Leaf metadata. The real macOS runtime reuses the FastEmbed tokenizer and model input limit; the effective safe budget is the smaller of the configured cap and `model_input_limit - 1`. Each Root/Leaf records the actual tokenizer, budget, boundary, and hard-cut count for inspection. Continuation table chunks repeat headers and count them toward the token cap; Root/Leaf IDs remain stable for the same version, index revision, content, and order.
 
 Image enrichment writes the original image extracted by a Loader to the content-addressed ObjectStore before invoking the pluggable Vision port. The default `vision: none` keeps the image and skips captioning. A Vision failure degrades only the caption, without discarding the stored image or exposing provider errors. ObjectStore failure still aborts ingestion because image persistence is not optional data.
 

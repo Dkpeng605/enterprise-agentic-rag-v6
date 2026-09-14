@@ -81,6 +81,19 @@ def test_response_allows_only_repeated_edge_line_removal() -> None:
     assert cleaned == ("第一段", "第二段")
 
 
+def test_response_allows_layout_reflow_with_repeated_edge_removal() -> None:
+    roots = (
+        root("页眉\n第一段\n正文结尾", ordinal=0),
+        root("页眉\n第二段", ordinal=1),
+    )
+
+    cleaned = parse_cleaning_response(
+        response((0, "第一段 正文结尾"), (1, "第二段")), roots
+    )
+
+    assert cleaned == ("第一段 正文结尾", "第二段")
+
+
 def test_response_allows_pdf_layout_reflow_and_line_break_hyphen_repair() -> None:
     before = "#  标题\n\nPDF inter-\nface 内容。\n金额 2026。"
     after = "# 标题\nPDF interface 内容。金额 2026。"

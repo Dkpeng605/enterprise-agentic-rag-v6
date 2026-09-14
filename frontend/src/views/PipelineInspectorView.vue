@@ -46,7 +46,13 @@ const preflightReason = computed(() => {
 })
 
 function setError(caught: unknown, fallback: string): void {
-  error.value = caught instanceof ApiError ? caught.message : fallback
+  if (caught instanceof ApiError && caught.code === 'LLM_UNAVAILABLE') {
+    error.value = '远程 LLM 当前不可用，请检查 endpoint、模型和网络；原文与现有索引不会被修改。'
+  } else if (caught instanceof ApiError && caught.code === 'LLM_INVALID_RESPONSE') {
+    error.value = '远程 LLM 返回的清洗结果无法通过安全校验，原文与现有索引已保留。'
+  } else {
+    error.value = caught instanceof ApiError ? caught.message : fallback
+  }
   requestId.value = caught instanceof ApiError ? caught.requestId ?? '' : ''
 }
 
@@ -251,7 +257,7 @@ onMounted(loadPipeline)
             </section>
 
             <section class="leaf-section">
-              <div class="trace-section-head"><div><p class="section-kicker">LEAF CHUNKS</p><h3>实际检索单元</h3></div><span>offset 基于清洗后 Root；overlap 为相邻 Leaf 重叠字符数</span></div>
+              <div class="trace-section-head"><div><p class="section-kicker">LEAF CHUNKS</p><h3>实际检索单元</h3></div><span>Leaf 不重叠；Root 负责上下文恢复，offset 基于清洗后 Root</span></div>
               <article v-for="leaf in rootDetail.leaves" :key="leaf.id" class="leaf-card">
                 <header><strong>LEAF {{ leaf.ordinal + 1 }}</strong><code>{{ leaf.id }}</code><span>{{ leaf.token_count }} tokens</span><span>{{ String(leaf.metadata.boundary ?? 'boundary 未记录') }}</span><span v-if="leaf.metadata.hard_cut" class="leaf-warning">TOKEN HARD CUT</span><span>{{ leaf.start_offset ?? '—' }} → {{ leaf.end_offset ?? '—' }}</span><span>overlap {{ leaf.overlap_chars }} chars</span></header>
                 <pre>{{ leaf.text }}</pre>

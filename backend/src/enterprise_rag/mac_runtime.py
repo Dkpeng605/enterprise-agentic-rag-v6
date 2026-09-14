@@ -148,7 +148,8 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
     splitter = StructureAwareSplitter(
         target_tokens=active.ingestion.target_tokens,
         max_tokens=active.ingestion.max_tokens,
-        overlap_tokens=active.ingestion.overlap_tokens,
+        # Root recovery supplies context; Mac demo Leaves are intentionally disjoint.
+        overlap_tokens=0,
         token_counter=embedding.count_tokens,
         tokenizer=embedding.tokenizer_name,
         embedding_token_limit=embedding.input_token_limit,

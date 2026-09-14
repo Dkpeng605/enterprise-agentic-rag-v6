@@ -42,6 +42,14 @@ describe('public chat browser states', () => {
     vi.mocked(queryApi.stream).mockReset()
   })
 
+  it('keeps the composer outside the scrollable conversation feed', () => {
+    const wrapper = mount(ChatView)
+    const panel = wrapper.get('.conversation-panel')
+
+    expect(panel.find('.conversation-feed').exists()).toBe(true)
+    expect(panel.find('.conversation-feed').element.nextElementSibling?.className).toBe('composer')
+  })
+
   it('renders a successful Deep answer and expandable citations', async () => {
     vi.mocked(queryApi.stream).mockImplementation(async (_input, _signal, emit) => {
       emit({ type: 'accepted', sequence: 1, queryId: answered.query_id })
