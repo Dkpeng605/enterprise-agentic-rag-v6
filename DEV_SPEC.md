@@ -2587,9 +2587,10 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   或异常消息。隐藏思维链、供应商 `<think>` 内容、完整 Prompt 和 Authorization 永不返回；
 - 验收：Standard 单查询、比较型多子查询、Planner 降级、Dense/Sparse 某路为空、授权过滤、Reranker
   降级、Deep recovery 和旧 Trace 缺字段均有后端投影及 Vue 测试；真实 Mac QueryRunner 必须装配计划。
-- 实现边界：Mac 组合当前装配无额外费用的确定性 Planner；结构化远程 Planner 端口仍可注入，失败会
-  整体回退。多条件按分号、`并且`、`同时`、`以及`、`and` 确定性拆分，最多 4 条；指代问题只读取
-  最近 user turn 补足上下文；
+- 实现边界：Mac 组合装配共享 bounded OpenAI-compatible LLM 的结构化 Planner Adapter；简单事实请求
+  允许保持一条精确子查询，比较、多条件与多跳请求生成 2～4 条互补分支，禁止为增加数量制造重复。
+  Provider 失败或输出不合格时整体回退；fallback 按分号、`并且`、`同时`、`以及`、`and` 确定性拆分，
+  最多 4 条，并只读取最近 user turn 补足指代；
 - 持久化投影：`rag.query_planning` 保存 original/rewritten/intent/language/sub-queries/provider/degraded；
   每个 `rag.retrieval.branch` 保存 branch index/query、Dense/Sparse requested/returned、交集与 unique；
   RRF、Scope Guard、Rerank、Root Restore 与 Answer spans 保存输入/输出/拒绝/截断/usage。专用 API 将其
@@ -2654,6 +2655,44 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   清洗版本仍是合法普通 Root/Leaf，可保留；若业务要求恢复清洗前文本，应重新上传源文件创建新 version，
   不提供无审计的原地反向覆盖；
 - PR：`feat/m7-r2-manual-llm-cleaning`。
+
+##### M7-R3 开发数据隔离、向量修复与 LLM Query Planner（已完成）
+
+- 缺陷事实：Mac 应用与 PostgreSQL 集成测试曾同时使用 `enterprise_rag_test`；多个测试 fixture 会执行
+  `TRUNCATE ... CASCADE`，而 Mac Milvus Lite 位于独立持久化目录，导致测试清除 PG 事实后旧投影继续
+  被召回。普通 PostgreSQL/container 重启不清库，根因是 database 边界复用，不得把它描述为重启丢失；
+- 数据库隔离：开发 Compose 的应用库固定为 `enterprise_rag_dev`，集成测试继续显式使用
+  `TEST_DATABASE_URL/.../enterprise_rag_test`，E2E 使用 `enterprise_rag_e2e`。`mac-backend.sh` 在迁移前
+  幂等创建 dev/test 两库；新 volume 通过 init SQL 同时建立 test 库。脚本禁止 DROP/TRUNCATE，既有用户
+  数据迁移必须先复制并核对 document/Leaf/Trace 数量，再切换未跟踪 `.env`；
+- 向量修复：`ReconcileService.run_vectors` 只比较 Milvus `(tenant_id, version_id, count)` 投影与 PostgreSQL
+  非 deleted version/Leaf 事实。默认 dry-run；`--apply` 仅删除 PostgreSQL 中完全不存在的 tenant/version
+  投影，不处理对象文件、任务或文档。有效 version 的 count mismatch 必须保留为 unresolved，禁止以
+  “孤儿”为由整版删除；Milvus Lite 单进程锁要求运行工具前停止 API；
+- 当前数据修复验收：迁移后开发库保留 1 个 Document、36 个 Leaf、2 条 Trace；dry-run 识别 16 个孤儿
+  version 投影共 125 条向量，apply 后二次 dry-run 为 0 issue，有效版本 36 条投影保持不变；这些数字只
+  描述本机修复记录，不作为固定产品指标或 CI 断言；
+- Planner Adapter：复用 Mac 组合已有 `BoundedLanguageModel`，发送当前 query、最多 12 条调用方历史、
+  服务端 Scope 和 mode；system contract 要求仅返回一个 JSON object，包含 rewritten_query、领域 intent、
+  1～4 条唯一 sub_queries、0～8 条 requirements、原样 Scope 与 language。Prompt 不发送 Root 文本；回答
+  Provider 仍只接收授权后 Root。Adapter 不拥有共享 LLM 生命周期，不能重复关闭底层连接；
+- 信任边界：Provider JSON 先解析为 mapping，再由 `QueryPlanningService` 执行 exact-field、枚举、数量、
+  重复、UUID 和 Scope 只收窄校验；模型不能改变 Standard/Deep mode。非 JSON、数组、尾随文本、未知字段、
+  越权 Scope、LLM 4xx/5xx/timeout 均净化为稳定 Planner 错误并使用确定性 fallback，供应商正文、Prompt、
+  key 和隐藏推理不进入响应或 Trace；
+- Usage/Trace：`PlannerProviderResult` 携带 input/output token 与 retry count；成功调用、无结果和回答成功
+  三条路径都把 Planner 调用计入 QueryExecution usage，不能因检索为空而记为 0。`rag.query_planning`
+  保存 Planner call/token 和实际 sub-query count；Query Trace 阶段漏斗单独展示“查询改写”，回答调用
+  仍在 `answer_generation` 展示，二者不得重复或漏计；
+- EDD：先增加缺失 Adapter/隔离脚本的失败测试；单元测试覆盖完整上下文、JSON mapping、非 JSON/数组/
+  尾随内容、不可用映射、usage 和 Trace 投影；PostgreSQL+真实 Milvus Lite 集成测试验证 vector-only apply
+  会删除 orphan projection 但保留 orphan object，并验证运行 test fixture 后 dev 文档/Leaf/Trace 计数不变。
+  全量 Ruff、Mypy、Pytest、前端测试/typecheck/build、OpenAPI drift、确定性质量门禁与浏览器 E2E 仍为
+  合并前 required checks；真实 TokenHub Planner smoke 只在本机显式执行；
+- 运维与回滚：README 中英文同时记录 dev/test 数据库、dry-run/apply 命令、单进程限制和数据披露。
+  回滚 Planner 时可移除 Mac 注入并恢复 deterministic，不影响已存文档；回滚数据库隔离前必须先备份并
+  明确选择事实库，禁止重新指向会被 fixture 清理的 test 库；
+- PR：`fix/dev-db-and-llm-query-planner`。
 
 ### M8：首次公网发布
 
