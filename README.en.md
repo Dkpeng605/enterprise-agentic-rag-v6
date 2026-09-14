@@ -98,13 +98,20 @@ CrossEncoder reranking, Root recovery, LLM generation, and citations. Inspect pr
 Tenant Overview or at `http://127.0.0.1:8000/health/doctor`. After administrator login, the “Manage and select”
 link opens `/admin/providers`: it reads the live registry, shows selectable Embedding/Reranker profiles with
 dimensions, effective token limits, language notes, and local/remote attributes, and saves the next-start selection.
-Selection is not a hot swap; restart the backend to apply it. After restart, the `/admin/providers` page shows
+Selection is not a hot swap; restart the backend to apply it. The page distinguishes the current runtime profile
+from the pending restart profile. After restart, the `/admin/providers` page shows
 the active index revision, per-document Root/Leaf/vector counts, and incompatible old revisions. The administrator
 can click “Rebuild incompatible documents”: vectors are projected into the new Milvus revision first, PostgreSQL
 Root/Leaf content is swapped only after projection succeeds, and old-revision vectors are deleted last. A projection
 or database-swap failure leaves the old index intact. Changing only the Reranker does not require vector rebuild.
 The corresponding endpoints are `GET /api/v1/admin/providers/index-status` and
 `POST /api/v1/admin/providers/reindex`.
+
+The Overview page's “Load demo data” button calls the CSRF-protected `/api/v1/demo/seed` endpoint and submits
+two non-sensitive Markdown examples from the repository through the same upload registration, PostgreSQL job,
+parser, cleaner, Root/Leaf splitter, and vector projection pipeline. These are not frontend fixtures; repeated
+clicks are content-digest idempotent and return the existing documents/jobs. After ingestion, the persisted records
+can be inspected in Documents, Ingestion Trace, Query Trace, Knowledge Chat, and Evaluations.
 
 After a document reaches `ready`, open it in Documents and select “Inspect parsing, cleaning, and splitting.”
 The page shows the actual Parser, deterministic Cleaner, Splitter settings, Root raw/clean comparisons and rule

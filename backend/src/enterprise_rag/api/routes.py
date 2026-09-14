@@ -31,6 +31,7 @@ from enterprise_rag.api.schemas import (
     CollectionListResponse,
     CollectionPatch,
     CollectionResponse,
+    DemoSeedResponse,
     DocumentDeleteResponse,
     DocumentDetailResponse,
     DocumentListResponse,
@@ -66,6 +67,7 @@ from enterprise_rag.api.schemas import (
     UploadResponse,
     WorkspaceOverviewResponse,
 )
+from enterprise_rag.demo_data import DEMO_DOCUMENTS
 from enterprise_rag.domain.common import to_json_value
 from enterprise_rag.domain.documents import DocumentStatus, DocumentVisibility
 from enterprise_rag.domain.errors import AppError, ErrorCode
@@ -382,6 +384,56 @@ def create_api_router(
     ) -> CollectionListResponse:
         items = await _workspace().list_collections(principal.tenant_id)
         return CollectionListResponse(items=[_collection(item) for item in items])
+
+    @router.post(
+        "/demo/seed",
+        response_model=DemoSeedResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["demo"],
+    )
+    async def seed_demo_documents(
+        principal: Annotated[Principal, Depends(writer)],
+    ) -> DemoSeedResponse:
+        """Idempotently enqueue the committed demo corpus through the real pipeline."""
+
+        collections = await _workspace().list_collections(principal.tenant_id)
+        seed = next((item for item in collections if item.is_seed), None)
+        if seed is None:
+            raise AppError(ErrorCode.CONFLICT, "The demo seed collection is unavailable.")
+        uploads = []
+        for fixture in DEMO_DOCUMENTS:
+            content = fixture.content.encode("utf-8")
+
+            async def chunks(value: bytes = content) -> AsyncIterator[bytes]:
+                yield value
+
+            uploads.append(
+                await _workspace().upload_document(
+                    tenant_id=principal.tenant_id,
+                    actor_id=principal.actor_id,
+                    collection_id=seed.id,
+                    title=fixture.title,
+                    organization="Atlas Demo",
+                    visibility=DocumentVisibility.TENANT,
+                    source_name=fixture.source_name,
+                    media_type=fixture.media_type,
+                    chunks=chunks(),
+                    now=clock(),
+                )
+            )
+        return DemoSeedResponse(
+            collection_id=seed.id,
+            documents=[
+                UploadResponse(
+                    document_id=item.document_id,
+                    version_id=item.version_id,
+                    job_id=item.job_id,
+                    deduplicated=item.deduplicated,
+                    status=item.status,
+                )
+                for item in uploads
+            ],
+        )
 
     @router.post(
         "/collections",

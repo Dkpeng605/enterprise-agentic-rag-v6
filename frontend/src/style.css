@@ -227,6 +227,7 @@ h1 em { color: var(--mint-600); font-weight: inherit; }
 .degraded-banner > span { padding: 6px 8px; color: #8f621c; font-size: 8px; font-weight: 800; letter-spacing: .14em; border: 1px solid #dabd76; border-radius: 4px; }
 .degraded-banner strong { font-size: 11px; }
 .degraded-banner p { margin: 3px 0 0; font-size: 9px; }
+.overview-seed-message { margin-bottom: 22px; padding: 13px 16px; color: #245b48; font-size: 11px; line-height: 1.6; background: #eefaf3; border: 1px solid #b9e3ca; border-radius: 7px; }
 .overview-empty { min-height: 220px; margin-bottom: 30px; }
 .overview-empty > span { width: 65px; height: 65px; font-size: 30px; }
 .overview-section { margin-top: 38px; }

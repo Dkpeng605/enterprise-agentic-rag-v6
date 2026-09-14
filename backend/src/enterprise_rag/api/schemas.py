@@ -90,6 +90,11 @@ class UploadResponse(ApiModel):
     status: str
 
 
+class DemoSeedResponse(ApiModel):
+    collection_id: UUID
+    documents: list[UploadResponse]
+
+
 class DocumentResponse(ApiModel):
     id: UUID
     collection_id: UUID

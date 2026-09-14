@@ -7,7 +7,7 @@ import OverviewView from '../src/views/OverviewView.vue'
 
 vi.mock('../src/api/overview', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/api/overview')>()
-  return { ...original, overviewApi: { load: vi.fn() } }
+  return { ...original, overviewApi: { load: vi.fn(), seedDemo: vi.fn() } }
 })
 
 const snapshot: OverviewSnapshot = {
@@ -56,7 +56,10 @@ function mountOverview() {
 }
 
 describe('workspace overview browser states', () => {
-  beforeEach(() => vi.mocked(overviewApi.load).mockReset())
+  beforeEach(() => {
+    vi.mocked(overviewApi.load).mockReset()
+    vi.mocked(overviewApi.seedDemo).mockReset()
+  })
 
   it('shows a loading skeleton until both tenant and health data resolve', async () => {
     let resolve!: (value: OverviewSnapshot) => void
@@ -93,6 +96,37 @@ describe('workspace overview browser states', () => {
     expect(wrapper.get('[data-testid="overview-empty"]').text()).toContain('还没有业务数据')
     expect(wrapper.text()).toContain('这里不会用演示数字填充空白')
     expect(wrapper.text()).toContain('未注册')
+  })
+
+  it('submits demo documents through the real seed API from an empty workspace', async () => {
+    const emptySnapshot: OverviewSnapshot = {
+      ...snapshot,
+      overview: {
+        ...snapshot.overview,
+        collection_count: 1,
+        document_counts: { pending: 0, processing: 0, ready: 0, failed: 0, deleting: 0 },
+        root_count: 0,
+        leaf_count: 0,
+        queries_24h: 0,
+        query_errors_24h: 0,
+        query_error_rate: null,
+        query_p95_ms: null,
+        recent_activity: [],
+      },
+    }
+    vi.mocked(overviewApi.load).mockResolvedValueOnce(emptySnapshot).mockResolvedValueOnce(emptySnapshot)
+    vi.mocked(overviewApi.seedDemo).mockResolvedValue({
+      collection_id: '01900000-0000-7000-8000-00000000d003',
+      documents: [],
+    })
+    const wrapper = mountOverview()
+    await flushPromises()
+
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(overviewApi.seedDemo).toHaveBeenCalledOnce()
+    expect(wrapper.text()).toContain('已提交 0 份演示文档')
   })
 
   it('keeps confirmed metrics visible while identifying degraded providers', async () => {

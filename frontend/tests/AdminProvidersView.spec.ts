@@ -54,7 +54,12 @@ describe('Provider management', () => {
   beforeEach(() => {
     vi.mocked(providerApi.load).mockReset().mockResolvedValue(catalog)
     vi.mocked(providerApi.select).mockReset().mockResolvedValue({
-      ...catalog, selection: { ...catalog.selection, pending_restart: true },
+      ...catalog,
+      selection: {
+        ...catalog.selection,
+        pending_restart: true,
+        pending_reranker_model: 'BAAI/bge-reranker-v2-m3',
+      },
     })
     vi.mocked(providerApi.indexStatus).mockReset().mockResolvedValue(indexStatus)
     vi.mocked(providerApi.reindex).mockReset().mockResolvedValue({
@@ -84,6 +89,9 @@ describe('Provider management', () => {
 
     expect(providerApi.select).toHaveBeenCalledWith('reranker', 'BAAI/bge-reranker-v2-m3')
     expect(wrapper.text()).toContain('重启 Mac backend 后生效')
+    expect(wrapper.text()).toContain('待重启生效')
+    const input = wrapper.find('input[value="BAAI/bge-reranker-v2-m3"]').element as HTMLInputElement
+    expect(input.checked).toBe(true)
   })
 
   it('shows incompatible documents and offers a real revision rebuild', async () => {
