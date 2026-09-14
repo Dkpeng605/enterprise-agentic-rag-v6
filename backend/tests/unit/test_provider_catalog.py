@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 from enterprise_rag.adapters.embeddings.fastembed_local import BGE_SMALL_ZH_MODEL
 from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, ProviderKind
@@ -42,13 +43,17 @@ def test_provider_catalog_lists_live_registry_and_persists_restart_bound_selecti
     )
 
     payload = catalog.to_dict()
-    assert len(payload["providers"]) == 3
-    assert any(option["key"] == BGE_SMALL_ZH_MODEL for option in payload["options"])
-    assert payload["selection"]["pending_restart"] is False
+    providers = cast(list[dict[str, object]], payload["providers"])
+    options = cast(list[dict[str, object]], payload["options"])
+    selection = cast(dict[str, object], payload["selection"])
+    assert len(providers) == 3
+    assert any(option["key"] == BGE_SMALL_ZH_MODEL for option in options)
+    assert selection["pending_restart"] is False
 
     updated = catalog.select(kind="embedding", key=BGE_SMALL_ZH_MODEL)
+    updated_selection = cast(dict[str, object], updated["selection"])
 
-    assert updated["selection"]["pending_restart"] is True
+    assert updated_selection["pending_restart"] is True
     assert load_provider_selection(tmp_path / "provider-selection.json") == {
         "embedding_dimension": "512",
         "embedding_model": BGE_SMALL_ZH_MODEL,
