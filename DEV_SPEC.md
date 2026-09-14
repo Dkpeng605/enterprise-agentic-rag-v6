@@ -2574,22 +2574,57 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   不影响回答、引用或向量内容；
 - PR：`feat/m7-r2-query-inspector`。
 
-##### M7-R2C 人工触发的一次 LLM 清洗（待实现）
+##### M7-R2C 人工触发的一次 LLM 清洗（已完成）
 
-- 默认关闭：正常上传始终只执行确定性 Cleaner。LLM 清洗必须由用户在单个 ready 文档页面显式触发，
-  请求体包含远程处理确认；未确认、Provider 不可用、文档状态不允许或超过预算时拒绝；
-- 数据披露：确认框在请求前展示将发送给配置的远程 LLM 的 Root 数、字符上限、预计调用数、Provider/
-  Model、费用与数据离开本机的风险。Token、system Prompt 和隐藏推理不展示；
-- 一次语义清洗：模型只允许删除噪声、修复明显 OCR/断行并保持事实、数字、标题和表格；输出使用严格
-  schema 与 ordinal 对齐，Root 不得增删或重排。输入/输出字符、usage、model、时间、前后 hash 与
-  人工触发者写入审计，不保存隐藏推理；
-- 一致性：处理期间文档退出 query-ready；生成新 clean Root/Leaf 后重新 Embedding/Sparse 投影，并按
-  可重入 Saga 切换 PostgreSQL 与 Milvus。任何失败必须恢复原 Root/Leaf、原向量和 ready 状态，不得
-  留下半清洗版本；同一 version 同时只允许一个变换；
-- UI：显示预检、确认、执行进度、Root 级 diff/audit、重切分结果和失败后的稳定错误。用户可在提交前
-  取消，但提交远端后不能宣称已撤回供应商接收的数据；
-- EDD：Fake LLM 覆盖成功、坏 schema、ordinal 缺失/重复、事实保护失败、timeout、usage、并发冲突和
-  补偿；真实 TokenHub smoke 必须显式 opt-in、限制字符与调用数且不进入 required CI。
+- 产品边界：正常上传仍只运行本地确定性 Cleaner，不自动调用 LLM。人工入口只出现在单个文档的处理
+  透视页；`GET /api/v1/documents/{document_id}/llm-cleaning/preflight` 是只读预检，`POST
+  /api/v1/documents/{document_id}/llm-cleaning` 才执行变换。写请求继续要求 cookie session 与 CSRF，
+  tenant/actor 由服务端 Principal 注入，请求体只接受 `expected_version_id` 和
+  `confirm_remote_processing`；false 返回稳定 `VALIDATION_ERROR`，不能依赖前端 checkbox 作为授权；
+- 数据披露：预检返回是否可执行、稳定原因、Provider/Model、remote 标记、active version、Root 数、
+  `clean_text` 字符数、预计调用数和输出 token 上限。确认框明确说明发送的是当前确定性清洗结果而非
+  原文件、数据会离开 Mac、可能计费且受供应商条款约束；API token、system prompt、Authorization、
+  原文件和隐藏推理均不返回前端；用户关闭确认框不会发起远程请求；
+- 硬预算：一个 version 最多执行一次，单次固定为一个 Chat Completions call；最多 20 Roots、12,000
+  输入字符、8,000 output tokens。超限、无 Root、非 `ready/indexed`、已执行、active version 变化或
+  内容指纹变化均在调用/切换边界拒绝，不能静默拆成多批、绕过“一次”语义或重复漂移文档；
+- 模型契约：发送 `{task, roots:[{ordinal, clean_text}]}`，temperature 由 Provider 固定为 0；响应必须是
+  无 Markdown 包裹、无解释字段的严格 `{roots:[{ordinal, clean_text}]}` JSON。Root 数、ordinal 集、
+  非空文本必须与输入一致，后端按输入 ordinal 恢复顺序，不信任供应商返回顺序；
+- 事实保护：变更只允许删除展示噪声、重复页眉页脚和明显 OCR/空白问题。后端以 multiset 方式保护数字、
+  URL、邮箱、引号值和 inline code，并要求 Markdown heading、表头/分隔行和 fenced code block 完全
+  保持；任一 Root 校验失败则以 `LLM_INVALID_RESPONSE` 拒绝整次结果。该锚点规则只能证明列出的字面量
+  未变，不等价于完整语义正确性，因此 UI/README 不得声称 LLM 清洗“绝对不改事实”；不确定时 Prompt
+  要求原样返回；
+- 重切分：通过现有可插拔 `Splitter` 重新生成 Root/Leaf 稳定内容 ID，保留 parser、raw_text、kind、
+  source locator 和既有 metadata；每个 Root 增加 `llm_cleaning` audit，记录 provider/model、remote、
+  applied_at、actor_id、usage、before/after SHA-256 与 changed。发生变更时在既有 cleaning audit 追加
+  `manual_llm_cleaning`，随后使用当前 version 的 index revision 重做 Dense Embedding 与 Sparse 投影；
+- 一致性 Saga：远程调用和全部校验期间原文档保持 query-ready；切换前再次锁定 PostgreSQL 文档行并
+  校验 active version、状态和 Root 指纹，然后将 Document/Version 置为 `processing`，使授权回源停止
+  查询。系统删除旧 version 向量、投影并核验新 Leaves，最后在一个 PostgreSQL 事务中替换 Root/Leaf
+  并恢复 `ready/indexed`。投影或数据库切换失败时删除残留向量、重新投影快照 Leaves 并恢复旧状态；
+  连恢复也失败时明确置 `failed` 并返回 `PROJECTION_CLEANUP_FAILED`，不得伪装成功；
+- 并发与部署限制：Mac runtime 为每个 version 保留一个进程内 `asyncio.Lock`，锁已占用返回 409，
+  `expected_version_id` 与第二次数据库指纹校验防止陈旧提交。这只覆盖 README 推荐的单进程 Mac 组合，
+  同步请求还会占用一个 HTTP worker；M8 多副本公网运行必须改为 PostgreSQL advisory lock 或持久化后台
+  Job/Saga，加入跨进程幂等键、超时恢复和进度轮询后才能称为生产实现；
+- UI：处理阶段明确显示 Parser→Deterministic Cleaner→Optional LLM Clean→Splitter→Index Units；
+  预检面板显示 provider/model/Root/chars/call/token/数据边界，禁用状态给出原因。确认后显示执行中状态；
+  成功显示 changed Roots、Leaf 前后数量、input/output token、retry 与 call 数，并重新读取 PostgreSQL
+  事实源，因此 Root raw/clean 对照、`manual_llm_cleaning` hash audit 和重切分 Leaves 都可继续检查；
+- Runtime 组合：只有 `enterprise_rag.mac_runtime:app` 注入该服务并复用同一个 bounded
+  OpenAI-compatible LLM、Splitter、Embedding/Sparse 与 Milvus Lite；默认/离线组合的 preflight 明确
+  返回 unavailable，POST 返回 503，不用 fake LLM 冒充远程能力；
+- EDD：纯单元测试覆盖 strict JSON、Root 数/ordinal/额外字段、数字/URL/邮箱/引号值/heading/table/code
+  锚点；PostgreSQL+Milvus Lite 集成测试覆盖显式确认、一次调用、真实重切分/重投影、usage/audit、
+  ready/indexed 收敛、重复执行与跨租户 404；Vue 测试覆盖预检、数据披露 checkbox、调用参数和完成指标。
+  Ruff、Mypy、OpenAPI 生成一致性、前端 typecheck/build、全量测试与 EDD quality gate 是 required checks；
+  真实 TokenHub smoke 必须显式 opt-in、使用专用小文档且最多一次调用，不进入 required CI；
+- 数据库/回滚：不增加 migration，审计写入既有 Root JSONB metadata。回滚路由、服务装配和 UI 后，已
+  清洗版本仍是合法普通 Root/Leaf，可保留；若业务要求恢复清洗前文本，应重新上传源文件创建新 version，
+  不提供无审计的原地反向覆盖；
+- PR：`feat/m7-r2-manual-llm-cleaning`。
 
 ### M8：首次公网发布
 

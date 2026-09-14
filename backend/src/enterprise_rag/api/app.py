@@ -45,6 +45,7 @@ from enterprise_rag.services.cost_guard import BudgetedQueryRunner, CostGuard, Q
 from enterprise_rag.services.evaluation_workspace import EvaluationWorkspaceService
 from enterprise_rag.services.health import HealthService
 from enterprise_rag.services.knowledge import KnowledgeApplication
+from enterprise_rag.services.manual_llm_cleaning import ManualLlmCleaningService
 from enterprise_rag.services.overview import WorkspaceOverviewService
 from enterprise_rag.services.query_api import QueryApiService, QueryRunner
 from enterprise_rag.services.traces import TraceService, build_persistent_tracing
@@ -88,6 +89,7 @@ def create_app(
     health_service: HealthService | None = None,
     provider_registry: ProviderRegistry | None = None,
     evaluation_service: EvaluationWorkspaceService | None = None,
+    manual_llm_cleaning_service: ManualLlmCleaningService | None = None,
     background_tasks: Sequence[Callable[[], Awaitable[None]]] = (),
     resource_closers: Sequence[Callable[[], Awaitable[None]]] = (),
     clock: Clock = utc_now,
@@ -367,6 +369,7 @@ def create_app(
                 if database is not None
                 else None
             ),
+            manual_llm_cleaning=manual_llm_cleaning_service,
             allowed_suffixes=active_settings.ingestion.allowed_suffixes,
             max_upload_bytes=min(
                 active_settings.ingestion.max_upload_bytes,

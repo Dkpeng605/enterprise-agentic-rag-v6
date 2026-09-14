@@ -190,10 +190,51 @@ class DocumentPipelineResponse(ApiModel):
     splitter_provider: str | None
     splitter_version: str | None
     splitter_settings: dict[str, object]
+    llm_cleaning: dict[str, object]
     root_count: int
     leaf_count: int
     roots: list[PipelineRootSummaryResponse]
     next_cursor: int | None
+
+
+class LlmCleaningPreflightResponse(ApiModel):
+    document_id: UUID
+    version_id: UUID
+    available: bool
+    reason: str | None
+    provider: str | None
+    model: str | None
+    remote: bool
+    root_count: int
+    input_chars: int
+    max_roots: int
+    max_input_chars: int
+    estimated_calls: int
+    max_output_tokens: int
+    already_applied: bool
+
+
+class LlmCleaningRequest(ApiModel):
+    expected_version_id: UUID
+    confirm_remote_processing: bool
+
+
+class LlmCleaningResponse(ApiModel):
+    document_id: UUID
+    version_id: UUID
+    provider: str
+    model: str
+    root_count: int
+    changed_root_count: int
+    leaf_count_before: int
+    leaf_count_after: int
+    input_chars: int
+    output_chars: int
+    input_tokens: int
+    output_tokens: int
+    retry_count: int
+    llm_calls: int
+    applied_at: datetime
 
 
 class DocumentListResponse(ApiModel):

@@ -80,6 +80,16 @@ audits, plus every Leaf's full text, token count, offsets, and adjacent overlap.
 truth rather than inferring chunks in the browser. Documents ingested before audit metadata was introduced are
 explicitly labeled as legacy data; re-uploading creates a complete record.
 
+The same page offers an opt-in, one-pass remote LLM cleaning action that is off by default. Its preflight shows
+the Provider/Model, Root and character counts, one-call budget, and the risk of data leaving the Mac. Only after
+the checkbox confirmation does the current version's `clean_text`—not the original file—leave the machine. One
+pass is limited to 20 Roots, 12,000 input characters, and 8,000 output tokens; oversized, non-ready, stale, or
+already-cleaned versions are rejected. The response must preserve Root ordinals and protected numbers, URLs,
+emails, quoted values, headings, table headers, and fenced code before the service rechunks and rebuilds the
+Dense/Sparse index. The UI shows changed Roots, before/after Leaf counts, token usage, retries, and persisted hash
+audits. Failures attempt to restore the previous vectors and ready state. This synchronous process-local lock is
+for the single-process Mac demo; multi-replica production coordination remains M8 work.
+
 Both Standard and Deep use the real model chain in this Mac composition; Deep restores more Root
 evidence for synthesis. The multi-round Deep Recovery Controller specified in M4 remains a
 pluggable service and is not yet composed into this local QueryRunner, so the current Deep button
@@ -171,6 +181,7 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `/api/v1/documents` — streaming upload, filtering, and cursor pagination
 - `/api/v1/documents/{id}` — document detail and idempotent deletion
 - `GET /api/v1/documents/{id}/pipeline` and `/pipeline/roots/{root_id}` — tenant-scoped processing, Root/Leaf, and cleaning audit views
+- `GET /api/v1/documents/{id}/llm-cleaning/preflight` and `POST /api/v1/documents/{id}/llm-cleaning` — one-pass remote-cleaning preflight, explicit confirmation, rechunking, and index rebuild
 - `GET /api/v1/ingestion-jobs` and `GET /api/v1/ingestion-jobs/{id}` — cursor-paginated job filtering and detail
 - `POST /api/v1/queries` and `POST /api/v1/queries/stream` — synchronous and SSE query contracts; the current entry point returns 503 until a QueryRunner is injected
 - `GET /api/v1/traces`, `/api/v1/traces/query`, and `/api/v1/traces/ingestion` — tenant-scoped Trace filtering and cursor pagination; Query lists support mode/status/degraded
@@ -362,7 +373,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R1 macOS real-provider development composition: complete
 - M7-R2A document pipeline inspector: complete
 - M7-R2B query planning and stage-level retrieval metrics: complete
-- Next: M7-R2C explicitly triggered one-pass LLM cleaning
+- M7-R2C explicitly triggered one-pass LLM cleaning: complete
+- Next: M8-01 production images
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 

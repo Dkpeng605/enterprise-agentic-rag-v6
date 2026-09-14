@@ -85,6 +85,11 @@ from enterprise_rag.services.llm_judge import (
     configure_optional_llm_judge,
 )
 from enterprise_rag.services.local_query import DeterministicLocalQueryRunner
+from enterprise_rag.services.manual_llm_cleaning import (
+    LlmCleaningPreflight,
+    LlmCleaningResult,
+    ManualLlmCleaningService,
+)
 from enterprise_rag.services.overview import (
     OverviewActivity,
     WorkspaceOverview,
@@ -199,6 +204,8 @@ __all__ = [
     "IngestionTraceView",
     "KnowledgeApplication",
     "KnowledgeQuery",
+    "LlmCleaningPreflight",
+    "LlmCleaningResult",
     "JudgeResponseError",
     "JobListItem",
     "JobPage",
@@ -208,6 +215,7 @@ __all__ = [
     "PlannerOutcome",
     "McpApplicationService",
     "MemoryEvaluationResultCache",
+    "ManualLlmCleaningService",
     "OverviewActivity",
     "Principal",
     "ProjectionError",
