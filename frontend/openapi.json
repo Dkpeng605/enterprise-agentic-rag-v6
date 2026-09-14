@@ -339,6 +339,241 @@
         ]
       }
     },
+    "/api/v1/admin/providers/index-status": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Provider Index Status",
+        "operationId": "provider_index_status_api_v1_admin_providers_index_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderIndexStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or invalid CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant-scoped resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Upload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Schema validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demo quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/providers/reindex": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Reindex Provider",
+        "operationId": "reindex_provider_api_v1_admin_providers_reindex_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderReindexResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or invalid CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant-scoped resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Upload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Schema validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demo quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/me": {
       "get": {
         "tags": [
@@ -7352,6 +7587,110 @@
         ],
         "title": "ProviderDiagnosticResponse"
       },
+      "ProviderIndexDocumentResponse": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "version_id": {
+            "type": "string",
+            "title": "Version Id"
+          },
+          "stored_revisions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stored Revisions"
+          },
+          "active_revision": {
+            "type": "string",
+            "title": "Active Revision"
+          },
+          "compatible": {
+            "type": "boolean",
+            "title": "Compatible"
+          },
+          "root_count": {
+            "type": "integer",
+            "title": "Root Count"
+          },
+          "leaf_count": {
+            "type": "integer",
+            "title": "Leaf Count"
+          },
+          "vector_count": {
+            "type": "integer",
+            "title": "Vector Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "document_id",
+          "title",
+          "version_id",
+          "stored_revisions",
+          "active_revision",
+          "compatible",
+          "root_count",
+          "leaf_count",
+          "vector_count"
+        ],
+        "title": "ProviderIndexDocumentResponse"
+      },
+      "ProviderIndexStatusResponse": {
+        "properties": {
+          "active_revision": {
+            "type": "string",
+            "title": "Active Revision"
+          },
+          "embedding_model": {
+            "type": "string",
+            "title": "Embedding Model"
+          },
+          "embedding_dimension": {
+            "type": "integer",
+            "title": "Embedding Dimension"
+          },
+          "total_documents": {
+            "type": "integer",
+            "title": "Total Documents"
+          },
+          "compatible_documents": {
+            "type": "integer",
+            "title": "Compatible Documents"
+          },
+          "incompatible_documents": {
+            "type": "integer",
+            "title": "Incompatible Documents"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderIndexDocumentResponse"
+            },
+            "type": "array",
+            "title": "Documents"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "active_revision",
+          "embedding_model",
+          "embedding_dimension",
+          "total_documents",
+          "compatible_documents",
+          "incompatible_documents",
+          "documents"
+        ],
+        "title": "ProviderIndexStatusResponse"
+      },
       "ProviderOptionResponse": {
         "properties": {
           "kind": {
@@ -7473,6 +7812,101 @@
           "requires_restart"
         ],
         "title": "ProviderOptionResponse"
+      },
+      "ProviderReindexItemResponse": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "old_revisions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Old Revisions"
+          },
+          "leaf_count": {
+            "type": "integer",
+            "title": "Leaf Count"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "document_id",
+          "title",
+          "status",
+          "old_revisions",
+          "leaf_count"
+        ],
+        "title": "ProviderReindexItemResponse"
+      },
+      "ProviderReindexResponse": {
+        "properties": {
+          "active_revision": {
+            "type": "string",
+            "title": "Active Revision"
+          },
+          "requested_count": {
+            "type": "integer",
+            "title": "Requested Count"
+          },
+          "rebuilt_count": {
+            "type": "integer",
+            "title": "Rebuilt Count"
+          },
+          "skipped_count": {
+            "type": "integer",
+            "title": "Skipped Count"
+          },
+          "failed_count": {
+            "type": "integer",
+            "title": "Failed Count"
+          },
+          "cleanup_failed_count": {
+            "type": "integer",
+            "title": "Cleanup Failed Count"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderReindexItemResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "active_revision",
+          "requested_count",
+          "rebuilt_count",
+          "skipped_count",
+          "failed_count",
+          "cleanup_failed_count",
+          "items"
+        ],
+        "title": "ProviderReindexResponse"
       },
       "ProviderSelectionRequest": {
         "properties": {

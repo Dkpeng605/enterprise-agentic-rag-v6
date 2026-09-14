@@ -267,7 +267,12 @@ Trace 阶段/批次/稳定错误检查器，以及预算评测中心。
 索引、24 小时 Query 与最近任务聚合，并并列显示 `/health/doctor` 的 Provider 状态；
 `/workspace/documents` 支持集合 CRUD、筛选、上传、详情和安全删除，`/workspace/ingestion` 展示
 后台任务真实进度；`/admin/providers` 展示实时 Provider 注册表并提供 Embedding/Reranker 选择，其他 `/admin/*`
-仍需系统管理员身份。若需要重新生成锁定的 OpenAPI 类型：
+仍需系统管理员身份。Embedding 切换属于 restart-bound 的索引契约：重启 Mac backend 后，管理员在
+`/admin/providers` 的“Embedding 索引兼容状态”面板中可以看到当前 revision、每个文档的 Root/Leaf/vector
+数量与旧 revision，并点击“重建不兼容文档”。重建先在新 Milvus revision 投影向量，成功写入 PostgreSQL
+Root/Leaf 后才删除旧 revision；投影或数据库交换失败时保留旧索引。Reranker 切换不需要重建向量。
+对应接口为 `GET /api/v1/admin/providers/index-status` 与 `POST /api/v1/admin/providers/reindex`。
+若需要重新生成锁定的 OpenAPI 类型：
 
 ```bash
 pnpm --dir=frontend generate:api
@@ -424,6 +429,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R2C 人工触发的一次 LLM 清洗：已完成
 - M7-R3 开发/测试数据库隔离、向量修复工具与 LLM Query Planner：已完成
 - M7-R4 真实 Deep Recovery 与引用核验/修复：已完成
+- M7-R5 Provider 切换后的索引兼容状态与安全重建：开发中（实现已完成，待 PR 合并）
 - 下一项：M7-R5 Provider 切换后的索引状态与重建
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
@@ -577,7 +583,11 @@ Embedding 端口提供本地多语和 OpenAI-compatible 两种实现，并通过
   tests/contract/test_embedding_providers.py -m model)
 ```
 
-Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化生成 Milvus 稀疏向量；它不等同于 BM25。Projection Service 将 Dense/Sparse 结果分批写为 `processing`，核对数量后激活为 `ready` 并再次核对。重复运行覆盖相同 Leaf ID；部分写入或核验失败会删除该版本全部向量，并对删除执行有界重试。
+Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化生成 Milvus 稀疏向量；它不等同于 BM25。Projection Service 将 Dense/Sparse 结果分批写为 `processing`，核对数量后激活为 `ready` 并再次核对。重复运行覆盖相同 Leaf ID；部分写入或核验失败只清理本次目标 `index_revision`，不会误删同一版本仍在工作的旧 revision。文档删除/全量 reconcile 仍可按版本清理所有 revision。
+
+Provider Reindex Service 将旧 PostgreSQL Root/Leaf 和旧 Milvus projection 视为可回滚事实：先按当前
+Embedding tokenizer 重新切分并投影新 revision，再在事务中交换 Root/Leaf，最后按旧 revision 定向清理。
+系统管理员状态页因此能区分“模型已切换但索引尚未重建”和“当前 revision 已完整可检索”，不会把旧向量伪装成新模型结果。
 
 摄取 Pipeline 在文档注册事务内创建或复用 Job，按 Loader → 图片增强 → Cleaner → Splitter → PostgreSQL → Milvus → 最终提交的顺序运行。每个 checkpoint 同时续租、更新单调进度并确认取消；确定性输入错误直接失败，瞬时错误按上限重试。失败或取消会补偿该版本的 PostgreSQL 内容和 Milvus 投影，只有双存储核验完成后文档才进入 `ready`。服务层通过 `run_once(owner=...)` 驱动；M7-08 离线组合已提供单进程轮询 Worker，M8 仍需交付生产进程与资源约束。
 

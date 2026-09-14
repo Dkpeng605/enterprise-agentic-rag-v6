@@ -29,6 +29,7 @@ VERSION_B = UUID("01900000-0000-7000-8000-000000000308")
 def record(
     suffix: str,
     *,
+    index_revision: str = REVISION,
     tenant_id: UUID = TENANT_A,
     collection_id: UUID = COLLECTION_A,
     document_id: UUID = DOCUMENT_A,
@@ -38,7 +39,7 @@ def record(
     status: str = "ready",
 ) -> VectorRecord:
     return VectorRecord(
-        index_revision=REVISION,
+        index_revision=index_revision,
         leaf_id=f"leaf_{suffix}",
         root_id=f"root_{suffix}",
         tenant_id=tenant_id,
@@ -198,6 +199,32 @@ async def test_revision_schema_is_persistent_and_rejects_dimension_change(
             await reopened.ensure_revision(IndexSchema(revision=REVISION, dimension=4))
     finally:
         await reopened.aclose()
+
+
+@pytest.mark.anyio
+async def test_revision_scoped_count_and_delete_do_not_touch_another_revision(
+    database_path: Path,
+) -> None:
+    old_revision = "old-provider-revision"
+    new_revision = "new-provider-revision"
+    store = MilvusLiteVectorStore(database_path)
+    await store.ensure_revision(IndexSchema(old_revision, 3))
+    await store.ensure_revision(IndexSchema(new_revision, 3))
+    try:
+        await store.upsert(
+            [
+                record("old", index_revision=old_revision),
+                record("new", index_revision=new_revision),
+            ]
+        )
+        assert await store.count_by_version_revision(TENANT_A, VERSION_A, old_revision) == 1
+        assert await store.count_by_version_revision(TENANT_A, VERSION_A, new_revision) == 1
+        assert await store.delete_by_version_revision(TENANT_A, VERSION_A, new_revision) == 1
+        assert await store.count_by_version_revision(TENANT_A, VERSION_A, new_revision) == 0
+        assert await store.count_by_version_revision(TENANT_A, VERSION_A, old_revision) == 1
+        assert await store.count_by_version(TENANT_A, VERSION_A) == 1
+    finally:
+        await store.aclose()
 
 
 def test_vector_requests_reject_invalid_dimensions_sparse_values_and_top_k() -> None:

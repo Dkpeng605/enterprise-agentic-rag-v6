@@ -52,6 +52,8 @@ from enterprise_rag.api.schemas import (
     LoginRequest,
     PipelineRootDetailResponse,
     ProviderCatalogResponse,
+    ProviderIndexStatusResponse,
+    ProviderReindexResponse,
     ProviderSelectionRequest,
     QueryRequestModel,
     QueryResponseModel,
@@ -78,6 +80,7 @@ from enterprise_rag.services.knowledge import KnowledgeApplication, KnowledgeQue
 from enterprise_rag.services.manual_llm_cleaning import ManualLlmCleaningService
 from enterprise_rag.services.overview import WorkspaceOverviewService
 from enterprise_rag.services.provider_catalog import RuntimeProviderCatalog
+from enterprise_rag.services.provider_reindex import ProviderReindexService
 from enterprise_rag.services.query_trace import QueryTraceView
 from enterprise_rag.services.traces import TraceService
 from enterprise_rag.services.workspace import (
@@ -140,6 +143,7 @@ def create_api_router(
     evaluations: EvaluationWorkspaceService | None = None,
     manual_llm_cleaning: ManualLlmCleaningService | None = None,
     provider_catalog: RuntimeProviderCatalog | None = None,
+    provider_reindex: ProviderReindexService | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1", responses=ERROR_RESPONSES)
     cookie_scheme = APIKeyCookie(name=SESSION_COOKIE, auto_error=False)
@@ -196,6 +200,11 @@ def create_api_router(
             raise _unavailable()
         return provider_catalog
 
+    def _provider_reindex() -> ProviderReindexService:
+        if provider_reindex is None:
+            raise _unavailable()
+        return provider_reindex
+
     def _require_system_admin(principal: Principal) -> Principal:
         if principal.actor_type != "user" or principal.role not in {"super_admin", "system_admin"}:
             raise AppError(ErrorCode.FORBIDDEN, "System administrator access is required.")
@@ -227,6 +236,73 @@ def create_api_router(
         except ValueError as error:
             raise AppError(ErrorCode.VALIDATION_ERROR, str(error)) from error
         return ProviderCatalogResponse.model_validate(payload)
+
+    @router.get(
+        "/admin/providers/index-status",
+        response_model=ProviderIndexStatusResponse,
+        tags=["system"],
+    )
+    async def provider_index_status(
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> ProviderIndexStatusResponse:
+        _require_system_admin(principal)
+        status = await _provider_reindex().status()
+        return ProviderIndexStatusResponse.model_validate(
+            {
+                "active_revision": status.active_revision,
+                "embedding_model": status.embedding_model,
+                "embedding_dimension": status.embedding_dimension,
+                "total_documents": status.total_documents,
+                "compatible_documents": status.compatible_documents,
+                "incompatible_documents": status.incompatible_documents,
+                "documents": [
+                    {
+                        "document_id": str(item.document_id),
+                        "title": item.title,
+                        "version_id": str(item.version_id),
+                        "stored_revisions": list(item.stored_revisions),
+                        "active_revision": item.active_revision,
+                        "compatible": item.compatible,
+                        "root_count": item.root_count,
+                        "leaf_count": item.leaf_count,
+                        "vector_count": item.vector_count,
+                    }
+                    for item in status.documents
+                ],
+            }
+        )
+
+    @router.post(
+        "/admin/providers/reindex",
+        response_model=ProviderReindexResponse,
+        tags=["system"],
+    )
+    async def reindex_provider(
+        principal: Annotated[Principal, Depends(writer)],
+    ) -> ProviderReindexResponse:
+        _require_system_admin(principal)
+        result = await _provider_reindex().reindex()
+        return ProviderReindexResponse.model_validate(
+            {
+                "active_revision": result.active_revision,
+                "requested_count": result.requested_count,
+                "rebuilt_count": result.rebuilt_count,
+                "skipped_count": result.skipped_count,
+                "failed_count": result.failed_count,
+                "cleanup_failed_count": result.cleanup_failed_count,
+                "items": [
+                    {
+                        "document_id": str(item.document_id),
+                        "title": item.title,
+                        "status": item.status,
+                        "old_revisions": list(item.old_revisions),
+                        "leaf_count": item.leaf_count,
+                        "error": item.error,
+                    }
+                    for item in result.items
+                ],
+            }
+        )
 
     @router.get("/auth/me", response_model=AuthMeResponse, tags=["auth"])
     async def auth_me(

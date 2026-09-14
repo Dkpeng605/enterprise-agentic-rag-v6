@@ -5,6 +5,7 @@ import { ApiError } from '../api/client'
 import {
   providerApi,
   type ProviderCatalog,
+  type ProviderIndexStatus,
   type ProviderDiagnostic,
   type ProviderKind,
   type ProviderOption,
@@ -28,6 +29,8 @@ const errorMessage = ref('')
 const actionMessage = ref('')
 const actionError = ref('')
 const savingKey = ref('')
+const indexStatus = ref<ProviderIndexStatus>()
+const reindexing = ref(false)
 
 const selectableKinds = ['embedding', 'reranker'] as const
 const optionsByKind = computed(() =>
@@ -70,11 +73,35 @@ async function load(): Promise<void> {
   state.value = 'loading'
   errorMessage.value = ''
   try {
-    catalog.value = await providerApi.load()
+    const [loadedCatalog, loadedIndexStatus] = await Promise.all([
+      providerApi.load(),
+      providerApi.indexStatus(),
+    ])
+    catalog.value = loadedCatalog
+    indexStatus.value = loadedIndexStatus
     state.value = 'ready'
   } catch (caught) {
     state.value = 'error'
     errorMessage.value = caught instanceof ApiError ? caught.message : 'Provider 目录暂时无法载入。'
+  }
+}
+
+async function reindex(): Promise<void> {
+  if (reindexing.value) return
+  reindexing.value = true
+  actionMessage.value = ''
+  actionError.value = ''
+  try {
+    const result = await providerApi.reindex()
+    indexStatus.value = await providerApi.indexStatus()
+    actionMessage.value = `重建完成：${result.rebuilt_count} 个文档已切换到当前 Embedding revision，${result.skipped_count} 个无需处理。`
+    if (result.failed_count || result.cleanup_failed_count) {
+      actionError.value = `${result.failed_count} 个文档失败，${result.cleanup_failed_count} 个文档旧向量清理降级，请查看下方明细。`
+    }
+  } catch (caught) {
+    actionError.value = caught instanceof ApiError ? caught.message : '索引重建失败，请稍后重试。'
+  } finally {
+    reindexing.value = false
   }
 }
 
@@ -147,9 +174,34 @@ onMounted(load)
         </div>
       </section>
 
+      <section v-if="indexStatus" class="provider-admin-section" aria-labelledby="index-status-title">
+        <div class="section-heading">
+          <div><p class="section-kicker">INDEX COMPATIBILITY</p><h2 id="index-status-title">Embedding 索引兼容状态</h2></div>
+          <button class="button button--primary" type="button" :disabled="reindexing || indexStatus.incompatible_documents === 0" @click="reindex">
+            {{ reindexing ? '重建中…' : '重建不兼容文档' }}
+          </button>
+        </div>
+        <div class="provider-index-summary">
+          <span>当前 revision <strong>{{ indexStatus.active_revision }}</strong></span>
+          <span>维度 <strong>{{ indexStatus.embedding_dimension }}</strong></span>
+          <span>兼容 <strong>{{ indexStatus.compatible_documents }}/{{ indexStatus.total_documents }}</strong></span>
+          <span v-if="indexStatus.incompatible_documents" class="provider-index-warning">不兼容 {{ indexStatus.incompatible_documents }} 个</span>
+          <span v-else class="provider-index-ok">全部可检索</span>
+        </div>
+        <p class="provider-index-help">Embedding 是向量维度、tokenizer 与 Milvus collection 的索引契约。切换后先重启 backend，再执行这里的重建；Reranker 切换不需要重建向量。</p>
+        <div v-if="indexStatus.documents.length" class="provider-index-table">
+          <div v-for="document in indexStatus.documents" :key="document.document_id" class="provider-index-row">
+            <div><strong>{{ document.title }}</strong><small>{{ document.document_id }}</small></div>
+            <span>{{ document.leaf_count }} Leaves · {{ document.vector_count }} vectors</span>
+            <span :class="document.compatible ? 'provider-index-ok' : 'provider-index-warning'">{{ document.compatible ? '兼容' : '需要重建' }}</span>
+            <small>{{ document.stored_revisions.join(' / ') || '无 Root revision' }}</small>
+          </div>
+        </div>
+      </section>
+
       <section class="provider-admin-section provider-admin-note" aria-labelledby="provider-policy-title">
         <div class="section-heading"><div><p class="section-kicker">SELECTION POLICY</p><h2 id="provider-policy-title">生效边界</h2></div></div>
-        <p>Embedding 的维度和 tokenizer 上限属于索引契约，不能在已有进程中静默热切换。切换 Embedding 后请重启 Mac backend，并重新摄取需要检索的文档；旧索引不会被自动伪装成新模型的结果。</p>
+        <p>Embedding 的维度和 tokenizer 上限属于索引契约，不能在已有进程中静默热切换。切换 Embedding 后请重启 Mac backend，再在上方执行安全重建；系统先写入新 revision，数据库切换成功后才清理旧 revision，失败时保留旧索引。</p>
         <p>远程 Embedding/Reranker 的 endpoint 与密钥只由 backend 环境变量管理；前端仅显示是否已配置，不回显密钥。`BAAI/bge-m3` 为 1024 维，切换会生成隔离的新索引 revision。</p>
         <p v-if="currentLlm.length">当前 LLM：<strong>{{ currentLlm.map((provider) => `${provider.name} · ${provider.version}`).join(' / ') }}</strong>。LLM endpoint 与密钥同样不在前端回显或编辑。</p>
         <p v-else>当前没有注册 LLM Provider；endpoint、模型与密钥由本机环境变量管理。</p>
