@@ -122,15 +122,7 @@ class ProviderReindexService:
         documents: list[ProviderIndexDocument] = []
         for snapshot in snapshots:
             revisions = tuple(sorted({root.index_revision for root in snapshot.roots}))
-            leaf_count = await self._leaf_count(snapshot.version_id)
-            vector_count = await self._vector_store.count_by_version_revision(
-                snapshot.tenant_id, snapshot.version_id, self._active_revision
-            )
-            compatible = (
-                revisions == (self._active_revision,)
-                and leaf_count > 0
-                and vector_count == leaf_count
-            )
+            leaf_count, vector_count, compatible = await self._compatibility(snapshot)
             documents.append(
                 ProviderIndexDocument(
                     snapshot.document_id,
@@ -166,20 +158,21 @@ class ProviderReindexService:
                     "The number of documents exceeds the Provider reindex safety limit.",
                     {"max_documents": self._max_documents},
                 )
-            items = tuple(
-                [
-                    await self._reindex_one(snapshot)
-                    if self._needs_reindex(snapshot)
-                    else ProviderReindexItem(
+            item_values: list[ProviderReindexItem] = []
+            for snapshot in snapshots:
+                leaf_count, _, compatible = await self._compatibility(snapshot)
+                item_values.append(
+                    ProviderReindexItem(
                         snapshot.document_id,
                         snapshot.title,
                         "skipped",
                         tuple(sorted({root.index_revision for root in snapshot.roots})),
-                        await self._leaf_count(snapshot.version_id),
+                        leaf_count,
                     )
-                    for snapshot in snapshots
-                ]
-            )
+                    if compatible
+                    else await self._reindex_one(snapshot)
+                )
+            items = tuple(item_values)
             rebuilt = sum(item.status == "rebuilt" for item in items)
             cleanup_failed = sum(item.status == "rebuilt_cleanup_degraded" for item in items)
             return ProviderReindexResult(
@@ -192,10 +185,18 @@ class ProviderReindexService:
                 items,
             )
 
-    def _needs_reindex(self, snapshot: _DocumentSnapshot) -> bool:
-        return tuple(sorted({root.index_revision for root in snapshot.roots})) != (
-            self._active_revision,
+    async def _compatibility(self, snapshot: _DocumentSnapshot) -> tuple[int, int, bool]:
+        revisions = tuple(sorted({root.index_revision for root in snapshot.roots}))
+        leaf_count = await self._leaf_count(snapshot.version_id)
+        vector_count = await self._vector_store.count_by_version_revision(
+            snapshot.tenant_id, snapshot.version_id, self._active_revision
         )
+        compatible = (
+            revisions == (self._active_revision,)
+            and leaf_count > 0
+            and vector_count == leaf_count
+        )
+        return leaf_count, vector_count, compatible
 
     async def _reindex_one(self, snapshot: _DocumentSnapshot) -> ProviderReindexItem:
         old_revisions = tuple(sorted({root.index_revision for root in snapshot.roots}))

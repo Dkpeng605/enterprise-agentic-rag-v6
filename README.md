@@ -283,6 +283,9 @@ Trace 阶段/批次/稳定错误检查器、MCP 能力目录，以及预算评�
 `/admin/providers` 的“Embedding 索引兼容状态”面板中可以看到当前 revision、每个文档的 Root/Leaf/vector
 数量与旧 revision，并点击“重建不兼容文档”。重建先在新 Milvus revision 投影向量，成功写入 PostgreSQL
 Root/Leaf 后才删除旧 revision；投影或数据库交换失败时保留旧索引。Reranker 切换不需要重建向量。
+兼容判断同时核对 PostgreSQL Root revision、Leaf 数量与当前 revision 的 Milvus 向量数量；即使 Root
+已经标记为当前 revision，只要向量缺失或数量不一致也会重建，不会错误跳过。Provider 选择重启生效后，
+前端只显示当前运行实例，不再把已生效的同一模型继续标成 pending。
 对应接口为 `GET /api/v1/admin/providers/index-status` 与 `POST /api/v1/admin/providers/reindex`。
 `/workspace/mcp` 使用后端共享的 SDK 注册定义展示 Tool 名称、只读标记、所需 Scope、Resource URI/template
 和当前传输状态。Mac API 进程未挂载 Streamable HTTP 时会明确显示“需要外部组合”，不会把协议支持误报为

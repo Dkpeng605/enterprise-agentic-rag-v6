@@ -190,15 +190,15 @@ class RuntimeProviderCatalog:
             "reranker": self._current_models.get("reranker", ""),
             "llm": self._current_models.get("llm", ""),
         }
-        pending_restart = any(
-            self._selection.get(field) != selected[kind]
+        pending = {
+            field: self._selection[field]
             for field, kind in (
                 ("embedding_model", "embedding"),
                 ("reranker_model", "reranker"),
                 ("llm_model", "llm"),
             )
-            if field in self._selection
-        )
+            if field in self._selection and self._selection[field] != selected[kind]
+        }
         return {
             "providers": [info.to_dict() for info in self._registry.list_info()],
             "options": [self._option_dict(option, selected=selected) for option in _OPTIONS],
@@ -206,22 +206,20 @@ class RuntimeProviderCatalog:
                 "embedding_model": selected["embedding"],
                 "reranker_model": selected["reranker"],
                 "llm_model": selected["llm"],
-                "pending_restart": pending_restart,
+                "pending_restart": bool(pending),
                 **(
-                    {
-                        "pending_embedding_model": self._selection["embedding_model"]
-                    }
-                    if "embedding_model" in self._selection
+                    {"pending_embedding_model": pending["embedding_model"]}
+                    if "embedding_model" in pending
                     else {}
                 ),
                 **(
-                    {"pending_reranker_model": self._selection["reranker_model"]}
-                    if "reranker_model" in self._selection
+                    {"pending_reranker_model": pending["reranker_model"]}
+                    if "reranker_model" in pending
                     else {}
                 ),
                 **(
-                    {"pending_llm_model": self._selection["llm_model"]}
-                    if "llm_model" in self._selection
+                    {"pending_llm_model": pending["llm_model"]}
+                    if "llm_model" in pending
                     else {}
                 ),
                 **(

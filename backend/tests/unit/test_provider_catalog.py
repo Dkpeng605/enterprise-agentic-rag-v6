@@ -124,3 +124,35 @@ def test_siliconflow_profiles_are_selectable_with_kind_credentials(tmp_path: Pat
         "embedding_model": SILICONFLOW_EMBEDDING_MODEL,
         "reranker_model": SILICONFLOW_RERANKER_MODEL,
     }
+
+
+def test_applied_restart_selection_is_current_and_no_longer_reported_as_pending(
+    tmp_path: Path,
+) -> None:
+    selection_path = tmp_path / "provider-selection.json"
+    before_restart = RuntimeProviderCatalog(
+        registry=ProviderRegistry(),
+        selection_path=selection_path,
+        current_models={"embedding": BGE_SMALL_ZH_MODEL},
+        remote_credentials=frozenset({"embedding"}),
+    )
+    selected = before_restart.select(
+        kind="embedding", key=SILICONFLOW_EMBEDDING_MODEL
+    )
+    assert cast(dict[str, object], selected["selection"])["pending_restart"] is True
+
+    after_restart = RuntimeProviderCatalog(
+        registry=ProviderRegistry(),
+        selection_path=selection_path,
+        current_models={"embedding": SILICONFLOW_EMBEDDING_MODEL},
+        current_embedding_dimension=1024,
+        current_embedding_input_token_limit=8192,
+        remote_credentials=frozenset({"embedding"}),
+    )
+    runtime = cast(dict[str, object], after_restart.to_dict()["selection"])
+
+    assert runtime["embedding_model"] == SILICONFLOW_EMBEDDING_MODEL
+    assert runtime["embedding_dimension"] == "1024"
+    assert runtime["embedding_input_token_limit"] == "8192"
+    assert runtime["pending_restart"] is False
+    assert "pending_embedding_model" not in runtime

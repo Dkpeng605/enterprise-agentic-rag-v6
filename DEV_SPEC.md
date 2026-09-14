@@ -2823,6 +2823,28 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   Adapter 不依赖该页面。
 - PR：`feat/m7-r6-mcp-capability-ui`。
 
+##### M7-R7 Provider 重建一致性与失败证明（已完成）
+
+- 缺陷事实：R5 的状态接口已经用 Root revision、Leaf 数量和当前 revision 向量数量判断兼容性，但执行
+  `reindex` 时旧判断只检查 Root revision。Root 已是当前 revision 而 Milvus 向量为 0 或数量不一致时，
+  页面显示 incompatible，执行重建却返回 skipped；状态与动作使用了两套判定标准；
+- 单一兼容契约：仅当 PostgreSQL Roots 全部属于当前 revision、Leaf 数大于 0、且当前 revision 的 Milvus
+  vector count 与 Leaf count 完全相等时才可跳过。其余情况必须进入安全重建，不得把旧 revision 的向量计入
+  当前 revision，也不得通过删除整个 Milvus 文件修复；
+- 失败原子性 EDD：使用真实 PostgreSQL 与隔离 Milvus Lite 注入 partial projection failure 和 PostgreSQL
+  swap failure。两类失败都必须定向删除目标 revision，并通过旧 revision 的真实 Dense Search 证明旧 Leaf
+  仍可查询，而不只检查数据库行“仍存在”；成功重建必须证明旧 revision count 为 0、新 revision count 等于
+  PostgreSQL Leaf count、Root revision 已切换；
+- Provider 重启状态：选择文件保存的是下次启动目标。运行实例加载该目标后，`pending_restart=false`，且不得
+  继续返回与 current 相同的 `pending_*` 字段；前端展示的 current 模型、dimension 和 input token limit 必须
+  来自实际运行 Provider；
+- 远程边界：Embedding 响应的数量、index、有限数值和每条 vector dimension 都必须校验；错误维度返回稳定
+  `EMBEDDING_INVALID_RESPONSE` 且不泄露响应正文或密钥。Rerank 的重复/未知 candidate identity 继续在
+  Adapter/Service 边界拒绝并使用可观测的 RRF fallback；
+- 启动与回滚：本切片不改变 Mac 启动命令、数据库 schema 或 OpenAPI。回滚代码前不得删除 Milvus 文件；
+  已失败的目标 revision 可安全定向清理，旧 revision 保持查询能力；
+- PR：`fix/m7-r7-provider-reindex-consistency`。
+
 ### M8：首次公网发布
 
 #### M8-01 Images

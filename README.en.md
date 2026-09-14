@@ -104,6 +104,10 @@ the active index revision, per-document Root/Leaf/vector counts, and incompatibl
 can click “Rebuild incompatible documents”: vectors are projected into the new Milvus revision first, PostgreSQL
 Root/Leaf content is swapped only after projection succeeds, and old-revision vectors are deleted last. A projection
 or database-swap failure leaves the old index intact. Changing only the Reranker does not require vector rebuild.
+Compatibility checks PostgreSQL Root revisions, the Leaf count, and the current-revision Milvus vector count
+together. A document is rebuilt rather than skipped when vectors are missing or mismatched even if its Roots
+already carry the current revision. Once a restart applies a saved Provider selection, the UI reports it only as
+the running profile instead of continuing to label the same model as pending.
 The corresponding endpoints are `GET /api/v1/admin/providers/index-status` and
 `POST /api/v1/admin/providers/reindex`.
 

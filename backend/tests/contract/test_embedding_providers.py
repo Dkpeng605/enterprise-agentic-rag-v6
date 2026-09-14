@@ -221,6 +221,7 @@ async def test_remote_auth_and_malformed_responses_do_not_leak_provider_body() -
     for status, payload, expected_calls in (
         (401, {"error": "secret diagnostic"}, 1),
         (200, {"data": [{"index": 4, "embedding": [1.0, 0.0]}]}, 1),
+        (200, {"data": [{"index": 0, "embedding": [1.0, 0.0, 0.0]}]}, 1),
     ):
         calls = 0
 
