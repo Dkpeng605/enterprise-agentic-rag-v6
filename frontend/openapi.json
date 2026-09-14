@@ -1282,6 +1282,126 @@
         ]
       }
     },
+    "/api/v1/demo/seed": {
+      "post": {
+        "tags": [
+          "demo"
+        ],
+        "summary": "Seed Demo Documents",
+        "description": "Idempotently enqueue the committed demo corpus through the real pipeline.",
+        "operationId": "seed_demo_documents_api_v1_demo_seed_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoSeedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or invalid CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant-scoped resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Upload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Schema validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demo quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
     "/api/v1/collections/{collection_id}": {
       "get": {
         "tags": [
@@ -5440,6 +5560,29 @@
           "updated_at"
         ],
         "title": "CollectionResponse"
+      },
+      "DemoSeedResponse": {
+        "properties": {
+          "collection_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Collection Id"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/UploadResponse"
+            },
+            "type": "array",
+            "title": "Documents"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "collection_id",
+          "documents"
+        ],
+        "title": "DemoSeedResponse"
       },
       "DocumentCountsResponse": {
         "properties": {

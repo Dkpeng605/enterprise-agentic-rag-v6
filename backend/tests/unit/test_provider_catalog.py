@@ -61,6 +61,10 @@ def test_provider_catalog_lists_live_registry_and_persists_restart_bound_selecti
     updated_selection = cast(dict[str, object], updated["selection"])
 
     assert updated_selection["pending_restart"] is True
+    assert updated_selection["embedding_model"] == (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+    assert updated_selection["pending_embedding_model"] == BGE_SMALL_ZH_MODEL
     assert load_provider_selection(tmp_path / "provider-selection.json") == {
         "embedding_dimension": "512",
         "embedding_model": BGE_SMALL_ZH_MODEL,

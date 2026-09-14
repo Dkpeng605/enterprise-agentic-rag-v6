@@ -26,6 +26,8 @@ const overview = ref<WorkspaceOverview>()
 const health = ref<HealthReport>()
 const errorMessage = ref('')
 const requestId = ref('')
+const seedingDemo = ref(false)
+const seedMessage = ref('')
 
 const documentTotal = computed(() => {
   if (!overview.value) return 0
@@ -56,6 +58,21 @@ async function load(): Promise<void> {
     state.value = 'error'
     errorMessage.value = caught instanceof ApiError ? caught.message : '无法载入租户运行数据，请稍后重试。'
     requestId.value = caught instanceof ApiError ? caught.requestId ?? '' : ''
+  }
+}
+
+async function seedDemo(): Promise<void> {
+  if (seedingDemo.value) return
+  seedingDemo.value = true
+  seedMessage.value = ''
+  try {
+    const result = await overviewApi.seedDemo()
+    seedMessage.value = `已提交 ${result.documents.length} 份演示文档；摄取完成后可在文档、Trace 和问答页面查看真实结果。`
+    await load()
+  } catch (caught) {
+    seedMessage.value = caught instanceof ApiError ? caught.message : '演示数据提交失败，请稍后重试。'
+  } finally {
+    seedingDemo.value = false
   }
 }
 
@@ -119,8 +136,10 @@ onMounted(load)
         <span>DEGRADED</span><div><strong>部分依赖尚未就绪</strong><p>页面继续展示可确认的数据；请根据下方 Provider 和健康检查定位缺失能力。</p></div>
       </aside>
 
+      <div v-if="seedMessage" class="overview-seed-message" role="status">{{ seedMessage }}</div>
+
       <div v-if="isEmpty" class="overview-empty" data-testid="overview-empty">
-        <span>0</span><div><p class="section-kicker">EMPTY WORKSPACE</p><h2>工作区还没有业务数据</h2><p>系统已为匿名用户准备独立 Demo Tenant。创建集合并上传第一份文档后，摄取进度和检索指标会出现在这里。</p><RouterLink class="button button--primary" to="/workspace/documents">管理文档 <b>↗</b></RouterLink></div>
+        <span>0</span><div><p class="section-kicker">EMPTY WORKSPACE</p><h2>工作区还没有业务数据</h2><p>系统已为匿名用户准备独立 Demo Tenant。可加载提交到真实摄取流水线的演示文档，也可以上传自己的文档。</p><button class="button button--primary" type="button" :disabled="seedingDemo" @click="seedDemo">{{ seedingDemo ? '提交中…' : '加载演示数据' }} <b>↗</b></button><RouterLink class="button button--secondary" to="/workspace/documents">管理文档 <b>↗</b></RouterLink></div>
       </div>
 
       <section class="overview-section" aria-labelledby="providers-title">

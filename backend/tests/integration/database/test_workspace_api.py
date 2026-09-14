@@ -247,6 +247,27 @@ async def test_workspace_overview_is_tenant_scoped_and_aggregates_operational_me
 
 
 @pytest.mark.anyio
+async def test_demo_seed_enqueues_real_idempotent_documents(
+    api: httpx2.AsyncClient,
+) -> None:
+    csrf, _ = await start_session(api)
+
+    first = await api.post("/api/v1/demo/seed", headers=csrf_headers(csrf))
+    assert first.status_code == 202
+    first_payload = first.json()
+    assert len(first_payload["documents"]) == 2
+    assert all(item["status"] == "pending" for item in first_payload["documents"])
+    assert all(item["deduplicated"] is False for item in first_payload["documents"])
+
+    repeated = await api.post("/api/v1/demo/seed", headers=csrf_headers(csrf))
+    assert repeated.status_code == 202
+    repeated_payload = repeated.json()
+    assert [item["document_id"] for item in repeated_payload["documents"]] == [
+        item["document_id"] for item in first_payload["documents"]
+    ]
+    assert all(item["deduplicated"] is True for item in repeated_payload["documents"])
+
+@pytest.mark.anyio
 async def test_admin_login_uses_argon2_session_csrf_and_system_authorization(
     api: httpx2.AsyncClient,
 ) -> None:

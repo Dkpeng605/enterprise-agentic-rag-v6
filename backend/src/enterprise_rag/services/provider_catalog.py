@@ -208,6 +208,23 @@ class RuntimeProviderCatalog:
                 "llm_model": selected["llm"],
                 "pending_restart": pending_restart,
                 **(
+                    {
+                        "pending_embedding_model": self._selection["embedding_model"]
+                    }
+                    if "embedding_model" in self._selection
+                    else {}
+                ),
+                **(
+                    {"pending_reranker_model": self._selection["reranker_model"]}
+                    if "reranker_model" in self._selection
+                    else {}
+                ),
+                **(
+                    {"pending_llm_model": self._selection["llm_model"]}
+                    if "llm_model" in self._selection
+                    else {}
+                ),
+                **(
                     {"embedding_dimension": str(self._current_embedding_dimension)}
                     if self._current_embedding_dimension is not None
                     else {}

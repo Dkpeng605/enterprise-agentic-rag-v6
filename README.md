@@ -95,6 +95,11 @@ Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引
 上限、语言说明和本地/远程属性，并可保存下一次启动配置。选择不是热切换；重启 backend 后生效，Embedding
 变更还必须重新摄取文档。
 
+租户总览的“加载演示数据”按钮会调用受 CSRF 保护的 `/api/v1/demo/seed`，将仓库内两份非敏感 Markdown
+样例通过同一个上传注册、PostgreSQL 任务、解析、清洗、Root/Leaf 切分和向量投影流水线提交。它不是前端
+静态 fixture；重复点击按内容摘要幂等，返回已有文档和任务。摄取完成后，这些真实持久化记录可在文档透视、
+Ingestion Trace、Query Trace、问答和评测页面查看。
+
 文档进入 `ready` 后，在“文档管理”打开详情并选择“查看解析、清洗与切分”，可检查实际 Parser、
 确定性 Cleaner、Splitter 参数、每个 Root 的原文/清洗后对照、规则 audit，以及每个 Leaf 的完整
 文本、token 数、offset 和 Leaf 边界（新摄取默认不重叠）。该页面读取 PostgreSQL 事实源，不根据前端猜测切分结果；
