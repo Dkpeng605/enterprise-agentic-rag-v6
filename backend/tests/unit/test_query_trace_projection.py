@@ -42,6 +42,10 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
                 "rag.plan.intent": "procedural",
                 "rag.plan.language": "zh",
                 "rag.plan.sub_queries": ["如何部署", "如何回滚"],
+                "rag.plan.sub_query_count": 2,
+                "rag.llm_calls": 1,
+                "rag.input_tokens": 120,
+                "rag.output_tokens": 80,
             },
         ),
         span(
@@ -164,15 +168,22 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
     assert projected.rankings[0].dense_rank == 1
     assert projected.rankings[0].dense_score == 0.9
     assert [metric.stage for metric in projected.stage_metrics] == [
+        "query_planning",
         "rrf_fusion",
         "auth_and_scope",
         "rerank",
         "root_restore",
         "answer_generation",
     ]
-    assert projected.stage_metrics[0].dropped_count == 11
-    assert projected.stage_metrics[0].attributes["duplicate_collapsed"] == 8
-    assert projected.stage_metrics[3].attributes == {
+    assert projected.stage_metrics[0].output_count == 2
+    assert projected.stage_metrics[0].attributes == {
+        "llm_calls": 1,
+        "input_tokens": 120,
+        "output_tokens": 80,
+    }
+    assert projected.stage_metrics[1].dropped_count == 11
+    assert projected.stage_metrics[1].attributes["duplicate_collapsed"] == 8
+    assert projected.stage_metrics[4].attributes == {
         "truncated_roots": 1,
         "used_chars": 4096,
     }

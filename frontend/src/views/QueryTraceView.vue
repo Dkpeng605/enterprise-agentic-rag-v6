@@ -147,6 +147,7 @@ function degradationLabel(value: string): string {
 
 function metricStageLabel(value: string): string {
   return {
+    query_planning: '查询改写',
     rrf_fusion: 'RRF 融合', auth_and_scope: '权限回源', rerank: 'CrossEncoder 重排',
     root_restore: 'Root 恢复', answer_generation: 'LLM 回答',
   }[value] ?? value
