@@ -13,7 +13,6 @@ from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, Provider
 
 _INVISIBLE_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b-\u200f\u2060\ufeff]")
 _SPACES = re.compile(r"[ \t]+")
-_BLANK_LINES = re.compile(r"\n{3,}")
 _OCR_REPLACEMENTS = str.maketrans(
     {
         "\u00ad": "",
@@ -43,9 +42,17 @@ class DeterministicCleaner(Cleaner):
         return ProviderInfo(
             kind=ProviderKind.CLEANER,
             name="deterministic",
-            version="1",
+            version="2",
             capabilities=frozenset(
-                {"audit", "idempotent", "unicode", "whitespace", "repeated_edges"}
+                {
+                    "audit",
+                    "idempotent",
+                    "unicode",
+                    "whitespace",
+                    "repeated_edges",
+                    "code_fence_safe",
+                    "structure_preserving",
+                }
             ),
             is_remote=False,
             health=ProviderHealth.UNAVAILABLE if self._closed else ProviderHealth.HEALTHY,
@@ -126,26 +133,87 @@ class DeterministicCleaner(Cleaner):
 
     @staticmethod
     def _normalize_ocr(value: str) -> tuple[str, int]:
-        translated = value.translate(_OCR_REPLACEMENTS)
-        replacements = sum(value.count(chr(character)) for character in _OCR_REPLACEMENTS)
-        joined, joined_count = _HYPHENATED_LINE.subn("", translated)
-        return joined, replacements + joined_count
+        def normalize_prose(prose: str) -> tuple[str, int]:
+            translated = prose.translate(_OCR_REPLACEMENTS)
+            replacements = sum(prose.count(chr(character)) for character in _OCR_REPLACEMENTS)
+            joined, joined_count = _HYPHENATED_LINE.subn("", translated)
+            return joined, replacements + joined_count
+
+        return DeterministicCleaner._apply_outside_fences(value, normalize_prose)
 
     @staticmethod
     def _normalize_whitespace(value: str) -> tuple[str, int]:
         normalized_newlines = value.replace("\r\n", "\n").replace("\r", "\n")
         changed_newlines = value.count("\r")
         lines: list[str] = []
-        space_changes = 0
+        changes = changed_newlines
+        blank_run = 0
+        in_code = False
         for line in normalized_newlines.split("\n"):
-            space_changes += sum(match.group() != " " for match in _SPACES.finditer(line))
-            collapsed = _SPACES.sub(" ", line)
-            stripped = collapsed.strip()
-            space_changes += int(stripped != collapsed)
-            lines.append(stripped)
-        joined = "\n".join(lines).strip()
-        compacted, blank_changes = _BLANK_LINES.subn("\n\n", joined)
-        return compacted, changed_newlines + space_changes + blank_changes
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                lines.append(line.rstrip() if not in_code else line)
+                in_code = not in_code
+                blank_run = 0
+                continue
+            if in_code:
+                lines.append(line)
+                continue
+            if not stripped:
+                blank_run += 1
+                if blank_run <= 2:
+                    lines.append("")
+                else:
+                    changes += 1
+                continue
+            blank_run = 0
+            collapsed = _SPACES.sub(" ", line).rstrip()
+            leading = len(collapsed) - len(collapsed.lstrip(" "))
+            body = collapsed.strip()
+            if leading and (
+                body.startswith(("- ", "* ", "+ ", "> ", "|"))
+                or re.match(r"\d+[.)]\s", body)
+            ):
+                normalized = (" " * leading) + body
+            else:
+                normalized = body
+            changes += int(normalized != line)
+            lines.append(normalized)
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip() and not in_code:
+            lines.pop()
+        return "\n".join(lines), changes
+
+    @staticmethod
+    def _apply_outside_fences(
+        value: str, operation: Callable[[str], tuple[str, int]]
+    ) -> tuple[str, int]:
+        parts: list[str] = []
+        prose: list[str] = []
+        in_code = False
+        occurrences = 0
+
+        def flush_prose() -> None:
+            nonlocal occurrences
+            if not prose:
+                return
+            updated, count = operation("".join(prose))
+            parts.append(updated)
+            occurrences += count
+            prose.clear()
+
+        for line in value.splitlines(keepends=True):
+            if line.lstrip().startswith("```"):
+                flush_prose()
+                parts.append(line)
+                in_code = not in_code
+            elif in_code:
+                parts.append(line)
+            else:
+                prose.append(line)
+        flush_prose()
+        return "".join(parts), occurrences
 
     @staticmethod
     def _edge_line(value: str, *, first: bool) -> str:

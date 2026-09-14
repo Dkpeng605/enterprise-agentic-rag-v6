@@ -80,7 +80,7 @@ Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引
 一次调用预算和数据离开本机的风险；只有勾选确认后，当前版本的 `clean_text`（不是原文件）才会发送。
 单次最多 20 Roots、12,000 输入字符和 8,000 output tokens；超限、非 ready、版本变化或已经执行过的
 版本会拒绝。响应必须保持 Root ordinal，并通过数字、URL、邮箱、引号值、标题、表头和 fenced code
-锚点校验，成功后才重切分和重建 Dense/Sparse 索引。页面显示 Root 变化、Leaf 前后数量、token usage、
+锚点与词法内容守恒校验，成功后才重切分和重建 Dense/Sparse 索引；除跨 Root 重复的首/尾噪声行外，模型不能新增、删除、重排或改写词语。页面显示 Root 变化、Leaf 前后数量、token usage、
 重试次数和持久化 hash audit；失败会尝试恢复原向量与 ready 状态。这个同步、进程内互斥实现仅适合
 当前单进程 Mac 演示，多副本生产协调仍属于 M8。
 
@@ -508,7 +508,7 @@ PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr
 
 表格类 Loader 分别解析 XLSX、旧 XLS 和 CSV。每个 worksheet 单独生成带表头的行块，续块重复表头并保留源行号；空白外围被裁剪，公式缓存值和公式表达式均可追踪。CSV 默认只接受 UTF-8/UTF-8-SIG，遗留编码必须通过 `csv_fallback_encoding` 显式指定。这些 Loader 已接入完整后台流水线。
 
-确定性 Cleaner 同时保留原文和清洗文本，并为每项实际变更记录规则、次数及前后内容 hash。它处理不可见控制字符、常见 OCR 异常和空白，并通过批量 Root 统计移除重复页眉页脚。相同文本重复清洗不会继续变化，默认不会使用 LLM 改写文档。
+确定性 Cleaner 同时保留原文和清洗文本，并为每项实际变更记录规则、次数及前后内容 hash。它处理不可见控制字符、常见 OCR 异常和空白，并通过批量 Root 统计移除重复页眉页脚；清洗会隔离 fenced code，不改代码缩进、空行和跨行内容。相同文本重复清洗不会继续变化，默认不会使用 LLM 改写文档。
 
 结构化 Splitter 使用版本化的段落/句子感知策略：在 Root 内优先保留标题、段落、列表、代码围栏、表格行和完整句子，再应用 target/max/overlap 限制。只有单个结构单元本身超过预算时才降级为 token 硬切，并在 Leaf metadata 标记 `boundary=token_limit_hard_cut`、`hard_cut=true`。macOS 真实运行时直接复用 FastEmbed tokenizer 与模型输入上限，实际安全预算为配置上限和 `model_input_limit - 1` 的较小值；每个 Root/Leaf 都保存实际 tokenizer、预算、边界和硬切计数，前端可逐块核对。表格续块会重复表头且计入 token 上限；Root/Leaf ID 对相同 version、index revision、内容和顺序保持稳定。
 

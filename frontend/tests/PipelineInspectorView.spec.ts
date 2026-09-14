@@ -42,7 +42,7 @@ const pipeline: DocumentPipeline = {
   version_id: '01900000-0000-7000-8000-000000000202',
   source_name: 'refund-policy.md',
   parser_provider: 'text', parser_version: '1',
-  cleaner_provider: 'deterministic', cleaner_version: '1',
+  cleaner_provider: 'deterministic', cleaner_version: '2',
   splitter_provider: 'structure_aware', splitter_version: '2',
   splitter_settings: {
     target_tokens: 350, max_tokens: 480, overlap_tokens: 50,

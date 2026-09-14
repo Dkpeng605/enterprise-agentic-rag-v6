@@ -84,9 +84,10 @@ The same page offers an opt-in, one-pass remote LLM cleaning action that is off 
 the Provider/Model, Root and character counts, one-call budget, and the risk of data leaving the Mac. Only after
 the checkbox confirmation does the current version's `clean_text`—not the original file—leave the machine. One
 pass is limited to 20 Roots, 12,000 input characters, and 8,000 output tokens; oversized, non-ready, stale, or
-already-cleaned versions are rejected. The response must preserve Root ordinals and protected numbers, URLs,
-emails, quoted values, headings, table headers, and fenced code before the service rechunks and rebuilds the
-Dense/Sparse index. The UI shows changed Roots, before/after Leaf counts, token usage, retries, and persisted hash
+already-cleaned versions are rejected. The response must preserve Root ordinals, lexical content and order, protected
+numbers, URLs, emails, quoted values, headings, table headers, and fenced code; only repeated first/last edge noise
+lines may be removed before the service rechunks and rebuilds the Dense/Sparse index. The UI shows changed Roots,
+before/after Leaf counts, token usage, retries, and persisted hash
 audits. Failures attempt to restore the previous vectors and ready state. This synchronous process-local lock is
 for the single-process Mac demo; multi-replica production coordination remains M8 work.
 
@@ -522,7 +523,7 @@ The text-document Loader supports DOCX, HTML, TXT, and Markdown. DOCX headings b
 
 The spreadsheet Loader parses XLSX, legacy XLS, and CSV independently. Each worksheet becomes header-bearing row blocks; continuation blocks repeat the header and preserve source row numbers. Empty outer rows and columns are trimmed while formula cache values and expressions remain traceable. CSV accepts UTF-8/UTF-8-SIG by default; a legacy encoding must be selected explicitly with `csv_fallback_encoding`. These Loaders are connected to the complete background pipeline.
 
-The deterministic Cleaner preserves both raw and cleaned text and records each effective rule, occurrence count, and before/after content hash. It normalizes invisible controls, common OCR artifacts, and whitespace, and uses batch Root statistics to remove repeated headers and footers. Re-cleaning the same text makes no further changes, and no LLM rewrites document content.
+The deterministic Cleaner preserves both raw and cleaned text and records each effective rule, occurrence count, and before/after content hash. It normalizes invisible controls, common OCR artifacts, and whitespace, and uses batch Root statistics to remove repeated headers and footers; fenced code is isolated so indentation, blank lines, and wrapped code content are not rewritten. Re-cleaning the same text makes no further changes, and no LLM rewrites document content by default.
 
 The structure-aware Splitter uses a versioned paragraph- and sentence-aware strategy: within each Root it preserves headings, paragraphs, lists, code fences, table rows, and complete sentences before applying target/max/overlap limits. It falls back to a token hard cut only when one structural unit itself exceeds the budget, and records `boundary=token_limit_hard_cut` and `hard_cut=true` in Leaf metadata. The real macOS runtime reuses the FastEmbed tokenizer and model input limit; the effective safe budget is the smaller of the configured cap and `model_input_limit - 1`. Each Root/Leaf records the actual tokenizer, budget, boundary, and hard-cut count for inspection. Continuation table chunks repeat headers and count them toward the token cap; Root/Leaf IDs remain stable for the same version, index revision, content, and order.
 
