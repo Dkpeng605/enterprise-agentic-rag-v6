@@ -2,10 +2,45 @@
 
 import os
 from dataclasses import dataclass
+from typing import Literal, TypedDict
 
 MCP_SERVER_NAME = "enterprise-agentic-rag-v6"
 MCP_SERVER_VERSION = "0.1.0"
 STDIO_FACTORY_ENV = "ENTERPRISE_RAG_MCP_STDIO_FACTORY"
+
+
+class McpToolPayload(TypedDict):
+    name: str
+    description: str
+    required_scopes: list[str]
+    read_only: bool
+
+
+class McpResourcePayload(TypedDict):
+    uri: str
+    kind: Literal["resource", "template"]
+    description: str
+    required_scopes: list[str]
+
+
+class McpTransportPayload(TypedDict):
+    name: Literal["stdio", "streamable_http"]
+    status: Literal[
+        "factory_declared",
+        "requires_factory",
+        "mounted",
+        "external_composition_required",
+    ]
+    endpoint: str | None
+    detail: str
+
+
+class McpCapabilityCatalogPayload(TypedDict):
+    server_name: str
+    server_version: str
+    tools: list[McpToolPayload]
+    resources: list[McpResourcePayload]
+    transports: list[McpTransportPayload]
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,7 +50,7 @@ class McpToolDefinition:
     protocol_description: str
     required_scopes: tuple[str, ...]
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> McpToolPayload:
         return {
             "name": self.name,
             "description": self.description,
@@ -27,12 +62,12 @@ class McpToolDefinition:
 @dataclass(frozen=True, slots=True)
 class McpResourceDefinition:
     uri: str
-    kind: str
+    kind: Literal["resource", "template"]
     description: str
     protocol_description: str
     required_scopes: tuple[str, ...]
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> McpResourcePayload:
         return {
             "uri": self.uri,
             "kind": self.kind,
@@ -129,7 +164,7 @@ class McpCapabilityCatalog:
     stdio_factory_declared: bool
     http_mounted_endpoint: str | None = None
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> McpCapabilityCatalogPayload:
         http_mounted = self.http_mounted_endpoint is not None
         return {
             "server_name": MCP_SERVER_NAME,
