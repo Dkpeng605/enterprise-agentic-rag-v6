@@ -43,10 +43,11 @@ const pipeline: DocumentPipeline = {
   source_name: 'refund-policy.md',
   parser_provider: 'text', parser_version: '1',
   cleaner_provider: 'deterministic', cleaner_version: '1',
-  splitter_provider: 'structure_aware', splitter_version: '1',
+  splitter_provider: 'structure_aware', splitter_version: '2',
   splitter_settings: {
     target_tokens: 350, max_tokens: 480, overlap_tokens: 50,
-    tokenizer: 'deterministic-multilingual-v1',
+    embedding_token_limit: 512, hard_cut_count: 0,
+    tokenizer: 'fastembed-tokenizer:sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',
   },
   llm_cleaning: {},
   root_count: 1, leaf_count: 2, roots: [rootSummary], next_cursor: null,
@@ -77,11 +78,13 @@ const detail: PipelineRoot = {
   leaves: [
     {
       id: 'leaf_01', ordinal: 0, text: '退款 申请', retrieval_text: '退款 申请',
-      start_offset: 0, end_offset: 5, token_count: 4, overlap_chars: 0, metadata: {},
+      start_offset: 0, end_offset: 5, token_count: 4, overlap_chars: 0,
+      metadata: { boundary: 'sentence', hard_cut: false },
     },
     {
       id: 'leaf_02', ordinal: 1, text: '请在七日内提交。', retrieval_text: '请在七日内提交。',
-      start_offset: 3, end_offset: 13, token_count: 9, overlap_chars: 2, metadata: {},
+      start_offset: 3, end_offset: 13, token_count: 9, overlap_chars: 2,
+      metadata: { boundary: 'sentence', hard_cut: false },
     },
   ],
 }
@@ -131,10 +134,12 @@ describe('document pipeline inspector', () => {
     expect(workspaceApi.getPipelineRoot).toHaveBeenCalledWith(pipeline.document_id, 'root_01')
     expect(wrapper.get('.pipeline-flow').text()).toContain('deterministic')
     expect(wrapper.get('.pipeline-config').text()).toContain('350')
+    expect(wrapper.get('.pipeline-config').text()).toContain('512')
     expect(wrapper.get('.cleaning-audit').text()).toContain('whitespace')
     expect(wrapper.get('.text-compare').text()).toContain('退款   申请')
     expect(wrapper.findAll('.leaf-card')).toHaveLength(2)
     expect(wrapper.findAll('.leaf-card')[1]!.text()).toContain('overlap 2 chars')
+    expect(wrapper.findAll('.leaf-card')[1]!.text()).toContain('sentence')
     expect(wrapper.get('.llm-cleaning-panel').text()).toContain('minimax-m3')
     expect(wrapper.get('.llm-cleaning-panel').text()).toContain('32 chars')
   })

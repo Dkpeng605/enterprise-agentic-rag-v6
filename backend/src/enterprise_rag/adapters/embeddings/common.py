@@ -2,20 +2,36 @@
 
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from enterprise_rag.domain.errors import AppError, ErrorCode
 
 _TOKEN_ESTIMATE = re.compile(r"[\u3400-\u9fff]|[A-Za-z0-9_]+|[^\s]")
+TokenCounter = Callable[[str], int]
 
 
 class EmbeddingError(AppError):
     """A stable client-safe embedding failure."""
 
 
+def estimate_token_count(text: str) -> int:
+    """Return the deterministic fallback count used before a model tokenizer is available."""
+
+    return max(1, len(_TOKEN_ESTIMATE.findall(text)))
+
+
 def batches(
-    texts: Sequence[str], *, max_items: int, max_tokens: int
+    texts: Sequence[str],
+    *,
+    max_items: int,
+    max_tokens: int,
+    token_counter: TokenCounter = estimate_token_count,
+    max_input_tokens: int | None = None,
 ) -> tuple[tuple[str, ...], ...]:
+    if max_items <= 0 or max_tokens <= 0:
+        raise ValueError("embedding batch limits must be positive")
+    if max_input_tokens is not None and max_input_tokens <= 0:
+        raise ValueError("max_input_tokens must be positive when provided")
     result: list[tuple[str, ...]] = []
     current: list[str] = []
     current_tokens = 0
@@ -25,7 +41,13 @@ def batches(
                 ErrorCode.EMBEDDING_INPUT_INVALID,
                 "Embedding input must not contain empty text.",
             )
-        token_count = max(1, len(_TOKEN_ESTIMATE.findall(text)))
+        token_count = max(1, int(token_counter(text)))
+        if max_input_tokens is not None and token_count >= max_input_tokens:
+            raise EmbeddingError(
+                ErrorCode.EMBEDDING_INPUT_INVALID,
+                "One embedding input must stay below the model input token limit.",
+                {"tokens": token_count, "max_input_tokens": max_input_tokens},
+            )
         if token_count > max_tokens:
             raise EmbeddingError(
                 ErrorCode.EMBEDDING_INPUT_INVALID,

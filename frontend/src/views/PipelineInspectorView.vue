@@ -172,6 +172,9 @@ onMounted(loadPipeline)
         <div><span>Target tokens</span><strong>{{ pipeline.splitter_settings.target_tokens ?? '旧数据未记录' }}</strong></div>
         <div><span>Max tokens</span><strong>{{ pipeline.splitter_settings.max_tokens ?? '旧数据未记录' }}</strong></div>
         <div><span>Overlap tokens</span><strong>{{ pipeline.splitter_settings.overlap_tokens ?? '旧数据未记录' }}</strong></div>
+        <div><span>Embedding limit</span><strong>{{ pipeline.splitter_settings.embedding_token_limit ?? '未提供' }}</strong></div>
+        <div><span>Safe budget</span><strong>{{ pipeline.splitter_settings.max_tokens ?? '—' }}</strong></div>
+        <div><span>Hard cuts</span><strong>{{ pipeline.splitter_settings.hard_cut_count ?? '—' }}</strong></div>
         <div><span>Tokenizer</span><strong>{{ pipeline.splitter_settings.tokenizer ?? '旧数据未记录' }}</strong></div>
       </div>
 
@@ -250,7 +253,7 @@ onMounted(loadPipeline)
             <section class="leaf-section">
               <div class="trace-section-head"><div><p class="section-kicker">LEAF CHUNKS</p><h3>实际检索单元</h3></div><span>offset 基于清洗后 Root；overlap 为相邻 Leaf 重叠字符数</span></div>
               <article v-for="leaf in rootDetail.leaves" :key="leaf.id" class="leaf-card">
-                <header><strong>LEAF {{ leaf.ordinal + 1 }}</strong><code>{{ leaf.id }}</code><span>{{ leaf.token_count }} tokens</span><span>{{ leaf.start_offset ?? '—' }} → {{ leaf.end_offset ?? '—' }}</span><span>overlap {{ leaf.overlap_chars }} chars</span></header>
+                <header><strong>LEAF {{ leaf.ordinal + 1 }}</strong><code>{{ leaf.id }}</code><span>{{ leaf.token_count }} tokens</span><span>{{ String(leaf.metadata.boundary ?? 'boundary 未记录') }}</span><span v-if="leaf.metadata.hard_cut" class="leaf-warning">TOKEN HARD CUT</span><span>{{ leaf.start_offset ?? '—' }} → {{ leaf.end_offset ?? '—' }}</span><span>overlap {{ leaf.overlap_chars }} chars</span></header>
                 <pre>{{ leaf.text }}</pre>
                 <details v-if="leaf.retrieval_text !== leaf.text"><summary>查看增强后的 retrieval_text</summary><pre>{{ leaf.retrieval_text }}</pre></details>
               </article>

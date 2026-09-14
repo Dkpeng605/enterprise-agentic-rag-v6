@@ -102,3 +102,49 @@ async def test_very_long_unspaced_text_is_hard_split_and_close_is_idempotent(
     await splitter.aclose()
     with pytest.raises(RuntimeError, match="closed"):
         await splitter.split(clean_root("text"), context)
+
+
+@pytest.mark.anyio
+async def test_model_limit_and_sentence_boundaries_are_recorded(
+    context: IngestionContext,
+) -> None:
+    text = "第一句说明检索。第二句说明证据。\n\n第三段保持完整。第四句也保持完整。"
+
+    def character_counter(value: str) -> int:
+        return len(value.replace(" ", "").replace("\n", ""))
+
+    result = await StructureAwareSplitter(
+        target_tokens=20,
+        max_tokens=20,
+        overlap_tokens=2,
+        token_counter=character_counter,
+        tokenizer="fixture-exact-tokenizer",
+        embedding_token_limit=12,
+    ).split(clean_root(text), context)
+
+    settings = result.root.metadata["splitter"]["settings"]
+    assert settings["embedding_token_limit"] == 12
+    assert settings["max_tokens"] == 11
+    assert settings["tokenizer"] == "fixture-exact-tokenizer"
+    assert all(leaf.token_count < 12 for leaf in result.leaves)
+    assert all(not leaf.metadata["hard_cut"] for leaf in result.leaves)
+    assert all(
+        leaf.text.endswith(("。", "！", "？")) for leaf in result.leaves
+    )
+
+
+@pytest.mark.anyio
+async def test_only_a_sentence_longer_than_the_budget_uses_hard_cut(
+    context: IngestionContext,
+) -> None:
+    text = "这是一个没有可用句子边界的超长句子 " + ("word " * 20)
+    result = await StructureAwareSplitter(
+        target_tokens=6,
+        max_tokens=8,
+        overlap_tokens=1,
+    ).split(clean_root(text), context)
+
+    assert len(result.leaves) > 1
+    assert all(leaf.token_count <= 8 for leaf in result.leaves)
+    assert any(leaf.metadata["hard_cut"] for leaf in result.leaves)
+    assert result.root.metadata["splitter"]["settings"]["hard_cut_count"] > 0

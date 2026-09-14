@@ -283,10 +283,19 @@ async def test_pipeline_runs_registered_object_to_ready_postgres_and_milvus(
         assert inspection.cleaner_provider == "deterministic"
         assert inspection.splitter_provider == "structure_aware"
         assert inspection.splitter_settings == {
+            "configured_target_tokens": 20,
+            "configured_max_tokens": 28,
+            "configured_overlap_tokens": 4,
             "target_tokens": 20,
             "max_tokens": 28,
             "overlap_tokens": 4,
+            "embedding_token_limit": None,
+            "embedding_safety_margin": 1,
             "tokenizer": "deterministic-multilingual-v1",
+            "boundary_policy": (
+                "code_block>table_row>heading/list>paragraph>sentence>token_hard_cut"
+            ),
+            "hard_cut_count": 0,
         }
         assert inspection.roots[0].changed
         assert inspection.roots[0].cleaning_audit[0].rule == "whitespace"
@@ -299,6 +308,8 @@ async def test_pipeline_runs_registered_object_to_ready_postgres_and_milvus(
         assert len(detail.leaves) == leaf_count
         assert detail.leaves[0].start_offset == 0
         assert detail.leaves[0].token_count > 0
+        assert detail.leaves[0].metadata["token_budget"] == 28
+        assert detail.leaves[0].metadata["hard_cut"] is False
         assert any(leaf.overlap_chars > 0 for leaf in detail.leaves[1:])
         with pytest.raises(AppError) as hidden_document:
             await workspace.inspect_document_pipeline(

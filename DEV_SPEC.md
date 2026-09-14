@@ -538,14 +538,17 @@ class Splitter(Protocol):
 
 `CleanResult` 必须保留 raw text、clean text 和逐项报告。默认 Cleaner 只执行确定性规则：NUL、不可见控制字符、空白、重复页眉页脚和 OCR 异常归一化。默认摄取不调用 LLM 改写原文。
 
-默认 Splitter 先尊重标题、段落、列表、代码块、表格行边界，再应用 token 上限。参数：
+默认 Splitter 先解析结构单元，再按“代码块 > 表格行 > 标题/列表 > 段落 > 完整句子”的顺序保留边界，最后应用 embedding-safe token 上限。参数：
 
 - `target_tokens=350`；
 - `max_tokens=480`；
 - `overlap_tokens=50`；
-- 单个超长无空格 token 必须硬切；
+- macOS 真实 Provider 通过 FastEmbed `token_count` 提供实际 tokenizer；有效 `max_tokens` 为配置上限与
+  `embedding_token_limit - embedding_safety_margin` 的较小值，默认安全余量为 1，保证每个 embedding 输入严格小于模型上限；
+- 单个句子/结构单元仍超过有效预算时才允许 token 硬切，并在 Leaf metadata 标记 `hard_cut=true`，不得把正常句子拆分伪装成自然边界；
 - overlap 不得跨 Root；
-- 表格头在每个续块中重复，便于独立理解。
+- overlap 优先携带完整句子，只有无完整句子可携带时才退化为无 overlap；
+- 表格头在每个续块中重复，表头 token 计入预算，便于独立理解。
 
 ### 6.4 Embedding
 
@@ -1788,8 +1791,9 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 #### M3-05 Root/Leaf Splitter
 
 - 端口：Splitter 将 `CleanRoot` 转为一个稳定 `RootChunk` 和至少一个隶属它的 `LeafChunk`；`IngestionContext.index_revision` 参与 Root ID，配置或 tokenizer 变化必须使用新 revision；
-- tokenizer：默认 `deterministic-multilingual-v1`，中文统一表意文字按字、英文数字按词、标点独立计数，超过 20 字符的连续无空格词硬分段；本实现不声称与任一远程模型 tokenizer 等价；
-- 边界：优先在标题、段落、列表、代码围栏和表格行边界结束，任何 Leaf 不超过 `max_tokens`；默认 target/max/overlap 为 350/480/50，overlap 只在同一 Root 内发生；
+- tokenizer：离线/测试默认 `deterministic-multilingual-v1`，中文统一表意文字按字、英文数字按词、标点独立计数；macOS 真实组合使用 `fastembed-tokenizer:<model>` 和 FastEmbed 的 `token_count`，不再声称正则估算等同模型 tokenizer；
+- 边界：优先在标题、段落、列表、代码围栏、表格行和完整句子边界结束，任何 Leaf 必须小于 embedding 输入上限且不超过有效 `max_tokens`；默认配置 target/max/overlap 为 350/480/50，overlap 只在同一 Root 内发生；
+- 降级：仅当单个句子或结构单元本身超限时才 token 硬切，Root metadata 保存 `hard_cut_count`，Leaf metadata 保存 `boundary`、`hard_cut`、`token_budget` 和真实 tokenizer；
 - 表格：续块重复 Markdown 表头，表头 token 计入最大限制，metadata 标记是否重复；offset 始终指向 Root 原始 clean text 中的主体范围；
 - 稳定性：相同 version、revision、Root 内容与配置重跑得到相同 Root/Leaf ID；revision 或内容变化得到不同 ID；
 - 验收：中英文混排、结构边界、可容纳代码块不拆分、表格续块表头、token 上限、overlap、超长无空格文本、稳定 ID、revision 隔离和关闭幂等。
@@ -1807,7 +1811,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - 端口：EmbeddingProvider 固定暴露 dimension、文档批量向量化、查询向量化和 Provider 生命周期；返回顺序必须与输入严格一致；
 - 本地：默认通过 FastEmbed 0.8.x + ONNX 运行 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`，384 维、mean pooling；Provider revision 同时记录模型名、FastEmbed 版本和 pooling，首次运行按需下载约 0.22GB 模型；
 - 远程：OpenAI-compatible Adapter 调用 `/embeddings`，密钥只进入 Authorization header；401/4xx 不重试，网络错误、超时、429 和 5xx 使用 0.25 秒起始的指数退避，最多按配置重试；
-- 批处理：按最大条数和估算 token 总数双重分批；空文本和单项超限在调用 Provider 前失败；
+- 批处理：按最大条数和 token 总数双重分批；本地 FastEmbed 使用真实 tokenizer，其他未提供 tokenizer 的 Provider 必须明确声明估算或未知，不能把估算冒充模型上限；空文本和达到单项模型上限的输入在调用 Provider 前失败；
 - 校验：严格检查返回数量、index 完整且唯一、维度固定、数值有限且非零；所有输出统一 L2 归一化，供应商正文和密钥不进入错误；
 - 验收：fake local 与 HTTP MockTransport 契约覆盖顺序、batch、token、归一化、维度、限流、重试和坏响应；另提供 opt-in 真实中英文 ONNX 模型测试，本 PR 已实际运行通过。
 
@@ -2521,15 +2525,17 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 摄取审计：确定性 Cleaner 在每个 Root metadata 保存 provider/version，以及每条实际发生规则的名称、
   occurrence 数、before/after SHA-256；未发生变化的规则不虚构 audit。摄取 span 另外保存发生变更的
   Root 数、规则数和 occurrence 总数；
-- 切分审计：Splitter 在 Root metadata 保存 provider/version、`target_tokens`、`max_tokens`、
-  `overlap_tokens` 和真实 tokenizer 标识。参数只描述该版本实际使用值，不从当前运行配置反推旧版本；
+- 切分审计：Splitter 在 Root metadata 保存 provider/version、配置值与有效的 `target_tokens`、
+  `max_tokens`、`overlap_tokens`、`embedding_token_limit`、安全余量、边界策略、`hard_cut_count` 和真实
+  tokenizer 标识；每个 Leaf 保存实际 token budget、boundary、hard_cut 和 token_count。参数只描述该版本
+  实际使用值，不从当前运行配置反推旧版本；
 - 列表接口：`GET /api/v1/documents/{document_id}/pipeline` 返回最新 version、source、Parser/Cleaner/
   Splitter、Root/Leaf 总数和按 ordinal 分页的 Root 摘要；cursor 为最后一个 ordinal，page size 1–100；
 - 详情接口：`GET /api/v1/documents/{document_id}/pipeline/roots/{root_id}` 返回该 Root 的完整 raw/clean
   文本、source locator、metadata 和有序 Leaves。每个 Leaf 包含实际 `text`、`retrieval_text`、token
   数、start/end offset；相邻 overlap chars 由持久化 offset 计算，首个 Leaf 为 0；
 - UI：文档详情只在存在 Root 时显示入口。页面以 Parser→Cleaner→Splitter→Index Units 阶段卡、
-  Splitter 参数条、分页 Root 导航、raw/clean 双栏、规则 audit 与 Leaf 卡展示数据；`retrieval_text`
+  Splitter 参数条（含模型输入上限/安全预算/硬切数）、分页 Root 导航、raw/clean 双栏、规则 audit 与 Leaf 卡展示数据；Leaf 卡必须显示实际 boundary、hard cut、token count、offset 和 overlap；`retrieval_text`
   与 `text` 不同时可展开查看。loading、empty、legacy metadata、error/request-id 均有独立状态；
 - 兼容：数据库无需 migration，新增数据写入既有 JSONB metadata。升级前文档缺失 cleaner/splitter audit
   时显示“旧数据未记录”，不得把当前配置冒充历史事实；重新上传才产生完整审计；
