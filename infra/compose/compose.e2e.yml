@@ -23,8 +23,8 @@ services:
       PUBLIC_BASE_URL: http://frontend:4173
       DATABASE_URL: postgresql+asyncpg://enterprise_rag:enterprise_rag@postgres:5432/enterprise_rag_e2e
       SESSION_SECRET: local-e2e-session-secret-at-least-32-bytes
-      ADMIN_BOOTSTRAP_EMAIL: admin@example.com
-      ADMIN_BOOTSTRAP_PASSWORD: local-e2e-password
+      ADMIN_BOOTSTRAP_EMAIL: admin
+      ADMIN_BOOTSTRAP_PASSWORD: admin
       ENTERPRISE_RAG__INGESTION__OBJECT_STORE_ROOT: /data/runtime/object-store
       ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION: "128"
       ENTERPRISE_RAG__EVALUATION__GOLDEN_MANIFEST: /app/evals/golden/v1/manifest.yaml
@@ -72,8 +72,8 @@ services:
     environment:
       CI: "1"
       E2E_BASE_URL: http://frontend:4173
-      E2E_ADMIN_EMAIL: admin@example.com
-      E2E_ADMIN_PASSWORD: local-e2e-password
+      E2E_ADMIN_EMAIL: admin
+      E2E_ADMIN_PASSWORD: admin
     volumes:
       - ../../frontend/playwright-report:/app/frontend/playwright-report
       - ../../frontend/test-results:/app/frontend/test-results

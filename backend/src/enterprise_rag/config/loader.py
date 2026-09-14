@@ -169,6 +169,18 @@ def _validate_production_secrets(settings: AppSettings) -> None:
             "Required production configuration is missing.",
             {"fields": sorted(missing)},
         )
+    if (
+        credentials.admin_bootstrap_email is not None
+        and credentials.admin_bootstrap_email.strip().casefold() == "admin"
+    ) or (
+        credentials.admin_bootstrap_password is not None
+        and credentials.admin_bootstrap_password.get_secret_value().casefold() == "admin"
+    ):
+        raise SettingsError(
+            SettingsErrorCode.CONFIG_VALUE_INVALID,
+            "Configuration validation failed.",
+            {"fields": ("ADMIN_BOOTSTRAP_EMAIL", "ADMIN_BOOTSTRAP_PASSWORD")},
+        )
 
 
 def load_settings(

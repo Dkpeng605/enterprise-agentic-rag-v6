@@ -60,6 +60,12 @@ cp .env.mac.example .env
 - Reranker：`jinaai/jina-reranker-v2-base-multilingual`；
 - LLM：`MiniMax-M3`，通过 `.env` 中的 `LLM_BASE_URL` 调用。
 
+默认 MiniLM 的 registry 描述是 512 input tokens，但本机 FastEmbed tokenizer 实测上限是 128；页面和
+Splitter 以运行时实测值为准。需要 512 输入 token/512 维向量时，可在 `.env` 中改为
+`EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5`，并设置
+`ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`。这是可插拔的本地模型 profile，首次运行会下载
+对应模型；切换模型或维度会创建新的 index revision，旧向量不会与新向量混用。
+
 在第二个终端启动 Vue 3 前端：
 
 ```bash
@@ -79,8 +85,10 @@ Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引
 同一页面还提供默认关闭的“一次远程 LLM 清洗”。预检会显示 Provider/Model、Root 数、发送字符数、
 一次调用预算和数据离开本机的风险；只有勾选确认后，当前版本的 `clean_text`（不是原文件）才会发送。
 单次最多 20 Roots、12,000 输入字符和 8,000 output tokens；超限、非 ready、版本变化或已经执行过的
-版本会拒绝。响应必须保持 Root ordinal，并通过数字、URL、邮箱、引号值、标题、表头和 fenced code
-锚点与词法内容守恒校验，成功后才重切分和重建 Dense/Sparse 索引；除跨 Root 重复的首/尾噪声行外，模型不能新增、删除、重排或改写词语。页面显示 Root 变化、Leaf 前后数量、token usage、
+版本会拒绝。响应必须保持 Root ordinal，并通过完整词法序列、数字、URL、邮箱、引号值、标题、表头和 fenced code
+锚点校验，成功后才重切分和重建 Dense/Sparse 索引。LLM 只能修复 PDF/OCR 常见的空白、段落换行、标题/表格间距，
+以及单词内部的跨行断字符；不得合并两个不同单词，不得改变词法顺序、数字、事实或代码。唯一允许删除的是跨 Root
+重复且位于原始 Root 首/尾的完整噪声行。页面显示 Root 变化、Leaf 前后数量、token usage、
 重试次数和持久化 hash audit；失败会尝试恢复原向量与 ready 状态。这个同步、进程内互斥实现仅适合
 当前单进程 Mac 演示，多副本生产协调仍属于 M8。
 
@@ -121,7 +129,7 @@ docker compose -f infra/compose/compose.e2e.yml up postgres backend frontend
 
 浏览器打开 `http://127.0.0.1:4173`。这个组合使用确定性 Hashing Dense/Sparse 检索和摘录式回答，
 用于本地演示与验收，不代表生产语义模型质量。匿名会话拥有 Demo Tenant 的全部业务权限；如需测试
-隔离的管理端，请使用仅供该 Compose 验收环境使用的 `admin@example.com` / `local-e2e-password`。
+隔离的管理端，请使用仅供该 Compose 验收环境使用的 `admin` / `admin`。
 停止并清除演示数据：
 
 ```bash
@@ -220,9 +228,9 @@ Trace 阶段/批次/稳定错误检查器，以及预算评测中心。
 pnpm --dir=frontend generate:api
 ```
 
-管理员首次登录使用 `ADMIN_BOOTSTRAP_EMAIL` 和 `ADMIN_BOOTSTRAP_PASSWORD`。只有尚未存在系统
-管理员时才会在 PostgreSQL 中创建 bootstrap 账号，密码以 Argon2id 保存；创建后可从环境中
-移除 bootstrap password。开发环境可先在启动后端前导出这两个变量。
+管理员首次登录使用 `ADMIN_BOOTSTRAP_EMAIL` 和 `ADMIN_BOOTSTRAP_PASSWORD`。本地开发默认是
+账号 `admin`、密码 `admin`；只有尚未存在系统管理员时才会在 PostgreSQL 中创建 bootstrap 账号，密码以
+Argon2id 保存，创建后可从环境中移除 bootstrap password。生产环境会拒绝这组弱凭据，必须显式配置强凭据。
 
 数据库迁移、匿名 session、集合/文档 API、查询预算和集成测试需要 PostgreSQL；若未配置数据库、对象目录或 session secret，静态 OpenAPI 仍完整可用，但业务路由返回稳定 503。M4 已完成 QueryRunner、同步/SSE、检索和 Agentic RAG 的可组合契约与服务；当前 `enterprise_rag.main:app` 尚未注入具体 QueryRunner，所以查询端点会稳定返回 503，生产 Provider 组合与进程入口会在后续里程碑接入。
 
@@ -508,13 +516,13 @@ PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr
 
 表格类 Loader 分别解析 XLSX、旧 XLS 和 CSV。每个 worksheet 单独生成带表头的行块，续块重复表头并保留源行号；空白外围被裁剪，公式缓存值和公式表达式均可追踪。CSV 默认只接受 UTF-8/UTF-8-SIG，遗留编码必须通过 `csv_fallback_encoding` 显式指定。这些 Loader 已接入完整后台流水线。
 
-确定性 Cleaner 同时保留原文和清洗文本，并为每项实际变更记录规则、次数及前后内容 hash。它处理不可见控制字符、常见 OCR 异常和空白，并通过批量 Root 统计移除重复页眉页脚；清洗会隔离 fenced code，不改代码缩进、空行和跨行内容。相同文本重复清洗不会继续变化，默认不会使用 LLM 改写文档。
+确定性 Cleaner 同时保留原文和清洗文本，并为每项实际变更记录规则、次数及前后内容 hash。它处理不可见控制字符、常见 OCR 异常和空白，并通过批量 Root 统计移除重复页眉页脚；清洗会隔离 fenced code，不改代码缩进、空行和跨行内容。相同文本重复清洗不会继续变化，默认不会使用 LLM 改写文档。人工触发的 LLM 清洗只作为版面修复补充：允许修复 PDF/OCR 的空白、段落换行、标题/表格间距和跨行断词，但受后端词法、顺序、数字、事实及代码围栏校验保护。
 
 结构化 Splitter 使用版本化的段落/句子感知策略：在 Root 内优先保留标题、段落、列表、代码围栏、表格行和完整句子，再应用 target/max/overlap 限制。只有单个结构单元本身超过预算时才降级为 token 硬切，并在 Leaf metadata 标记 `boundary=token_limit_hard_cut`、`hard_cut=true`。macOS 真实运行时直接复用 FastEmbed tokenizer 与模型输入上限，实际安全预算为配置上限和 `model_input_limit - 1` 的较小值；每个 Root/Leaf 都保存实际 tokenizer、预算、边界和硬切计数，前端可逐块核对。表格续块会重复表头且计入 token 上限；Root/Leaf ID 对相同 version、index revision、内容和顺序保持稳定。
 
 图片增强服务先把 Loader 提取的原始图片写入内容寻址 ObjectStore，再调用可插拔 Vision 端口。默认 `vision: none` 会保留图片并跳过 caption；Vision 异常只将 caption 标记为降级，不会丢弃已存图片或泄露供应商错误。ObjectStore 写入失败仍会中止摄取，因为图片持久化不是可选数据。
 
-Embedding 端口提供本地多语和 OpenAI-compatible 两种实现。本地默认使用 FastEmbed ONNX 的 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling、registry 描述为 512 input tokens），首次调用会下载约 0.22GB 模型；运行时不会盲信 registry：优先读取实际 truncation limit；如果 FastEmbed ONNX wrapper 不暴露该字段，则用超出 registry 上限的探测文本调用 `token_count`，识别被 tokenizer 截断后的真实上限（当前缓存模型实际报告 128）。Provider 暴露真实 tokenizer 的 `count_tokens` 与输入上限，拒绝达到模型上限的单项输入，Splitter 与 Embedding 使用同一个计数器。远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试，但在未配置模型 tokenizer 时不会虚构远程模型上限。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
+Embedding 端口提供本地多语和 OpenAI-compatible 两种实现，并通过 `EMBEDDING_MODEL` 选择 FastEmbed profile。本地默认使用 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling、registry 描述为 512 input tokens），首次调用会下载约 0.22GB 模型；运行时不会盲信 registry：优先读取实际 truncation limit；如果 FastEmbed ONNX wrapper 不暴露该字段，则用超出 registry 上限的探测文本调用 `token_count`，识别被 tokenizer 截断后的真实上限（当前缓存模型实际报告 128）。可选 `BAAI/bge-small-zh-v1.5` profile 实测为 512 维、512 input tokens，适合中文本地部署；切换时同时设置 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`，并通过新 index revision 隔离旧向量。Provider 暴露真实 tokenizer 的 `count_tokens` 与输入上限，拒绝达到模型上限的单项输入，Splitter 与 Embedding 使用同一个计数器。远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试，但在未配置模型 tokenizer 时不会虚构远程模型上限。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
 
 ```bash
 (cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \

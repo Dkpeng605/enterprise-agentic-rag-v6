@@ -42,6 +42,7 @@ _FENCE = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
 _LEXICAL_TOKEN = re.compile(
     r"[\u3400-\u4dbf\u4e00-\u9fff]|[A-Za-z]+(?:['’-][A-Za-z]+)*|\d+(?:[.,:/-]\d+)*"
 )
+_LINE_BREAK_HYPHEN = re.compile(r"(?<=[A-Za-z])(?:[-\u00ad])[ \t]*\n[ \t]*(?=[A-Za-z])")
 
 
 @dataclass(frozen=True, slots=True)
@@ -616,47 +617,83 @@ def _validate_anchors(
 def _validate_lexical_content(
     before: str, after: str, ordinal: int, repeated_edges: Counter[str]
 ) -> None:
-    before_tokens = Counter(token.casefold() for token in _LEXICAL_TOKEN.findall(before))
-    after_tokens = Counter(token.casefold() for token in _LEXICAL_TOKEN.findall(after))
+    before_sequence = _layout_lexical_sequence(before)
+    actual_sequence = _layout_lexical_sequence(after)
+    before_tokens = Counter(before_sequence)
+    after_tokens = Counter(actual_sequence)
     if after_tokens - before_tokens:
         raise _invalid_response(
             "The LLM cleaning response added or rewrote lexical content.", ordinal=ordinal
         )
-    before_sequence = [token.casefold() for token in _LEXICAL_TOKEN.findall(before)]
-    actual_sequence = [token.casefold() for token in _LEXICAL_TOKEN.findall(after)]
     if actual_sequence == before_sequence:
         return
-    removed_lines = Counter(_non_empty_lines(before)) - Counter(_non_empty_lines(after))
-    removable = Counter(
-        line for line, count in removed_lines.items() if repeated_edges[line] >= 2
-    )
-    if removable != removed_lines:
+
+    edge_result = _remove_repeated_edge_lines(before, after, repeated_edges)
+    if edge_result is None:
         raise _invalid_response(
             "The LLM cleaning response removed non-repeated lexical content.", ordinal=ordinal
         )
-    expected = before_tokens.copy()
-    for line, count in removable.items():
-        removed_tokens = Counter(token.casefold() for token in _LEXICAL_TOKEN.findall(line))
-        for token, token_count in removed_tokens.items():
-            expected[token] -= token_count * count
-    expected += Counter()
-    remaining_lines = list(_non_empty_lines(before))
-    for index in range(len(remaining_lines) - 1, -1, -1):
-        line = remaining_lines[index]
-        if removable[line] > 0:
-            removable[line] -= 1
-            remaining_lines.pop(index)
-    expected_sequence = [
-        token.casefold() for token in _LEXICAL_TOKEN.findall("\n".join(remaining_lines))
-    ]
-    if after_tokens != expected or actual_sequence != expected_sequence:
+
+    remaining_lines, removed = edge_result
+    expected_sequence = _layout_lexical_sequence("\n".join(remaining_lines))
+    if removed and (
+        after_tokens != Counter(expected_sequence) or actual_sequence != expected_sequence
+    ):
         raise _invalid_response(
             "The LLM cleaning response rewrote lexical content.", ordinal=ordinal
         )
 
 
+def _layout_lexical_sequence(text: str) -> list[str]:
+    """Compare content after harmless PDF line-wrap and whitespace normalization."""
+
+    normalized = _LINE_BREAK_HYPHEN.sub("", text).replace("\u00ad", "")
+    return [token.casefold() for token in _LEXICAL_TOKEN.findall(normalized)]
+
+
+def _remove_repeated_edge_lines(
+    before: str, after: str, repeated_edges: Counter[str]
+) -> tuple[tuple[str, ...], Counter[str]] | None:
+    """Allow deletion only for repeated lines at the original Root edges."""
+
+    before_lines = _non_empty_lines(before)
+    target_lines = _non_empty_lines(after)
+    source = [
+        (line, index in {0, len(before_lines) - 1})
+        for index, line in enumerate(before_lines)
+    ]
+    removed: Counter[str] = Counter()
+    for target in target_lines:
+        while source and source[0][0] != target:
+            line, is_edge = source[0]
+            if not is_edge or repeated_edges[line] < 2:
+                return None
+            removed[line] += 1
+            source.pop(0)
+        if not source:
+            return None
+        source.pop(0)
+    while source:
+        line, is_edge = source[0]
+        if is_edge and repeated_edges[line] >= 2:
+            removed[line] += 1
+            source.pop(0)
+            continue
+        line, is_edge = source[-1]
+        if is_edge and repeated_edges[line] >= 2:
+            removed[line] += 1
+            source.pop()
+            continue
+        return None
+    return tuple(target_lines), removed
+
+
 def _non_empty_lines(text: str) -> tuple[str, ...]:
-    return tuple(" ".join(line.split()) for line in text.splitlines() if line.strip())
+    return tuple(_line_key(line) for line in text.splitlines() if line.strip())
+
+
+def _line_key(line: str) -> str:
+    return " ".join(_LINE_BREAK_HYPHEN.sub("", line).split())
 
 
 def _repeated_edge_lines(roots: Sequence[RootChunk]) -> Counter[str]:
@@ -675,11 +712,11 @@ def _structural_anchors(text: str) -> tuple[str, ...]:
     for index, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#"):
-            anchors.append(line)
+            anchors.append(_line_key(line))
         if index + 1 < len(lines) and line.lstrip().startswith("|"):
             delimiter = lines[index + 1].strip()
             if delimiter.startswith("|") and "---" in delimiter:
-                anchors.extend((line, lines[index + 1]))
+                anchors.extend((_line_key(line), _line_key(lines[index + 1])))
     return tuple(anchors)
 
 
@@ -689,8 +726,10 @@ def _request_json(roots: Sequence[RootChunk]) -> str:
             "task": (
                 "Clean presentation noise only. Preserve every fact, number, URL, email, "
                 "quoted value, heading, table header, code block, Root count and ordinal. "
-                "Preserve every lexical word and number; only remove an exact line when it is "
-                "a repeated first/last edge across Roots."
+                "You may normalize whitespace, paragraph line breaks, heading/table spacing, "
+                "and remove an OCR line-break hyphen when it joins one word. Preserve every "
+                "lexical word and number; only remove an exact line when it is a repeated "
+                "first/last edge across Roots."
             ),
             "roots": [{"ordinal": root.ordinal, "clean_text": root.clean_text} for root in roots],
         },
@@ -703,10 +742,11 @@ _SYSTEM_PROMPT = """You are a conservative document-cleaning function.
 Return exactly one JSON object and no Markdown, commentary, or reasoning:
 {"roots":[{"ordinal":0,"clean_text":"..."}]}
 Keep every input Root exactly once with its original ordinal. Remove only obvious presentation
-noise such as repeated whitespace or duplicated first/last edge lines. Never summarize, translate,
-invent, paraphrase, reorder, or alter any lexical word, number, URL, email, quoted value, heading,
-table header, or fenced code. Do not merge or split words. If uncertain, return the input clean_text
-unchanged."""
+noise such as repeated whitespace, PDF line wrapping, OCR line-break hyphens, or duplicated
+first/last edge lines. You may reflow paragraphs and normalize whitespace around headings and
+table delimiters, but never merge distinct words. Never summarize, translate, invent, paraphrase,
+reorder, or alter any lexical word, number, URL, email, quoted value, heading text, table cell,
+or fenced code. If uncertain, return the input clean_text unchanged."""
 
 
 def _root_from_model(model: RootModel) -> RootChunk:

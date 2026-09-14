@@ -81,6 +81,36 @@ def test_response_allows_only_repeated_edge_line_removal() -> None:
     assert cleaned == ("第一段", "第二段")
 
 
+def test_response_allows_pdf_layout_reflow_and_line_break_hyphen_repair() -> None:
+    before = "#  标题\n\nPDF inter-\nface 内容。\n金额 2026。"
+    after = "# 标题\nPDF interface 内容。金额 2026。"
+
+    cleaned = parse_cleaning_response(response((0, after)), (root(before),))
+
+    assert cleaned == (after,)
+
+
+def test_response_rejects_merging_two_distinct_words() -> None:
+    with pytest.raises(AppError) as raised:
+        parse_cleaning_response(response((0, "helloworld")), (root("hello world"),))
+
+    assert raised.value.code is ErrorCode.LLM_INVALID_RESPONSE
+
+
+def test_response_cannot_remove_a_repeated_edge_line_from_the_middle() -> None:
+    roots = (
+        root("正文开始\n重复页眉\n正文结尾", ordinal=0),
+        root("重复页眉\n第二个 Root", ordinal=1),
+    )
+
+    with pytest.raises(AppError) as raised:
+        parse_cleaning_response(
+            response((0, "正文开始\n正文结尾"), (1, "重复页眉\n第二个 Root")), roots
+        )
+
+    assert raised.value.code is ErrorCode.LLM_INVALID_RESPONSE
+
+
 @pytest.mark.parametrize(
     "payload",
     [

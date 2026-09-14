@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from enterprise_rag.adapters.embeddings import (
+    BGE_SMALL_ZH_MODEL,
     LocalMultilingualEmbedding,
     OpenAICompatibleEmbedding,
 )
@@ -103,6 +104,36 @@ def test_local_provider_probes_a_runtime_limit_smaller_than_registry() -> None:
 
     assert provider.input_token_limit == 128
     assert provider.count_tokens("x " * 1_000) == 128
+
+
+def test_bge_small_zh_profile_supports_512_dimension_and_input_tokens() -> None:
+    provider = LocalMultilingualEmbedding(
+        model_name=BGE_SMALL_ZH_MODEL,
+        model=FakeLocalModel(()),
+        dimension=512,
+    )
+
+    assert provider.model_name == BGE_SMALL_ZH_MODEL
+    assert provider.dimension == 512
+    assert provider.input_token_limit == 512
+
+
+@pytest.mark.model
+@pytest.mark.skipif(os.getenv("RUN_MODEL_TESTS") != "1", reason="real model test is opt-in")
+@pytest.mark.anyio
+async def test_real_bge_small_zh_has_512_dimension_and_token_window(tmp_path: Path) -> None:
+    provider = LocalMultilingualEmbedding(
+        model_name=BGE_SMALL_ZH_MODEL,
+        cache_dir=tmp_path / "models",
+    )
+    provider.warm_tokenizer()
+    vectors = await provider.embed_documents(("企业知识库", "完整段落和句子"))
+
+    assert provider.dimension == 512
+    assert provider.input_token_limit == 512
+    assert provider.count_tokens("测试 " * 1_000) == 512
+    assert len(vectors) == 2
+    assert all(len(vector) == 512 for vector in vectors)
 
 
 @pytest.mark.anyio
