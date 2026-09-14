@@ -3,6 +3,7 @@
 import asyncio
 import re
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -18,6 +19,33 @@ from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, ProviderKind
 
 DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+BGE_SMALL_ZH_MODEL = "BAAI/bge-small-zh-v1.5"
+
+
+@dataclass(frozen=True, slots=True)
+class FastEmbedModelProfile:
+    """Non-secret metadata for a selectable local FastEmbed model."""
+
+    model_name: str
+    dimension: int
+    registry_input_token_limit: int | None
+    language_note: str
+
+
+FASTEMBED_MODEL_PROFILES = {
+    DEFAULT_MODEL: FastEmbedModelProfile(
+        DEFAULT_MODEL,
+        384,
+        512,
+        "multilingual",
+    ),
+    BGE_SMALL_ZH_MODEL: FastEmbedModelProfile(
+        BGE_SMALL_ZH_MODEL,
+        512,
+        512,
+        "Chinese-focused",
+    ),
+}
 
 
 class _FastEmbedModel(Protocol):
@@ -51,6 +79,16 @@ class LocalMultilingualEmbedding:
         self._dimension = dimension or int(TextEmbedding.get_embedding_size(model_name))
         if self._dimension <= 0:
             raise ValueError("embedding dimension must be positive")
+        profile = FASTEMBED_MODEL_PROFILES.get(model_name)
+        if (
+            model is None
+            and profile is not None
+            and dimension is not None
+            and dimension != profile.dimension
+        ):
+            raise ValueError(
+                f"embedding dimension {dimension} does not match {model_name} ({profile.dimension})"
+            )
         self._closed = False
 
     @property
@@ -67,6 +105,10 @@ class LocalMultilingualEmbedding:
     def tokenizer_name(self) -> str:
         return f"fastembed-tokenizer:{self._model_name}"
 
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
     def info(self) -> ProviderInfo:
         return ProviderInfo(
             kind=ProviderKind.EMBEDDING,
@@ -81,6 +123,7 @@ class LocalMultilingualEmbedding:
                     "onnx",
                     "model_tokenizer",
                     "input_token_limit",
+                    "model_profile",
                 }
             ),
             is_remote=False,

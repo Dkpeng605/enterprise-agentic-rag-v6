@@ -22,7 +22,7 @@ async function submit(): Promise<void> {
     await router.replace(destination)
   } catch (caught) {
     const error = caught instanceof ApiError ? caught : null
-    message.value = error?.status === 401 ? '邮箱或密码不正确。' : '暂时无法登录，请稍后重试。'
+    message.value = error?.status === 401 ? '账号或密码不正确。' : '暂时无法登录，请稍后重试。'
   } finally {
     submitting.value = false
   }
@@ -41,7 +41,7 @@ async function submit(): Promise<void> {
       <span class="login-card__mark">A</span>
       <h2>管理员登录</h2>
       <p>使用部署时配置的 bootstrap 管理员凭据。</p>
-      <label>邮箱<input v-model.trim="form.email" name="email" type="email" autocomplete="username" required /></label>
+      <label>管理员账号<input v-model.trim="form.email" name="email" type="text" autocomplete="username" required /></label>
       <label>密码<input v-model="form.password" name="password" type="password" autocomplete="current-password" required /></label>
       <p v-if="message" class="form-error" role="alert">{{ message }}</p>
       <button class="button button--primary login-submit" type="submit" :disabled="submitting">

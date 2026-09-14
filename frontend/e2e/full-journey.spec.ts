@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
-const adminEmail = process.env.E2E_ADMIN_EMAIL ?? 'admin@example.com'
-const adminPassword = process.env.E2E_ADMIN_PASSWORD ?? 'local-e2e-password'
+const adminEmail = process.env.E2E_ADMIN_EMAIL ?? 'admin'
+const adminPassword = process.env.E2E_ADMIN_PASSWORD ?? 'admin'
 
 test('anonymous full journey and isolated administrator login', async ({ page }) => {
   const suffix = Date.now().toString(36)
@@ -58,7 +58,7 @@ test('anonymous full journey and isolated administrator login', async ({ page })
   await expect(page.getByTestId('evaluation-run-list')).toContainText('已完成')
 
   await page.getByRole('link', { name: '管理员登录' }).click()
-  await page.getByLabel('邮箱').fill(adminEmail)
+  await page.getByLabel('管理员账号').fill(adminEmail)
   await page.getByLabel('密码').fill(adminPassword)
   await page.getByRole('button', { name: '安全登录' }).click()
   await expect(page).toHaveURL(/\/admin\/providers$/)

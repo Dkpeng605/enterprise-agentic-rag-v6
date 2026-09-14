@@ -192,7 +192,7 @@ onMounted(loadPipeline)
         </dl>
         <div class="llm-cleaning-actions">
           <p v-if="preflight && !preflight.available">{{ preflightReason }}</p>
-          <p v-else>保护项：Root 数量/顺序、词法内容顺序、数字、URL、邮箱、引号值、标题、表头与 fenced code；只允许删除跨 Root 重复的首/尾噪声行。</p>
+          <p v-else>保护项：Root 数量/顺序、词法内容顺序、数字、URL、邮箱、引号值、标题、表头与 fenced code；仅允许修复 PDF/OCR 版面空白、段落换行、标题/表格间距和跨行断词，或删除跨 Root 重复的原始首/尾噪声行。</p>
           <button class="button button--primary" type="button" :disabled="!preflight?.available || cleaning" @click="openCleaningConfirm">{{ cleaning ? '正在远程清洗并重建索引…' : '预检通过，人工确认' }}</button>
         </div>
         <article v-if="cleaningResult" class="llm-cleaning-result" role="status">

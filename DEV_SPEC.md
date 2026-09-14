@@ -547,6 +547,9 @@ class Splitter(Protocol):
   `embedding_token_limit - embedding_safety_margin` 的较小值，默认安全余量为 1，保证每个 embedding 输入严格小于模型上限；
 - FastEmbed wrapper 不一定暴露 tokenizer 的 truncation 字段；此时启动预热必须用超过 registry 声明上限的探测文本调用
   `token_count`，若返回更小的截断值，则以该运行时值作为 `embedding_token_limit`，Splitter 不得继续使用过时的 registry 上限；
+- 当前 MiniLM registry 虽声明 512 input tokens，真实缓存 tokenizer 可能只有 128；运行时探测值是唯一权威上限。可插拔
+  profile `BAAI/bge-small-zh-v1.5` 已验证为 512 维、512 input tokens；选择它时必须同步设置
+  `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`，并创建新的 index revision，禁止与旧向量混写；
 - 单个句子/结构单元仍超过有效预算时才允许 token 硬切，并在 Leaf metadata 标记 `hard_cut=true`，不得把正常句子拆分伪装成自然边界；
 - overlap 不得跨 Root；
 - overlap 优先携带完整句子，只有无完整句子可携带时才退化为无 overlap；
@@ -568,6 +571,8 @@ class EmbeddingProvider(Protocol):
 - 每个向量维度固定且为有限数；
 - 入库前记录模型名、revision、维度和归一化策略；
 - Provider 或维度变化必须创建新 collection/revision 并重建，不能混写；
+- FastEmbed 本地模型通过 `EMBEDDING_MODEL` 选择 profile；至少支持默认 MiniLM 与中文 `BAAI/bge-small-zh-v1.5`
+  两个 profile，Provider/Tokenizer 的实际模型名、维度和输入上限必须进入健康检查、摄取 audit 与 pipeline 详情；
 - 批处理按最大条数与最大 token 双重切分；
 - 远程 API 使用超时、指数退避和最大重试，不重试鉴权与参数错误。
 
@@ -1473,6 +1478,7 @@ Ingestion Trace 展示每阶段耗时、输入输出数量、Parser/OCR/Embeddin
 ### 16.2 系统管理员
 
 - 首次启动读取 bootstrap email/password，只在用户表为空时创建管理员；
+- 本地开发和 Compose 验收默认使用账号 `admin`、密码 `admin`；该组合只允许 development/test，production 必须拒绝并要求显式强凭据；
 - 密码使用 Argon2id；
 - bootstrap password 创建后不写日志，后续可从环境移除；
 - Session 保存随机 token hash、user、过期时间和撤销时间；
@@ -1786,6 +1792,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 - 端口：`CleanRoot` 同时保留 `raw_text` 与 `clean_text`；`CleaningAudit` 为每个实际发生变化的规则记录次数和前后 SHA-256；
 - 规则：按固定顺序处理 NUL/不可见控制字符、常见 OCR 连字/软连字符/跨行断词、行尾与空白归一化；处理 fenced code 时必须隔离代码块，保留代码缩进、空行和跨行文本；默认不调用 LLM，不改写事实内容；
+- 人工触发的可选 LLM 清洗允许修复 PDF/OCR 的空白、段落换行、标题/表格间距和单词内部的跨行断字符；必须保持全部词法 token、数字、事实和顺序，禁止把两个不同单词合并，禁止修改代码围栏及其内容；
 - 重复边界：单 Root 无法判定重复页眉页脚，因此 Cleaner 提供 `clean_all` 批量契约；仅当首行或末行达到可配置比例且至少出现两次时删除，并保留逐 Root audit；
 - 语义：输入 metadata、图片和 locator 原样保留；清洗后为空返回 `DOCUMENT_EMPTY`；相同输入输出稳定，清洗结果再次输入不会产生新变化；
 - 验收：原文保留、规则顺序和 hash 可追踪、三页页眉页脚统计、非重复页脚保留、幂等、清洗后空内容和关闭幂等。
@@ -2599,10 +2606,10 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 模型契约：发送 `{task, roots:[{ordinal, clean_text}]}`，temperature 由 Provider 固定为 0；响应必须是
   无 Markdown 包裹、无解释字段的严格 `{roots:[{ordinal, clean_text}]}` JSON。Root 数、ordinal 集、
   非空文本必须与输入一致，后端按输入 ordinal 恢复顺序，不信任供应商返回顺序；
-- 事实保护：变更只允许删除展示噪声、跨 Root 重复的首/尾页眉页脚和明显空白问题。后端除数字、URL、
-  邮箱、引号值、inline code、Markdown heading、表头/分隔行和 fenced code block 锚点外，还比较全部词法
-  token 的新增、删除与顺序；唯一允许的 token 删除必须对应跨 Root 重复的完整首/尾行。任何普通词替换、
-  重排、拆词、合词、非重复行删除或代码内容变化均以 `LLM_INVALID_RESPONSE` 拒绝整次结果；不确定时
+- 事实保护：LLM 只允许修复空白/段落换行/标题表格间距/跨行断词，并删除跨 Root 重复的原始 Root 首尾完整噪声行。
+  后端比较完整词法 token 的新增、删除与顺序，并额外保护数字、URL、邮箱、引号值、inline code、Markdown
+  heading、表头/分隔行和 fenced code block；唯一允许的 token 删除必须对应重复的原始首/尾行。任何普通词替换、
+  重排、拆词、合词、两词合一、非重复行删除或代码内容变化均以 `LLM_INVALID_RESPONSE` 拒绝整次结果；不确定时
   Prompt 要求原样返回；
 - 重切分：通过现有可插拔 `Splitter` 重新生成 Root/Leaf 稳定内容 ID，保留 parser、raw_text、kind、
   source locator 和既有 metadata；每个 Root 增加 `llm_cleaning` audit，记录 provider/model、remote、

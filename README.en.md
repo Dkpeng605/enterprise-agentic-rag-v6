@@ -62,6 +62,12 @@ The first upload or query downloads these ONNX models into the ignored
 - Reranker: `jinaai/jina-reranker-v2-base-multilingual`;
 - LLM: `MiniMax-M3`, called through `LLM_BASE_URL` from `.env`.
 
+The MiniLM registry describes a 512-token input window, but the cached FastEmbed tokenizer on this Mac
+reports an actual limit of 128; the UI and Splitter use the runtime limit. For a 512-token, 512-dimensional
+local profile, set `EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5` and
+`ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`. Model selection is pluggable; switching a model or
+dimension creates a new index revision, so old and new vectors are never mixed.
+
 Start the Vue 3 frontend in a second terminal:
 
 ```bash
@@ -84,9 +90,12 @@ The same page offers an opt-in, one-pass remote LLM cleaning action that is off 
 the Provider/Model, Root and character counts, one-call budget, and the risk of data leaving the Mac. Only after
 the checkbox confirmation does the current version's `clean_text`—not the original file—leave the machine. One
 pass is limited to 20 Roots, 12,000 input characters, and 8,000 output tokens; oversized, non-ready, stale, or
-already-cleaned versions are rejected. The response must preserve Root ordinals, lexical content and order, protected
-numbers, URLs, emails, quoted values, headings, table headers, and fenced code; only repeated first/last edge noise
-lines may be removed before the service rechunks and rebuilds the Dense/Sparse index. The UI shows changed Roots,
+already-cleaned versions are rejected. The response must preserve Root ordinals and pass checks for the complete lexical
+sequence, numbers, URLs, emails, quoted values, headings, table headers, and fenced code before the service rechunks and
+rebuilds the Dense/Sparse index. The LLM may repair PDF/OCR whitespace, paragraph line reflow, heading/table spacing,
+and a word broken by a line-break hyphen, but it may not merge distinct words or change lexical order, facts, numbers,
+or code. Only a complete noise line that was at an original Root edge and repeats across Roots may be removed. The UI
+shows changed Roots,
 before/after Leaf counts, token usage, retries, and persisted hash
 audits. Failures attempt to restore the previous vectors and ready state. This synchronous process-local lock is
 for the single-process Mac demo; multi-replica production coordination remains M8 work.
@@ -136,7 +145,7 @@ Open `http://127.0.0.1:4173`. This composition uses deterministic hashing Dense/
 retrieval and extractive answers for local demonstrations and acceptance; it is not a claim
 about production semantic-model quality. Anonymous sessions have all business permissions in
 the Demo Tenant. To test the isolated administration surface, use the acceptance-only credentials
-`admin@example.com` / `local-e2e-password`. Stop it and remove its demo data with:
+`admin` / `admin`. Stop it and remove its demo data with:
 
 ```bash
 docker compose -f infra/compose/compose.e2e.yml down --volumes --remove-orphans
@@ -227,7 +236,10 @@ Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser s
 pnpm --dir=frontend generate:api
 ```
 
-The first administrator login uses `ADMIN_BOOTSTRAP_EMAIL` and `ADMIN_BOOTSTRAP_PASSWORD`. A bootstrap account is created in PostgreSQL only when no system administrator exists, and its password is stored with Argon2id. Remove the bootstrap password from the environment after creation. For development, export both variables before starting the backend.
+The first administrator login uses `ADMIN_BOOTSTRAP_EMAIL` and `ADMIN_BOOTSTRAP_PASSWORD`. Local development defaults to
+account `admin` and password `admin`. A bootstrap account is created in PostgreSQL only when no system administrator exists,
+and its password is stored with Argon2id. Remove the bootstrap password from the environment after creation. Production
+rejects this weak pair and requires an explicit strong credential pair.
 
 PostgreSQL is required by migrations, anonymous sessions, collection/document APIs, query budgets, and integration tests. Without a configured database, object directory, or session secret, the static OpenAPI contract remains available while business routes return a stable 503. M4 now provides composable QueryRunner, synchronous/SSE, retrieval, and Agentic RAG contracts and services. The current `enterprise_rag.main:app` does not yet inject a concrete QueryRunner, so query endpoints return a stable 503 until later milestones compose production Providers and process entry points.
 
@@ -523,13 +535,13 @@ The text-document Loader supports DOCX, HTML, TXT, and Markdown. DOCX headings b
 
 The spreadsheet Loader parses XLSX, legacy XLS, and CSV independently. Each worksheet becomes header-bearing row blocks; continuation blocks repeat the header and preserve source row numbers. Empty outer rows and columns are trimmed while formula cache values and expressions remain traceable. CSV accepts UTF-8/UTF-8-SIG by default; a legacy encoding must be selected explicitly with `csv_fallback_encoding`. These Loaders are connected to the complete background pipeline.
 
-The deterministic Cleaner preserves both raw and cleaned text and records each effective rule, occurrence count, and before/after content hash. It normalizes invisible controls, common OCR artifacts, and whitespace, and uses batch Root statistics to remove repeated headers and footers; fenced code is isolated so indentation, blank lines, and wrapped code content are not rewritten. Re-cleaning the same text makes no further changes, and no LLM rewrites document content by default.
+The deterministic Cleaner preserves both raw and cleaned text and records each effective rule, occurrence count, and before/after content hash. It normalizes invisible controls, common OCR artifacts, and whitespace, and uses batch Root statistics to remove repeated headers and footers; fenced code is isolated so indentation, blank lines, and wrapped code content are not rewritten. Re-cleaning the same text makes no further changes, and no LLM rewrites document content by default. The manually triggered LLM pass is only a layout-repair supplement: it may fix PDF/OCR whitespace, paragraph line reflow, heading/table spacing, and line-break hyphenation, subject to backend lexical, order, fact, and code-fence validation.
 
 The structure-aware Splitter uses a versioned paragraph- and sentence-aware strategy: within each Root it preserves headings, paragraphs, lists, code fences, table rows, and complete sentences before applying target/max/overlap limits. It falls back to a token hard cut only when one structural unit itself exceeds the budget, and records `boundary=token_limit_hard_cut` and `hard_cut=true` in Leaf metadata. The real macOS runtime reuses the FastEmbed tokenizer and model input limit; the effective safe budget is the smaller of the configured cap and `model_input_limit - 1`. Each Root/Leaf records the actual tokenizer, budget, boundary, and hard-cut count for inspection. Continuation table chunks repeat headers and count them toward the token cap; Root/Leaf IDs remain stable for the same version, index revision, content, and order.
 
 Image enrichment writes the original image extracted by a Loader to the content-addressed ObjectStore before invoking the pluggable Vision port. The default `vision: none` keeps the image and skips captioning. A Vision failure degrades only the caption, without discarding the stored image or exposing provider errors. ObjectStore failure still aborts ingestion because image persistence is not optional data.
 
-The Embedding port has local multilingual and OpenAI-compatible implementations. The local default is FastEmbed ONNX `paraphrase-multilingual-MiniLM-L12-v2` (384 dimensions, mean pooling, and a registry description reporting 512 input tokens), which downloads approximately 0.22GB on first use. The runtime does not blindly trust the registry: it first reads the actual truncation limit; if a FastEmbed ONNX wrapper hides that field, it probes `token_count` with text beyond the registry limit and detects the tokenizer's capped runtime limit (the current cached model reports 128). The Provider exposes the real tokenizer's `count_tokens` and limit, rejects an individual input at the model limit, and shares that counter with the Splitter. The remote adapter applies item/token batch limits plus bounded retries for timeouts, rate limits, and 5xx responses, but does not invent a remote model limit when no model tokenizer is configured. Both validate count, order, dimension, and finite values and return L2-normalized vectors. Run the real-model check explicitly with:
+The Embedding port has local multilingual and OpenAI-compatible implementations, with FastEmbed profiles selected by `EMBEDDING_MODEL`. The local default is `paraphrase-multilingual-MiniLM-L12-v2` (384 dimensions, mean pooling, and a registry description reporting 512 input tokens), which downloads approximately 0.22GB on first use. The runtime does not blindly trust the registry: it first reads the actual truncation limit; if a FastEmbed ONNX wrapper hides that field, it probes `token_count` with text beyond the registry limit and detects the tokenizer's capped runtime limit (the current cached model reports 128). The optional Chinese-focused `BAAI/bge-small-zh-v1.5` profile is verified at 512 dimensions and 512 input tokens; set `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512` when selecting it, and isolate the change in a new index revision. The Provider exposes the real tokenizer's `count_tokens` and limit, rejects an individual input at the model limit, and shares that counter with the Splitter. The remote adapter applies item/token batch limits plus bounded retries for timeouts, rate limits, and 5xx responses, but does not invent a remote model limit when no model tokenizer is configured. Both validate count, order, dimension, and finite values and return L2-normalized vectors. Run the real-model check explicitly with:
 
 ```bash
 (cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \

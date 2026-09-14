@@ -93,6 +93,28 @@ def test_remote_embedding_requires_its_own_production_credentials() -> None:
     }
 
 
+def test_production_rejects_local_admin_admin_bootstrap_credentials() -> None:
+    environment = {
+        "ADMIN_BOOTSTRAP_EMAIL": "admin",
+        "ADMIN_BOOTSTRAP_PASSWORD": "admin",
+        "DATABASE_URL": "postgresql+asyncpg://example.test/db",
+        "MCP_TOKEN_PEPPER": "pepper",
+        "METRICS_TOKEN": "metrics",
+        "SESSION_SECRET": "session",
+    }
+
+    with pytest.raises(SettingsError) as raised:
+        load_settings(
+            environ=environment,
+            overrides={"app": {"environment": "production"}, "providers": {"llm": "mock"}},
+        )
+
+    assert raised.value.code is SettingsErrorCode.CONFIG_VALUE_INVALID
+    assert raised.value.details == {
+        "fields": ("ADMIN_BOOTSTRAP_EMAIL", "ADMIN_BOOTSTRAP_PASSWORD")
+    }
+
+
 def test_remote_reranker_requires_its_own_production_credentials() -> None:
     environment = {
         "ADMIN_BOOTSTRAP_EMAIL": "admin@example.test",
