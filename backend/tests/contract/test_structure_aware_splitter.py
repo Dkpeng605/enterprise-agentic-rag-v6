@@ -1,5 +1,7 @@
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 
 import pytest
@@ -122,7 +124,8 @@ async def test_model_limit_and_sentence_boundaries_are_recorded(
         embedding_token_limit=12,
     ).split(clean_root(text), context)
 
-    settings = result.root.metadata["splitter"]["settings"]
+    splitter_metadata = cast(Mapping[str, object], result.root.metadata["splitter"])
+    settings = cast(Mapping[str, object], splitter_metadata["settings"])
     assert settings["embedding_token_limit"] == 12
     assert settings["max_tokens"] == 11
     assert settings["tokenizer"] == "fixture-exact-tokenizer"
@@ -147,4 +150,6 @@ async def test_only_a_sentence_longer_than_the_budget_uses_hard_cut(
     assert len(result.leaves) > 1
     assert all(leaf.token_count <= 8 for leaf in result.leaves)
     assert any(leaf.metadata["hard_cut"] for leaf in result.leaves)
-    assert result.root.metadata["splitter"]["settings"]["hard_cut_count"] > 0
+    splitter_metadata = cast(Mapping[str, object], result.root.metadata["splitter"])
+    settings = cast(Mapping[str, object], splitter_metadata["settings"])
+    assert cast(int, settings["hard_cut_count"]) > 0

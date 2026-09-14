@@ -24,6 +24,9 @@ class FakeLocalModel:
         assert batch_size == len(documents)
         return iter(self.responses.pop(0))
 
+    def token_count(self, text: str) -> int:
+        return max(1, len(text.split()))
+
 
 @pytest.mark.anyio
 async def test_local_provider_batches_normalizes_and_preserves_order() -> None:
