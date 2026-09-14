@@ -2507,6 +2507,75 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   smoke 已实际运行对应多语 Embedding/Reranker；
 - PR：`feat/mac-real-provider-runtime`。
 
+#### M7-R2 可解释处理与检索控制台（M7 验收增强，不计入 64 个发布 Slice）
+
+本增强将“系统内部发生了什么”投影为可核验的产品数据，分为三个可独立回滚的小 PR。展示范围是
+已授权输入、结构化输出、候选/排名/分数、计数、耗时、usage、引用与稳定错误；不得展示或声称能够
+获得模型隐藏思维链（chain-of-thought）。所有接口继续从服务端 session 绑定 tenant，不接收客户端
+tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tenant 内访问，跨租户 ID 统一返回 404。
+
+##### M7-R2A 文档处理透视（已完成）
+
+- 事实源：`roots`/`leaves` 的 PostgreSQL 记录是唯一展示来源。前端不得重新切分、估算正文或用默认值
+  填补历史记录；Milvus 仍只保存可重建投影；
+- 摄取审计：确定性 Cleaner 在每个 Root metadata 保存 provider/version，以及每条实际发生规则的名称、
+  occurrence 数、before/after SHA-256；未发生变化的规则不虚构 audit。摄取 span 另外保存发生变更的
+  Root 数、规则数和 occurrence 总数；
+- 切分审计：Splitter 在 Root metadata 保存 provider/version、`target_tokens`、`max_tokens`、
+  `overlap_tokens` 和真实 tokenizer 标识。参数只描述该版本实际使用值，不从当前运行配置反推旧版本；
+- 列表接口：`GET /api/v1/documents/{document_id}/pipeline` 返回最新 version、source、Parser/Cleaner/
+  Splitter、Root/Leaf 总数和按 ordinal 分页的 Root 摘要；cursor 为最后一个 ordinal，page size 1–100；
+- 详情接口：`GET /api/v1/documents/{document_id}/pipeline/roots/{root_id}` 返回该 Root 的完整 raw/clean
+  文本、source locator、metadata 和有序 Leaves。每个 Leaf 包含实际 `text`、`retrieval_text`、token
+  数、start/end offset；相邻 overlap chars 由持久化 offset 计算，首个 Leaf 为 0；
+- UI：文档详情只在存在 Root 时显示入口。页面以 Parser→Cleaner→Splitter→Index Units 阶段卡、
+  Splitter 参数条、分页 Root 导航、raw/clean 双栏、规则 audit 与 Leaf 卡展示数据；`retrieval_text`
+  与 `text` 不同时可展开查看。loading、empty、legacy metadata、error/request-id 均有独立状态；
+- 兼容：数据库无需 migration，新增数据写入既有 JSONB metadata。升级前文档缺失 cleaner/splitter audit
+  时显示“旧数据未记录”，不得把当前配置冒充历史事实；重新上传才产生完整审计；
+- 隐私：正文接口要求 `documents:read`，响应禁止缓存为公共资源；日志与通用 OpenTelemetry span 仍不得
+  记录正文。页面文案必须说明当前 tenant 边界；匿名用户拥有 demo tenant 内查看权，不拥有系统权限；
+- EDD：集成测试必须从真实注册→Cleaner→Splitter→PostgreSQL/Milvus 流程断言 provider、参数、规则
+  audit、raw/clean 差异、Leaf offset/token/overlap；Vue 测试断言实际接口数据投影；Ruff、Mypy、
+  OpenAPI 一致性、前端 typecheck/build 与全量回归均为 required checks；
+- 回滚：移除两个只读路由和页面即可；既有 metadata 可保留且不改变查询行为，不涉及 destructive
+  migration 或向量重建；
+- PR：`feat/m7-r2-pipeline-inspector`。
+
+##### M7-R2B 查询计划与逐阶段召回指标（待实现）
+
+- 查询计划：保存并展示 original query、deterministic/LLM planner、rewritten query、intent、language、
+  有序 sub-queries、mode 与调用方 scope。Planner 只能收窄 scope，不能加入客户端未授权 ID；
+- 多子查询：每个 sub-query 具有稳定 branch index；Dense 与 Sparse 在同一 branch 并行，多 branch 结果
+  进入一次 RRF。UI 必须明确显示“未拆分/拆分为 N 条”，不能仅展示最终改写文本；
+- 逐阶段观测：至少保存各 branch 的 Dense/Sparse requested/returned、两路 Leaf overlap、RRF 输入条目/
+  unique Leaf/Root quota drop/top-k drop、PostgreSQL 授权前后及拒绝数、Rerank 输入/输出、Root recovery
+  输入/选中/截断和字符预算、LLM usage 与最终引用数；候选表显示 Dense/Sparse/RRF/Rerank rank 和 score；
+- 指标命名：单次线上查询没有 gold relevance 时不得称为 Recall@K、MRR 或 NDCG。UI 使用“候选返回率、
+  两路重叠、授权过滤率、阶段淘汰率、排名位移”等运行指标；真正 Recall@K/MRR/NDCG 只在 M6 的
+  Golden Evaluation 中计算并链接对应 Dataset/Run；
+- Trace：查询正文属于 tenant-scoped 敏感数据，只进入专用查询投影，不进入通用日志、Prometheus label
+  或异常消息。隐藏思维链、供应商 `<think>` 内容、完整 Prompt 和 Authorization 永不返回；
+- 验收：Standard 单查询、比较型多子查询、Planner 降级、Dense/Sparse 某路为空、授权过滤、Reranker
+  降级、Deep recovery 和旧 Trace 缺字段均有后端投影及 Vue 测试；真实 Mac QueryRunner 必须装配计划。
+
+##### M7-R2C 人工触发的一次 LLM 清洗（待实现）
+
+- 默认关闭：正常上传始终只执行确定性 Cleaner。LLM 清洗必须由用户在单个 ready 文档页面显式触发，
+  请求体包含远程处理确认；未确认、Provider 不可用、文档状态不允许或超过预算时拒绝；
+- 数据披露：确认框在请求前展示将发送给配置的远程 LLM 的 Root 数、字符上限、预计调用数、Provider/
+  Model、费用与数据离开本机的风险。Token、system Prompt 和隐藏推理不展示；
+- 一次语义清洗：模型只允许删除噪声、修复明显 OCR/断行并保持事实、数字、标题和表格；输出使用严格
+  schema 与 ordinal 对齐，Root 不得增删或重排。输入/输出字符、usage、model、时间、前后 hash 与
+  人工触发者写入审计，不保存隐藏推理；
+- 一致性：处理期间文档退出 query-ready；生成新 clean Root/Leaf 后重新 Embedding/Sparse 投影，并按
+  可重入 Saga 切换 PostgreSQL 与 Milvus。任何失败必须恢复原 Root/Leaf、原向量和 ready 状态，不得
+  留下半清洗版本；同一 version 同时只允许一个变换；
+- UI：显示预检、确认、执行进度、Root 级 diff/audit、重切分结果和失败后的稳定错误。用户可在提交前
+  取消，但提交远端后不能宣称已撤回供应商接收的数据；
+- EDD：Fake LLM 覆盖成功、坏 schema、ordinal 缺失/重复、事实保护失败、timeout、usage、并发冲突和
+  补偿；真实 TokenHub smoke 必须显式 opt-in、限制字符与调用数且不进入 required CI。
+
 ### M8：首次公网发布
 
 #### M8-01 Images

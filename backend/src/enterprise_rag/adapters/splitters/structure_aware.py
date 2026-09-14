@@ -53,6 +53,17 @@ class StructureAwareSplitter:
     async def split(self, root: CleanRoot, context: IngestionContext) -> SplitResult:
         if self._closed:
             raise RuntimeError("Splitter is closed")
+        metadata = dict(root.metadata)
+        metadata["splitter"] = {
+            "provider": "structure_aware",
+            "version": "1",
+            "settings": {
+                "target_tokens": self._target_tokens,
+                "max_tokens": self._max_tokens,
+                "overlap_tokens": self._overlap_tokens,
+                "tokenizer": "deterministic-multilingual-v1",
+            },
+        }
         root_chunk = RootChunk.create(
             tenant_id=context.tenant_id,
             document_id=context.document_id,
@@ -63,7 +74,7 @@ class StructureAwareSplitter:
             source_locator=root.source_locator,
             raw_text=root.raw_text,
             clean_text=root.clean_text,
-            metadata=root.metadata,
+            metadata=metadata,
         )
         tokens = self._tokenize(root.clean_text)
         if not tokens:

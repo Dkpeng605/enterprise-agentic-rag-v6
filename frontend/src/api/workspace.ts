@@ -7,6 +7,8 @@ export type CollectionInput = components['schemas']['CollectionCreate']
 export type CollectionPatch = components['schemas']['CollectionPatch']
 export type DocumentSummary = components['schemas']['DocumentResponse']
 export type DocumentDetail = components['schemas']['DocumentDetailResponse']
+export type DocumentPipeline = components['schemas']['DocumentPipelineResponse']
+export type PipelineRoot = components['schemas']['PipelineRootDetailResponse']
 export type DocumentStatus = components['schemas']['DocumentStatus']
 export type Job = components['schemas']['JobResponse']
 export type JobListItem = components['schemas']['JobListItemResponse']
@@ -39,6 +41,8 @@ export interface WorkspaceApi {
   deleteCollection(id: string, confirmName: string): Promise<void>
   listDocuments(filters?: DocumentFilters): Promise<Page<DocumentSummary>>
   getDocument(id: string): Promise<DocumentDetail>
+  getDocumentPipeline(id: string, cursor?: number): Promise<DocumentPipeline>
+  getPipelineRoot(documentId: string, rootId: string): Promise<PipelineRoot>
   uploadDocument(input: UploadInput): Promise<UploadResult>
   deleteDocument(id: string): Promise<string>
   listJobs(filters?: JobFilters): Promise<Page<JobListItem>>
@@ -91,6 +95,21 @@ export const workspaceApi: WorkspaceApi = {
     const result = await apiClient.GET('/api/v1/documents/{document_id}', {
       params: { path: { document_id: id } },
     })
+    if (result.error) throw apiErrorFromResponse(result.error, result.response)
+    return result.data
+  },
+  async getDocumentPipeline(id, cursor) {
+    const result = await apiClient.GET('/api/v1/documents/{document_id}/pipeline', {
+      params: { path: { document_id: id }, query: { cursor, limit: 50 } },
+    })
+    if (result.error) throw apiErrorFromResponse(result.error, result.response)
+    return result.data
+  },
+  async getPipelineRoot(documentId, rootId) {
+    const result = await apiClient.GET(
+      '/api/v1/documents/{document_id}/pipeline/roots/{root_id}',
+      { params: { path: { document_id: documentId, root_id: rootId } } },
+    )
     if (result.error) throw apiErrorFromResponse(result.error, result.response)
     return result.data
   },

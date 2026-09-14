@@ -1805,6 +1805,300 @@
         }
       }
     },
+    "/api/v1/documents/{document_id}/pipeline": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Inspect Document Pipeline",
+        "operationId": "inspect_document_pipeline_api_v1_documents__document_id__pipeline_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPipelineResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or invalid CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant-scoped resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Upload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Schema validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demo quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/{document_id}/pipeline/roots/{root_id}": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Inspect Pipeline Root",
+        "operationId": "inspect_pipeline_root_api_v1_documents__document_id__pipeline_roots__root_id__get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Document Id"
+            }
+          },
+          {
+            "name": "root_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Root Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRootDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or invalid CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tenant-scoped resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Upload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Schema validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demo quota exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/ingestion-jobs": {
       "get": {
         "tags": [
@@ -4169,6 +4463,35 @@
         ],
         "title": "Body_upload_document_api_v1_documents_post"
       },
+      "CleaningAuditResponse": {
+        "properties": {
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          },
+          "occurrences": {
+            "type": "integer",
+            "title": "Occurrences"
+          },
+          "before_sha256": {
+            "type": "string",
+            "title": "Before Sha256"
+          },
+          "after_sha256": {
+            "type": "string",
+            "title": "After Sha256"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "rule",
+          "occurrences",
+          "before_sha256",
+          "after_sha256"
+        ],
+        "title": "CleaningAuditResponse"
+      },
       "CollectionCreate": {
         "properties": {
           "name": {
@@ -4593,6 +4916,140 @@
           "next_cursor"
         ],
         "title": "DocumentListResponse"
+      },
+      "DocumentPipelineResponse": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id"
+          },
+          "version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Version Id"
+          },
+          "source_name": {
+            "type": "string",
+            "title": "Source Name"
+          },
+          "parser_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parser Provider"
+          },
+          "parser_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parser Version"
+          },
+          "cleaner_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleaner Provider"
+          },
+          "cleaner_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleaner Version"
+          },
+          "splitter_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Splitter Provider"
+          },
+          "splitter_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Splitter Version"
+          },
+          "splitter_settings": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Splitter Settings"
+          },
+          "root_count": {
+            "type": "integer",
+            "title": "Root Count"
+          },
+          "leaf_count": {
+            "type": "integer",
+            "title": "Leaf Count"
+          },
+          "roots": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineRootSummaryResponse"
+            },
+            "type": "array",
+            "title": "Roots"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "document_id",
+          "version_id",
+          "source_name",
+          "parser_provider",
+          "parser_version",
+          "cleaner_provider",
+          "cleaner_version",
+          "splitter_provider",
+          "splitter_version",
+          "splitter_settings",
+          "root_count",
+          "leaf_count",
+          "roots",
+          "next_cursor"
+        ],
+        "title": "DocumentPipelineResponse"
       },
       "DocumentResponse": {
         "properties": {
@@ -5919,6 +6376,170 @@
           "progress"
         ],
         "title": "OverviewActivityResponse"
+      },
+      "PipelineLeafResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "retrieval_text": {
+            "type": "string",
+            "title": "Retrieval Text"
+          },
+          "start_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Offset"
+          },
+          "end_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Offset"
+          },
+          "token_count": {
+            "type": "integer",
+            "title": "Token Count"
+          },
+          "overlap_chars": {
+            "type": "integer",
+            "title": "Overlap Chars"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "ordinal",
+          "text",
+          "retrieval_text",
+          "start_offset",
+          "end_offset",
+          "token_count",
+          "overlap_chars",
+          "metadata"
+        ],
+        "title": "PipelineLeafResponse"
+      },
+      "PipelineRootDetailResponse": {
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/PipelineRootSummaryResponse"
+          },
+          "raw_text": {
+            "type": "string",
+            "title": "Raw Text"
+          },
+          "clean_text": {
+            "type": "string",
+            "title": "Clean Text"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "leaves": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineLeafResponse"
+            },
+            "type": "array",
+            "title": "Leaves"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "summary",
+          "raw_text",
+          "clean_text",
+          "metadata",
+          "leaves"
+        ],
+        "title": "PipelineRootDetailResponse"
+      },
+      "PipelineRootSummaryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "source_locator": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Source Locator"
+          },
+          "raw_chars": {
+            "type": "integer",
+            "title": "Raw Chars"
+          },
+          "clean_chars": {
+            "type": "integer",
+            "title": "Clean Chars"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          },
+          "leaf_count": {
+            "type": "integer",
+            "title": "Leaf Count"
+          },
+          "cleaning_audit": {
+            "items": {
+              "$ref": "#/components/schemas/CleaningAuditResponse"
+            },
+            "type": "array",
+            "title": "Cleaning Audit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "ordinal",
+          "kind",
+          "source_locator",
+          "raw_chars",
+          "clean_chars",
+          "changed",
+          "leaf_count",
+          "cleaning_audit"
+        ],
+        "title": "PipelineRootSummaryResponse"
       },
       "ProviderDiagnosticResponse": {
         "properties": {

@@ -34,6 +34,7 @@ from enterprise_rag.api.schemas import (
     DocumentDeleteResponse,
     DocumentDetailResponse,
     DocumentListResponse,
+    DocumentPipelineResponse,
     DocumentResponse,
     ErrorResponseModel,
     EvaluationCatalogResponse,
@@ -46,6 +47,7 @@ from enterprise_rag.api.schemas import (
     JobListResponse,
     JobResponse,
     LoginRequest,
+    PipelineRootDetailResponse,
     QueryRequestModel,
     QueryResponseModel,
     QueryTraceViewResponse,
@@ -74,8 +76,10 @@ from enterprise_rag.services.traces import TraceService
 from enterprise_rag.services.workspace import (
     CollectionSnapshot,
     DocumentDetail,
+    DocumentPipelineSnapshot,
     DocumentSummary,
     JobListItem,
+    PipelineRootDetail,
     WorkspaceService,
 )
 
@@ -418,6 +422,42 @@ def create_api_router(
         principal: Annotated[Principal, Depends(reader)],
     ) -> DocumentDetailResponse:
         return _document_detail(await _workspace().get_document(principal.tenant_id, document_id))
+
+    @router.get(
+        "/documents/{document_id}/pipeline",
+        response_model=DocumentPipelineResponse,
+        tags=["documents"],
+    )
+    async def inspect_document_pipeline(
+        document_id: UUID,
+        principal: Annotated[Principal, Depends(reader)],
+        cursor: Annotated[int | None, Query(ge=0)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    ) -> DocumentPipelineResponse:
+        return _document_pipeline(
+            await _workspace().inspect_document_pipeline(
+                principal.tenant_id,
+                document_id,
+                cursor=cursor,
+                limit=limit,
+            )
+        )
+
+    @router.get(
+        "/documents/{document_id}/pipeline/roots/{root_id}",
+        response_model=PipelineRootDetailResponse,
+        tags=["documents"],
+    )
+    async def inspect_pipeline_root(
+        document_id: UUID,
+        root_id: str,
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> PipelineRootDetailResponse:
+        return _pipeline_root(
+            await _workspace().inspect_pipeline_root(
+                principal.tenant_id, document_id, root_id
+            )
+        )
 
     @router.delete(
         "/documents/{document_id}",
@@ -921,3 +961,11 @@ def _document_detail(item: DocumentDetail) -> DocumentDetailResponse:
         version_error_code=item.version_error_code,
         version_error_message=item.version_error_message,
     )
+
+
+def _document_pipeline(item: DocumentPipelineSnapshot) -> DocumentPipelineResponse:
+    return DocumentPipelineResponse.model_validate(asdict(item))
+
+
+def _pipeline_root(item: PipelineRootDetail) -> PipelineRootDetailResponse:
+    return PipelineRootDetailResponse.model_validate(asdict(item))

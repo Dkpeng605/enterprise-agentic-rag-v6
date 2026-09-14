@@ -213,6 +213,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{document_id}/pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect Document Pipeline */
+        get: operations["inspect_document_pipeline_api_v1_documents__document_id__pipeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{document_id}/pipeline/roots/{root_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect Pipeline Root */
+        get: operations["inspect_pipeline_root_api_v1_documents__document_id__pipeline_roots__root_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ingestion-jobs": {
         parameters: {
             query?: never;
@@ -511,6 +545,17 @@ export interface components {
             /** @default tenant */
             visibility: components["schemas"]["DocumentVisibility"];
         };
+        /** CleaningAuditResponse */
+        CleaningAuditResponse: {
+            /** Rule */
+            rule: string;
+            /** Occurrences */
+            occurrences: number;
+            /** Before Sha256 */
+            before_sha256: string;
+            /** After Sha256 */
+            after_sha256: string;
+        };
         /** CollectionCreate */
         CollectionCreate: {
             /** Name */
@@ -669,6 +714,45 @@ export interface components {
             items: components["schemas"]["DocumentResponse"][];
             /** Next Cursor */
             next_cursor: string | null;
+        };
+        /** DocumentPipelineResponse */
+        DocumentPipelineResponse: {
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /** Source Name */
+            source_name: string;
+            /** Parser Provider */
+            parser_provider: string | null;
+            /** Parser Version */
+            parser_version: string | null;
+            /** Cleaner Provider */
+            cleaner_provider: string | null;
+            /** Cleaner Version */
+            cleaner_version: string | null;
+            /** Splitter Provider */
+            splitter_provider: string | null;
+            /** Splitter Version */
+            splitter_version: string | null;
+            /** Splitter Settings */
+            splitter_settings: {
+                [key: string]: unknown;
+            };
+            /** Root Count */
+            root_count: number;
+            /** Leaf Count */
+            leaf_count: number;
+            /** Roots */
+            roots: components["schemas"]["PipelineRootSummaryResponse"][];
+            /** Next Cursor */
+            next_cursor: number | null;
         };
         /** DocumentResponse */
         DocumentResponse: {
@@ -1136,6 +1220,66 @@ export interface components {
             started_at: string;
             /** Progress */
             progress: number | null;
+        };
+        /** PipelineLeafResponse */
+        PipelineLeafResponse: {
+            /** Id */
+            id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Text */
+            text: string;
+            /** Retrieval Text */
+            retrieval_text: string;
+            /** Start Offset */
+            start_offset: number | null;
+            /** End Offset */
+            end_offset: number | null;
+            /** Token Count */
+            token_count: number;
+            /** Overlap Chars */
+            overlap_chars: number;
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+        };
+        /** PipelineRootDetailResponse */
+        PipelineRootDetailResponse: {
+            summary: components["schemas"]["PipelineRootSummaryResponse"];
+            /** Raw Text */
+            raw_text: string;
+            /** Clean Text */
+            clean_text: string;
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+            /** Leaves */
+            leaves: components["schemas"]["PipelineLeafResponse"][];
+        };
+        /** PipelineRootSummaryResponse */
+        PipelineRootSummaryResponse: {
+            /** Id */
+            id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Kind */
+            kind: string;
+            /** Source Locator */
+            source_locator: {
+                [key: string]: unknown;
+            };
+            /** Raw Chars */
+            raw_chars: number;
+            /** Clean Chars */
+            clean_chars: number;
+            /** Changed */
+            changed: boolean;
+            /** Leaf Count */
+            leaf_count: number;
+            /** Cleaning Audit */
+            cleaning_audit: components["schemas"]["CleaningAuditResponse"][];
         };
         /** ProviderDiagnosticResponse */
         ProviderDiagnosticResponse: {
@@ -2828,6 +2972,216 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDeleteResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    inspect_document_pipeline_api_v1_documents__document_id__pipeline_get: {
+        parameters: {
+            query?: {
+                cursor?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentPipelineResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Forbidden or invalid CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Tenant-scoped resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Resource conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Upload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Schema validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+            /** @description Demo quota exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseModel"];
+                };
+            };
+        };
+    };
+    inspect_pipeline_root_api_v1_documents__document_id__pipeline_roots__root_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+                root_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineRootDetailResponse"];
                 };
             };
             /** @description Invalid request */
