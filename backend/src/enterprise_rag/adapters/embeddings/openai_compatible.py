@@ -6,7 +6,13 @@ from typing import Any
 
 import httpx
 
-from enterprise_rag.adapters.embeddings.common import EmbeddingError, batches, validated_vectors
+from enterprise_rag.adapters.embeddings.common import (
+    EmbeddingError,
+    TokenCounter,
+    batches,
+    estimate_token_count,
+    validated_vectors,
+)
 from enterprise_rag.domain.errors import ErrorCode
 from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, ProviderKind
 
@@ -21,6 +27,10 @@ class OpenAICompatibleEmbedding:
         api_key: str,
         model: str,
         dimension: int,
+        provider_name: str = "openai_compatible",
+        input_token_limit: int | None = None,
+        token_counter: TokenCounter = estimate_token_count,
+        tokenizer_name: str = "deterministic-token-estimate-v1",
         batch_size: int = 64,
         max_batch_tokens: int = 8_192,
         timeout_seconds: float = 20.0,
@@ -28,16 +38,28 @@ class OpenAICompatibleEmbedding:
         client: httpx.AsyncClient | None = None,
         sleeper: Sleeper = asyncio.sleep,
     ) -> None:
-        if not base_url.strip() or not api_key.strip() or not model.strip():
+        if (
+            not base_url.strip()
+            or not api_key.strip()
+            or not model.strip()
+            or not provider_name.strip()
+            or not tokenizer_name.strip()
+        ):
             raise ValueError("remote embedding configuration must not be blank")
         if dimension <= 0 or batch_size <= 0 or max_batch_tokens <= 0:
             raise ValueError("embedding dimension and batch limits must be positive")
         if timeout_seconds <= 0 or not 0 <= max_retries <= 10:
             raise ValueError("timeout and retry settings are invalid")
+        if input_token_limit is not None and input_token_limit <= 0:
+            raise ValueError("input_token_limit must be positive when provided")
         self._endpoint = base_url.rstrip("/") + "/embeddings"
         self._api_key = api_key
         self._model = model
+        self._provider_name = provider_name
         self._dimension = dimension
+        self._input_token_limit = input_token_limit
+        self._token_counter = token_counter
+        self._tokenizer_name = tokenizer_name
         self._batch_size = batch_size
         self._max_batch_tokens = max_batch_tokens
         self._timeout = timeout_seconds
@@ -51,12 +73,27 @@ class OpenAICompatibleEmbedding:
     def dimension(self) -> int:
         return self._dimension
 
+    @property
+    def input_token_limit(self) -> int | None:
+        return self._input_token_limit
+
+    @property
+    def tokenizer_name(self) -> str:
+        return self._tokenizer_name
+
+    def count_tokens(self, text: str) -> int:
+        """Return the explicitly labelled estimate used for remote batching/splitting."""
+
+        return max(1, int(self._token_counter(text)))
+
     def info(self) -> ProviderInfo:
         return ProviderInfo(
             kind=ProviderKind.EMBEDDING,
-            name="openai_compatible",
+            name=self._provider_name,
             version=self._model,
-            capabilities=frozenset({"documents", "query", "normalized", "retry", "batch"}),
+            capabilities=frozenset(
+                {"documents", "query", "normalized", "retry", "batch", "estimated_tokens"}
+            ),
             is_remote=True,
             health=ProviderHealth.UNAVAILABLE if self._closed else ProviderHealth.UNKNOWN,
         )
@@ -65,7 +102,13 @@ class OpenAICompatibleEmbedding:
         if self._closed:
             raise RuntimeError("Embedding Provider is closed")
         result: list[list[float]] = []
-        for batch in batches(texts, max_items=self._batch_size, max_tokens=self._max_batch_tokens):
+        for batch in batches(
+            texts,
+            max_items=self._batch_size,
+            max_tokens=self._max_batch_tokens,
+            token_counter=self.count_tokens,
+            max_input_tokens=self._input_token_limit,
+        ):
             result.extend(await self._embed_batch(batch))
         return result
 

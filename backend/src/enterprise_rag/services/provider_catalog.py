@@ -14,6 +14,9 @@ from enterprise_rag.ports.registry import ProviderRegistry
 
 DEFAULT_RERANKER_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 MULTILINGUAL_RERANKER_MODEL = "jinaai/jina-reranker-v2-base-multilingual"
+SILICONFLOW_EMBEDDING_MODEL = "BAAI/bge-m3"
+SILICONFLOW_RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
+SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +28,7 @@ class ProviderOption:
     name: str
     model: str
     label: str
+    provider: str
     capabilities: tuple[str, ...]
     is_remote: bool
     dimension: int | None = None
@@ -32,13 +36,14 @@ class ProviderOption:
     language_note: str | None = None
     note: str | None = None
 
-    def to_dict(self, *, selected: bool) -> dict[str, object]:
+    def to_dict(self, *, selected: bool, available: bool) -> dict[str, object]:
         return {
             "kind": self.kind,
             "key": self.key,
             "name": self.name,
             "model": self.model,
             "label": self.label,
+            "provider": self.provider,
             "capabilities": list(self.capabilities),
             "is_remote": self.is_remote,
             "dimension": self.dimension,
@@ -46,7 +51,10 @@ class ProviderOption:
             "language_note": self.language_note,
             "note": self.note,
             "selected": selected,
-            "available": True,
+            "available": available,
+            "unavailable_reason": (
+                None if available else "需要在 backend 环境配置 SILICONFLOW_API_KEY"
+            ),
             "requires_restart": True,
         }
 
@@ -63,6 +71,7 @@ def _embedding_options() -> tuple[ProviderOption, ...]:
                 name="local_multilingual_minilm",
                 model=model,
                 label=label,
+                provider="FastEmbed",
                 capabilities=("documents", "query", "normalized", "model_tokenizer"),
                 is_remote=False,
                 dimension=profile.dimension,
@@ -81,11 +90,26 @@ def _embedding_options() -> tuple[ProviderOption, ...]:
 _OPTIONS: tuple[ProviderOption, ...] = (
     *_embedding_options(),
     ProviderOption(
+        kind=ProviderKind.EMBEDDING.value,
+        key=SILICONFLOW_EMBEDDING_MODEL,
+        name="siliconflow",
+        model=SILICONFLOW_EMBEDDING_MODEL,
+        label="SiliconFlow BGE-M3",
+        provider="SiliconFlow",
+        capabilities=("documents", "query", "normalized", "remote", "multilingual"),
+        is_remote=True,
+        dimension=1024,
+        input_token_limit=8192,
+        language_note="100+ languages",
+        note="1024 维；远程 token 计数为保守估算，切换后必须重新摄取",
+    ),
+    ProviderOption(
         kind=ProviderKind.RERANKER.value,
         key=MULTILINGUAL_RERANKER_MODEL,
         name="local_cross_encoder",
         model=MULTILINGUAL_RERANKER_MODEL,
         label="Jina 多语 Reranker",
+        provider="FastEmbed",
         capabilities=("cross-encoder", "onnx", "local"),
         is_remote=False,
         language_note="multilingual",
@@ -97,10 +121,24 @@ _OPTIONS: tuple[ProviderOption, ...] = (
         name="local_cross_encoder",
         model=DEFAULT_RERANKER_MODEL,
         label="MS MARCO MiniLM",
+        provider="FastEmbed",
         capabilities=("cross-encoder", "onnx", "local"),
         is_remote=False,
         language_note="English-focused",
         note="英文模型，中文场景需谨慎",
+    ),
+    ProviderOption(
+        kind=ProviderKind.RERANKER.value,
+        key=SILICONFLOW_RERANKER_MODEL,
+        name="siliconflow",
+        model=SILICONFLOW_RERANKER_MODEL,
+        label="SiliconFlow BGE Reranker v2 M3",
+        provider="SiliconFlow",
+        capabilities=("cross-encoder", "http", "remote", "multilingual"),
+        is_remote=True,
+        input_token_limit=8192,
+        language_note="multilingual",
+        note="官方 API /rerank；模型支持长输入，RAG 默认仍只重排候选 Leaf",
     ),
 )
 
@@ -136,12 +174,14 @@ class RuntimeProviderCatalog:
         current_models: dict[str, str],
         current_embedding_dimension: int | None = None,
         current_embedding_input_token_limit: int | None = None,
+        remote_credentials: frozenset[str] = frozenset(),
     ) -> None:
         self._registry = registry
         self._selection_path = selection_path
         self._current_models = dict(current_models)
         self._current_embedding_dimension = current_embedding_dimension
         self._current_embedding_input_token_limit = current_embedding_input_token_limit
+        self._remote_credentials = remote_credentials
         self._selection = load_provider_selection(selection_path)
 
     def to_dict(self) -> dict[str, object]:
@@ -173,11 +213,7 @@ class RuntimeProviderCatalog:
                     else {}
                 ),
                 **(
-                    {
-                        "embedding_input_token_limit": str(
-                            self._current_embedding_input_token_limit
-                        )
-                    }
+                    {"embedding_input_token_limit": str(self._current_embedding_input_token_limit)}
                     if self._current_embedding_input_token_limit is not None
                     else {}
                 ),
@@ -188,7 +224,10 @@ class RuntimeProviderCatalog:
         self, option: ProviderOption, *, selected: dict[str, str]
     ) -> dict[str, object]:
         is_selected = selected.get(option.kind, "") == option.key
-        payload = option.to_dict(selected=is_selected)
+        payload = option.to_dict(
+            selected=is_selected,
+            available=not option.is_remote or option.kind in self._remote_credentials,
+        )
         if is_selected and option.kind == ProviderKind.EMBEDDING.value:
             if self._current_embedding_dimension is not None:
                 payload["dimension"] = self._current_embedding_dimension
@@ -203,6 +242,11 @@ class RuntimeProviderCatalog:
         )
         if option is None:
             raise ValueError("The requested Provider profile is not available.")
+        if option.is_remote and option.kind not in self._remote_credentials:
+            raise ValueError(
+                "The requested remote Provider requires SILICONFLOW_API_KEY "
+                "in the backend environment."
+            )
         field = {
             ProviderKind.EMBEDDING.value: "embedding_model",
             ProviderKind.RERANKER.value: "reranker_model",
@@ -236,9 +280,7 @@ class RuntimeProviderCatalog:
             raise
 
 
-def selected_runtime_model(
-    selection: dict[str, str], *, kind: str, default: str
-) -> str:
+def selected_runtime_model(selection: dict[str, str], *, kind: str, default: str) -> str:
     field = {
         ProviderKind.EMBEDDING.value: "embedding_model",
         ProviderKind.RERANKER.value: "reranker_model",

@@ -1,3 +1,4 @@
+import json
 import math
 import os
 from collections.abc import Iterable, Sequence
@@ -177,6 +178,42 @@ async def test_openai_compatible_orders_response_and_retries_only_transient_erro
     assert sleeps == [0.25]
     assert vectors[0] == pytest.approx([0.6, 0.8])
     assert vectors[1] == pytest.approx([0.0, 1.0])
+
+
+@pytest.mark.anyio
+async def test_siliconflow_bge_m3_uses_official_embedding_contract_and_declared_limits() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == "https://api.siliconflow.cn/v1/embeddings"
+        assert request.headers["Authorization"] == "Bearer test-secret"
+        assert request.headers["Content-Type"].startswith("application/json")
+        assert json.loads(request.read()) == {
+            "model": "BAAI/bge-m3",
+            "input": ["企业知识库"],
+            "encoding_format": "float",
+        }
+        return httpx.Response(
+            200,
+            json={"data": [{"index": 0, "embedding": [1.0] * 1024}]},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatibleEmbedding(
+            base_url="https://api.siliconflow.cn/v1",
+            api_key="test-secret",
+            model="BAAI/bge-m3",
+            provider_name="siliconflow",
+            dimension=1024,
+            input_token_limit=8192,
+            tokenizer_name="estimated-tokenizer:BAAI/bge-m3",
+            client=client,
+        )
+        vector = await provider.embed_query("企业知识库")
+
+    assert len(vector) == 1024
+    assert provider.input_token_limit == 8192
+    assert provider.tokenizer_name == "estimated-tokenizer:BAAI/bge-m3"
+    assert provider.info().name == "siliconflow"
+    assert "estimated_tokens" in provider.info().capabilities
 
 
 @pytest.mark.anyio

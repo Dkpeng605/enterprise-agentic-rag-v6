@@ -1480,6 +1480,8 @@ export interface components {
             model: string;
             /** Label */
             label: string;
+            /** Provider */
+            provider: string;
             /** Capabilities */
             capabilities: string[];
             /** Is Remote */
@@ -1496,6 +1498,8 @@ export interface components {
             selected: boolean;
             /** Available */
             available: boolean;
+            /** Unavailable Reason */
+            unavailable_reason?: string | null;
             /** Requires Restart */
             requires_restart: boolean;
         };
