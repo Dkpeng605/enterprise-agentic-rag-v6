@@ -298,7 +298,28 @@ For local development with `milvus_lite`, the API and standalone Worker must not
 run the standalone Worker only while the API is stopped. Production must set `providers.vector_store=milvus_remote` and
 provide `VECTOR_STORE_URI`, `VECTOR_STORE_TOKEN` (and optionally `VECTOR_STORE_DATABASE`) so the API and multiple Workers
 share a server-backed Milvus. This completes the production Worker prerequisite, while production images, Compose, backups,
-and public release remain later M8 slices.
+and public release remain later M8 slices; the production images themselves are delivered by M8-01 below.
+
+### M8-01 production images
+
+`infra/production/backend.Dockerfile` is a two-stage build for a production FastAPI/Worker image. The runtime includes the
+system libraries required by PDF/OCR ingestion, fixes one Uvicorn worker and a `/health/live` healthcheck, and runs as the
+non-root `app` user with UID 10001. Compose can override the same image command to start the standalone
+`enterprise-rag-worker`, so the backend environment is not duplicated.
+
+`infra/production/frontend.Dockerfile` compiles Vue 3/TypeScript in a Node build stage and serves the resulting SPA with
+Caddy on internal port 8080 as the non-root `app` user, including history fallback. Neither image contains `.env` files,
+runtime data, dependency caches, model weights, or host build output; the root `.dockerignore` removes them before the build
+context is sent.
+
+Reproducible local `linux/amd64` records from `docker image inspect` (2026-09-16): backend `278238911` bytes (about
+265.3 MiB), frontend `22704397` bytes (about 21.7 MiB). These are build records for the current base images and dependency
+lock, not a promise of runtime capacity; M8-02 still adds production Compose, network isolation, and the outer Caddy proxy.
+
+```bash
+docker build --platform=linux/amd64 -f infra/production/backend.Dockerfile -t enterprise-rag-backend:local .
+docker build --platform=linux/amd64 -f infra/production/frontend.Dockerfile -t enterprise-rag-frontend:local .
+```
 
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
 To stop PostgreSQL only:
@@ -599,7 +620,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R14 partial-answer status and abstention-rate semantics: complete
 - M7-R15 protected image preview in the Pipeline Inspector: complete
 - M8-00 standalone ingestion Worker prerequisite: complete
-- Next: M8-01 production images
+- M8-01 production images: complete
+- Next: M8-02 production Compose/Caddy
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
