@@ -87,6 +87,13 @@ class QueryPlan:
         require_non_empty(self.language, "language")
         _validate_text_tuple(self.sub_queries, "sub_queries")
         _validate_text_tuple(self.requirements, "requirements")
+        if (
+            len(self.requirements) != 1
+            or self.requirements[0].strip() != self.original_query.strip()
+        ):
+            raise ValueError(
+                "requirements must contain exactly the original user query"
+            )
 
     def to_dict(self) -> dict[str, object]:
         return {

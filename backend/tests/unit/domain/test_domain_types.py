@@ -214,7 +214,7 @@ def test_query_plan_serializes_scope_without_mutable_lists() -> None:
         rewritten_query="Compare policy A with policy B",
         intent=QueryIntent.COMPARISON,
         sub_queries=("What is A?", "What is B?"),
-        requirements=("cite both",),
+        requirements=("Compare A and B",),
         scope=QueryScope(collection_ids=(COLLECTION_ID,), titles=("Policy",)),
         language="en",
         mode=QueryMode.DEEP,
@@ -231,6 +231,30 @@ def test_query_plan_serializes_scope_without_mutable_lists() -> None:
     }
     with pytest.raises(ValueError, match="duplicates"):
         QueryScope(titles=("same", "same"))
+
+
+@pytest.mark.parametrize(
+    "requirements",
+    [
+        (),
+        ("要求一", "要求二"),
+        ("不是原始问题",),
+    ],
+)
+def test_query_plan_accepts_only_the_original_user_requirement(
+    requirements: tuple[str, ...],
+) -> None:
+    with pytest.raises(ValueError, match="original user query"):
+        QueryPlan(
+            original_query="原始问题",
+            rewritten_query="改写后的检索路径",
+            intent=QueryIntent.FACTUAL,
+            sub_queries=("改写后的检索路径", "替代检索路径"),
+            requirements=requirements,
+            scope=QueryScope(),
+            language="zh",
+            mode=QueryMode.STANDARD,
+        )
 
 
 def test_hit_and_citation_validate_rank_score_and_source_boundaries() -> None:
