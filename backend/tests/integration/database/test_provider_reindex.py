@@ -105,6 +105,14 @@ class PartiallyFailingProjection:
         raise RuntimeError("injected projection failure")
 
 
+class SilentlyIncompleteProjection:
+    """A broken projection adapter that reports success without writing vectors."""
+
+    async def project(self, request: ProjectionRequest) -> None:
+        del request
+        return None
+
+
 def chunks(revision: str) -> tuple[RootChunk, LeafChunk]:
     root = RootChunk.create(
         tenant_id=TENANT_ID,
@@ -376,6 +384,76 @@ async def test_successful_reindex_activates_new_revision_and_removes_all_old_vec
             TENANT_ID, VERSION_ID, OLD_REVISION
         ) == 0
         assert await stored_revisions(database) == (NEW_REVISION,)
+    finally:
+        await vector_store.aclose()
+        await database.dispose()
+
+
+@pytest.mark.anyio
+async def test_silent_incomplete_projection_preserves_old_revision_and_database_facts(
+    tmp_path: Path,
+) -> None:
+    database = Database(DATABASE_URL)
+    vector_store = MilvusLiteVectorStore(tmp_path / "silent-incomplete-reindex.db")
+    try:
+        old_leaf = await seed_database(database, OLD_REVISION)
+        await seed_vector(vector_store, OLD_REVISION, old_leaf)
+        service = reindex_service(
+            database,
+            vector_store,
+            cast(ProjectionService, SilentlyIncompleteProjection()),
+            tmp_path / "temporary",
+        )
+
+        result = await service.reindex(TENANT_ID)
+        old_hits = await vector_store.dense_search(
+            DenseSearchRequest(OLD_REVISION, TENANT_ID, (1.0, 0.0, 0.1), 5)
+        )
+
+        assert result.failed_count == 1
+        assert [hit.leaf_id for hit in old_hits] == [old_leaf.id]
+        assert await vector_store.count_by_version_revision(
+            TENANT_ID, VERSION_ID, NEW_REVISION
+        ) == 0
+        assert await stored_revisions(database) == (OLD_REVISION,)
+    finally:
+        await vector_store.aclose()
+        await database.dispose()
+
+
+@pytest.mark.anyio
+async def test_incomplete_old_revision_cleanup_is_reported_without_hiding_old_vectors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = Database(DATABASE_URL)
+    vector_store = MilvusLiteVectorStore(tmp_path / "incomplete-cleanup-reindex.db")
+    try:
+        old_leaf = await seed_database(database, OLD_REVISION)
+        await seed_vector(vector_store, OLD_REVISION, old_leaf)
+        service = reindex_service(
+            database, vector_store, real_projection(vector_store), tmp_path / "temporary"
+        )
+
+        async def silently_skip_delete(
+            tenant_id: UUID, version_id: UUID, index_revision: str
+        ) -> int:
+            del tenant_id, version_id, index_revision
+            return 0
+
+        monkeypatch.setattr(vector_store, "delete_by_version_revision", silently_skip_delete)
+
+        result = await service.reindex(TENANT_ID)
+
+        assert result.rebuilt_count == 1
+        assert result.cleanup_failed_count == 1
+        assert result.items[0].status == "rebuilt_cleanup_degraded"
+        assert await vector_store.count_by_version_revision(
+            TENANT_ID, VERSION_ID, OLD_REVISION
+        ) == 1
+        assert await vector_store.count_by_version_revision(
+            TENANT_ID, VERSION_ID, NEW_REVISION
+        ) == 1
     finally:
         await vector_store.aclose()
         await database.dispose()

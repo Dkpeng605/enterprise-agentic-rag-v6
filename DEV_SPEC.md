@@ -2896,7 +2896,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   PostgreSQL 文档和 Milvus 数据无需删除，本地 pepper 文件可由 operator 手工安全移除；
 - PR：`feat/m7-r8-mac-http-mcp`。
 
-##### M7-R9 Milvus 原生 BM25 Sparse（当前开发切片）
+##### M7-R9 Milvus 原生 BM25 Sparse（已完成）
 
 - 目标：修复 Mac 完整语义组合中“简历声称 BM25、代码实际 Hashing”的事实不一致，同时保留离线
   Compose/公开零成本评测所需的确定性 Hashing。该切片不通过重命名或应用层伪造 IDF 达成指标；BM25
@@ -2941,6 +2941,41 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
      OpenAPI drift、30 Case quality gate 与 Browser E2E 均通过；README 中英文及本规格同步更新。
 
 - PR：`feat/m7-r9-milvus-bm25-sparse`。
+
+##### M7-R10 Provider 失败路径与重建投影完整性（已完成）
+
+- 目标：关闭远程 Embedding/Reranker 与 Provider Reindex 的失败安全缺口。远程服务不可用、协议层断开、
+  错误维度、重复/未知候选身份都必须停留在 Provider 边界或可观测的降级路径，不能把供应商响应正文、
+  Authorization 或密钥泄露给客户端；重建不能因为一个投影适配器静默少写而把不可查询的新 revision
+  交换成 PostgreSQL 当前事实。
+- 远程 Embedding：`OpenAICompatibleEmbedding` 对 timeout、网络和 HTTP transport 错误执行配置范围内的
+  有界指数退避；最终统一为 `EMBEDDING_UNAVAILABLE`。成功响应必须校验 data 数量、唯一且连续的 index、
+  每条 vector 的 dimension、可转为有限数值且非零，并使用 `EMBEDDING_INVALID_RESPONSE` 拒绝错误维度、
+  顺序或数值。错误 details 只允许稳定状态码/计数/维度，不得包含响应 body 或 secret。
+- 远程 Reranker：`OpenAICompatibleReranker` 对同一类 transport 故障执行相同的有界重试和净化；results
+  必须恰好等于 `top_n`，每个 index 必须是候选集合内的唯一整数且 score 为有限数。适配器把 index 映射回
+  请求时的 candidate ID，`RerankingService` 再次校验重复/未知/缺失 candidate identity；任何不合格响应
+  使用 `RERANKER_INVALID_RESPONSE` 进入原 RRF 顺序的有限候选 fallback，并在 span 标记 degraded。
+- Provider Reindex 投影闸门：管理员发起重建后，先按当前 Embedding/Sparse revision 生成并投影所有新 Leaf。
+  即使投影实现返回成功，也必须通过 `ProjectionResult.verified_count == new_leaf_count` 与独立的
+  `VectorStore.count_by_version_revision(tenant, version, target_revision)` 双重核对；目标 revision 未完整
+  写入时只定向清理目标 revision，不能交换 Root/Leaf 或删除旧 revision。数据库交换仍是一个事务，交换失败
+  也只清理目标 revision；旧 revision 必须能通过真实 Dense/Sparse 查询继续工作。
+- 成功与状态：只有新 Root/Leaf 已交换并且每个旧 revision 定向清理成功，才报告 `rebuilt`；旧向量清理异常
+  报告 `rebuilt_cleanup_degraded`，新 revision 仍保持可用且不伪报旧向量已删除。成功路径核对旧 revision
+  为 0、新 revision 数量等于 PostgreSQL Leaf 数；静默空投影、部分投影、数据库交换异常都要保持旧事实。
+  restart-bound Provider selection 在重启后由实际运行 Provider 作为 current，已应用的 selection 不得继续显示
+  `pending_*`；Milvus 持久化 collection 与 PostgreSQL 事实不一致时，使用按 tenant/version/revision 的
+  reconcile 或安全重建，禁止删除整个 Milvus 文件。
+- EDD 验收：先以 transport protocol failure 和静默不完整投影构造红灯测试，再实现净化重试和投影完整性闸门；
+  契约测试覆盖远程 Embedding 错误维度/非有限向量、远程 Reranker 重复/未知 index，集成测试使用真实
+  PostgreSQL + Milvus Lite 证明 projection failure、swap failure、silent incomplete projection、旧 revision
+  真实查询、新旧 vector count 和旧向量清理。Provider catalog 测试覆盖重启后的 current/pending；全量
+  Pytest、Ruff、strict Mypy、前端测试/typecheck/build、OpenAPI drift、质量门禁和 Browser E2E 必须全绿，
+  README 中英文同时维护启动、重建、reconcile 和回滚说明。
+- 回滚：先停止正在运行的 Provider Reindex，再回滚应用代码；已存在的旧 revision 不受影响，失败目标可按
+  revision 定向删除。禁止通过删除 Milvus 文件回滚，也不回滚 PostgreSQL migration（本切片无 schema 变更）。
+- PR：`fix/m7-r10-provider-failure-paths`。
 
 ### M8：首次公网发布
 

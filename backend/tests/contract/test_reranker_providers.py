@@ -175,6 +175,37 @@ async def test_http_provider_bounds_timeout_retries() -> None:
 
 
 @pytest.mark.anyio
+async def test_http_provider_sanitizes_protocol_failures_and_bounds_retries() -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.RemoteProtocolError("secret upstream diagnostic", request=request)
+
+    async def sleeper(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatibleReranker(
+            base_url="https://provider.example/v1",
+            api_key="not-in-errors",
+            model="rerank-model",
+            max_retries=1,
+            client=client,
+            sleeper=sleeper,
+        )
+        with pytest.raises(AppError) as raised:
+            await provider.rerank("AI", candidates(), top_k=2)
+
+    assert calls == 2
+    assert sleeps == [0.25]
+    assert raised.value.code is ErrorCode.RERANKER_UNAVAILABLE
+    assert "secret upstream diagnostic" not in str(raised.value)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("status", "payload", "expected_code", "expected_calls"),
     [
