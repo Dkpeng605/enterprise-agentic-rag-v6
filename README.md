@@ -359,6 +359,7 @@ Vite 会把 `/api` 与 `/health` 同源代理到 `127.0.0.1:8000`。当前前端
 完整路由表、匿名 session、管理员登录、system route guard、公共 SSE 问答、租户总览、
 Collection/Document 管理、摄取任务监控、Query Trace 瀑布/排名/Recovery 检查器、Ingestion
 Trace 阶段/批次/稳定错误检查器、MCP 能力目录，以及预算评测中心。
+问答页在桌面和移动视口都保留集合范围选择；移动端会在有界滚动的控制区内展示集合，避免因响应式布局隐藏真实知识范围。
 匿名用户无需登录即可进入 `/workspace/*`；`/workspace/overview` 会读取当前 tenant 的集合、文档、
 索引、24 小时 Query 与最近任务聚合，并并列显示 `/health/doctor` 的 Provider 状态；
 `/workspace/documents` 支持集合 CRUD、筛选、上传、详情和安全删除，`/workspace/ingestion` 展示
