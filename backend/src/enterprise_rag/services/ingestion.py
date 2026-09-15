@@ -1,9 +1,11 @@
 """Lease-aware, resumable ingestion Pipeline orchestration."""
 
+import asyncio
 import logging
 import tempfile
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -72,6 +74,79 @@ class _StoredSource(BinarySource):
 
     def chunks(self) -> AsyncIterator[bytes]:
         return self.object_store.read(self.object_key)
+
+
+class _LeaseHeartbeat:
+    """Renew a running job while an external Provider call is still in flight."""
+
+    def __init__(
+        self,
+        job: JobSnapshot,
+        owner: str,
+        database: Database,
+        lease_for: timedelta,
+        clock: Clock,
+    ) -> None:
+        self._job = job
+        self._owner = owner
+        self._database = database
+        self._lease_for = lease_for
+        self._clock = clock
+        self._progress = job.progress
+        self._stage = job.stage or "running"
+        self._interval = max(0.1, min(lease_for.total_seconds() / 3, 30.0))
+        self._task: asyncio.Task[None] | None = None
+
+    def update(self, progress: int, stage: str) -> None:
+        self._progress = progress
+        self._stage = stage
+
+    async def start(self) -> None:
+        self._task = asyncio.create_task(
+            self._run(), name=f"ingestion-lease-heartbeat-{self._job.id}"
+        )
+
+    async def close(self) -> None:
+        task = self._task
+        self._task = None
+        if task is None:
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    async def _run(self) -> None:
+        while True:
+            await asyncio.sleep(self._interval)
+            try:
+                async with self._database.session() as session:
+                    await IngestionJobRepository(session).heartbeat(
+                        self._job.id,
+                        owner=self._owner,
+                        now=self._clock(),
+                        lease_for=self._lease_for,
+                        progress=self._progress,
+                        stage=self._stage,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # The next interval retries. The foreground checkpoint remains
+                # authoritative if a database outage outlasts the lease.
+                LOGGER.warning(
+                    "rag.ingestion.lease_heartbeat_failed",
+                    extra={
+                        "event_code": "INGESTION_LEASE_HEARTBEAT_FAILED",
+                        "outcome": "degraded",
+                        "job_id": str(self._job.id),
+                    },
+                    exc_info=True,
+                )
+
+
+_ACTIVE_LEASE: ContextVar[_LeaseHeartbeat | None] = ContextVar(
+    "enterprise_rag_active_ingestion_lease", default=None
+)
 
 
 class IngestionPipeline:
@@ -155,42 +230,60 @@ class IngestionPipeline:
         started_at = self._clock()
         started_monotonic = perf_counter()
         trace_id: str | None = None
+        database = getattr(self, "_database", None)
+        lease_for = getattr(self, "_lease_for", None)
+        clock = getattr(self, "_clock", None)
+        lease = (
+            _LeaseHeartbeat(job, owner, database, lease_for, clock)
+            if isinstance(database, Database)
+            and isinstance(lease_for, timedelta)
+            and callable(clock)
+            else None
+        )
+        lease_token = _ACTIVE_LEASE.set(lease)
+        if lease is not None:
+            await lease.start()
         metrics = getattr(self, "_metrics", None)
-        with bind_metrics(metrics), bind_context(
-            tenant_id=job.tenant_id,
-            job_id=job.id,
-            document_id=job.document_id,
-        ), start_span(
-            "rag.ingestion",
-            attributes={"rag.ingestion.attempt": job.attempts},
-            tracer_provider=self._tracer_provider,
-        ) as span:
-            context = span.get_span_context()
-            if context.is_valid:
-                trace_id = f"{context.trace_id:032x}"
-            result = await self._execute_traced(job, owner=owner)
-            span.set_attribute("rag.ingestion.status", result.job.status.value)
-            span.set_attribute("rag.ingestion.completed", result.completed)
-            LOGGER.info(
-                "rag.ingestion.terminal",
-                extra={
-                    "event_code": "INGESTION_TERMINAL",
-                    "outcome": result.job.status.value,
-                },
-            )
         try:
-            await self._record_trace(trace_id, job, result, started_at)
+            with bind_metrics(metrics), bind_context(
+                tenant_id=job.tenant_id,
+                job_id=job.id,
+                document_id=job.document_id,
+            ), start_span(
+                "rag.ingestion",
+                attributes={"rag.ingestion.attempt": job.attempts},
+                tracer_provider=self._tracer_provider,
+            ) as span:
+                context = span.get_span_context()
+                if context.is_valid:
+                    trace_id = f"{context.trace_id:032x}"
+                result = await self._execute_traced(job, owner=owner)
+                span.set_attribute("rag.ingestion.status", result.job.status.value)
+                span.set_attribute("rag.ingestion.completed", result.completed)
+                LOGGER.info(
+                    "rag.ingestion.terminal",
+                    extra={
+                        "event_code": "INGESTION_TERMINAL",
+                        "outcome": result.job.status.value,
+                    },
+                )
+            try:
+                await self._record_trace(trace_id, job, result, started_at)
+            finally:
+                if metrics is not None:
+                    metrics.observe_ingestion_job(
+                        status=result.job.status.value,
+                        job_type=result.job.type,
+                    )
+                    metrics.observe_ingestion_stage(
+                        stage="total",
+                        duration_seconds=perf_counter() - started_monotonic,
+                    )
+            return result
         finally:
-            if metrics is not None:
-                metrics.observe_ingestion_job(
-                    status=result.job.status.value,
-                    job_type=result.job.type,
-                )
-                metrics.observe_ingestion_stage(
-                    stage="total",
-                    duration_seconds=perf_counter() - started_monotonic,
-                )
-        return result
+            _ACTIVE_LEASE.reset(lease_token)
+            if lease is not None:
+                await lease.close()
 
     async def _record_trace(
         self,
@@ -399,7 +492,18 @@ class IngestionPipeline:
                     )
             return PipelineRunResult(failed, False)
 
-    async def _checkpoint(self, job_id: UUID, owner: str, progress: int, stage: str) -> None:
+    async def _checkpoint(
+        self,
+        job_id: UUID,
+        owner: str,
+        progress: int,
+        stage: str,
+        *,
+        lease: _LeaseHeartbeat | None = None,
+    ) -> None:
+        active_lease = lease or _ACTIVE_LEASE.get()
+        if active_lease is not None:
+            active_lease.update(progress, stage)
         async with self._database.session() as session:
             snapshot = await IngestionJobRepository(session).checkpoint(
                 job_id,

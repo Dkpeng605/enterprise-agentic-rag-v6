@@ -1,6 +1,7 @@
+import asyncio
 import json
 import os
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -87,6 +88,12 @@ class FakeEmbedding:
 
     async def aclose(self) -> None:
         return None
+
+
+class SlowEmbedding(FakeEmbedding):
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        await asyncio.sleep(1.4)
+        return await super().embed_documents(texts)
 
 
 class FakeReranker:
@@ -251,6 +258,10 @@ def build_pipeline(
     store: LocalObjectStore,
     vector_store: MilvusLiteVectorStore,
     temporary_root: Path,
+    *,
+    embedding: FakeEmbedding | None = None,
+    lease_for: timedelta = timedelta(minutes=5),
+    clock: Callable[[], datetime] = lambda: NOW,
 ) -> tuple[
     IngestionPipeline,
     TextDocumentLoader,
@@ -259,12 +270,13 @@ def build_pipeline(
     StructureAwareSplitter,
     ProjectionService,
 ]:
+    active_embedding = embedding or FakeEmbedding()
     loader = TextDocumentLoader()
     images = ImageEnricher(store, NoopVisionProvider())
     cleaner = DeterministicCleaner()
     splitter = StructureAwareSplitter(target_tokens=20, max_tokens=28, overlap_tokens=4)
     projection = ProjectionService(
-        embedding=FakeEmbedding(),
+        embedding=active_embedding,
         sparse=HashingSparseEncoder(),
         vector_store=vector_store,
         batch_size=2,
@@ -280,11 +292,40 @@ def build_pipeline(
         vector_store=vector_store,
         temporary_root=temporary_root,
         index_revision="pipeline-v1",
-        lease_for=timedelta(minutes=5),
+        lease_for=lease_for,
         retry_delay=timedelta(0),
-        clock=lambda: NOW,
+        clock=clock,
     )
     return pipeline, loader, images, cleaner, splitter, projection
+
+
+@pytest.mark.anyio
+async def test_pipeline_renews_lease_during_slow_embedding_provider_call(
+    tmp_path: Path,
+) -> None:
+    database = Database(DATABASE_URL)
+    store = LocalObjectStore(tmp_path / "objects")
+    vector_store = MilvusLiteVectorStore(tmp_path / "vectors.db")
+    try:
+        await seed(database)
+        _, _, job_id = await submit(database, store, max_attempts=2)
+        pipeline, *_ = build_pipeline(
+            database,
+            store,
+            vector_store,
+            tmp_path / "temporary",
+            embedding=SlowEmbedding(),
+            lease_for=timedelta(seconds=1),
+            clock=lambda: datetime.now(UTC),
+        )
+
+        result = await pipeline.run_once(owner="slow-provider-worker")
+
+        assert result is not None and result.completed
+        assert result.job.id == job_id and result.job.status is JobStatus.SUCCEEDED
+    finally:
+        await vector_store.aclose()
+        await database.dispose()
 
 
 @pytest.mark.anyio

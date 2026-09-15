@@ -13,6 +13,7 @@ from enterprise_rag.adapters.database.engine import Database
 from enterprise_rag.adapters.database.jobs import IngestionJobRepository
 from enterprise_rag.domain.common import require_non_empty, require_utc, require_uuid7, utc_now
 from enterprise_rag.domain.documents import DocumentVisibility
+from enterprise_rag.domain.jobs import JobStatus
 from enterprise_rag.ports.object_store import ObjectStore, validate_sha256
 
 
@@ -105,11 +106,17 @@ class DocumentRegistrationService:
                 )
                 jobs = IngestionJobRepository(session)
                 existing_job = await jobs.get_for_version(registration.version_id)
-                job = existing_job or await jobs.enqueue(
-                    tenant_id=command.tenant_id,
-                    document_id=registration.document_id,
-                    version_id=registration.version_id,
-                    available_at=submitted_at,
-                    max_attempts=self._max_attempts,
-                )
+                if existing_job is None or (
+                    registration.deduplicated
+                    and existing_job.status in {JobStatus.FAILED, JobStatus.CANCELLED}
+                ):
+                    job = await jobs.enqueue(
+                        tenant_id=command.tenant_id,
+                        document_id=registration.document_id,
+                        version_id=registration.version_id,
+                        available_at=submitted_at,
+                        max_attempts=self._max_attempts,
+                    )
+                else:
+                    job = existing_job
                 return replace(registration, job_id=job.id)

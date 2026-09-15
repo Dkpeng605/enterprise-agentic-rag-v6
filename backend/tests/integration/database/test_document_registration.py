@@ -21,6 +21,7 @@ from enterprise_rag.adapters.database.models import (
 )
 from enterprise_rag.adapters.object_store import LocalObjectStore
 from enterprise_rag.domain import ErrorCode
+from enterprise_rag.domain.jobs import JobStatus
 from enterprise_rag.services import DocumentRegistrationService, RegisterDocument
 
 BACKEND_ROOT = Path(__file__).parents[3]
@@ -193,6 +194,46 @@ async def test_new_hash_for_logical_document_creates_a_new_version(tmp_path: Pat
             assert count == 2
             assert document is not None
             assert document.status == "processing"
+    finally:
+        await database.dispose()
+
+
+@pytest.mark.anyio
+async def test_duplicate_upload_requeues_a_failed_version(tmp_path: Path) -> None:
+    database = Database(DATABASE_URL)
+    service = DocumentRegistrationService(database, LocalObjectStore(tmp_path / "objects"))
+    try:
+        await seed(database)
+
+        first = await service.register(registration_command(), payload(b"failed-content"))
+        async with database.session() as session:
+            version = await session.get(DocumentVersionModel, first.version_id)
+            document = await session.get(DocumentModel, first.document_id)
+            job = await session.get(IngestionJobModel, first.job_id)
+            assert version is not None and document is not None and job is not None
+            version.status = "failed"
+            version.error_code = "LLM_UNAVAILABLE"
+            version.error_message = "temporary provider failure"
+            document.status = "failed"
+            job.status = JobStatus.FAILED.value
+            job.error_code = "LLM_UNAVAILABLE"
+            job.error_message = "temporary provider failure"
+
+        retry = await service.register(registration_command(), payload(b"failed-content"))
+
+        assert retry.deduplicated is True
+        assert retry.version_id == first.version_id
+        assert retry.job_id != first.job_id
+        async with database.session() as session:
+            version = await session.get(DocumentVersionModel, first.version_id)
+            document = await session.get(DocumentModel, first.document_id)
+            job = await session.get(IngestionJobModel, retry.job_id)
+            assert version is not None and document is not None and job is not None
+            assert version.status == "pending"
+            assert version.error_code is None and version.error_message is None
+            assert document.status == "processing"
+            assert job.status == JobStatus.QUEUED.value
+            assert job.attempts == 0
     finally:
         await database.dispose()
 
