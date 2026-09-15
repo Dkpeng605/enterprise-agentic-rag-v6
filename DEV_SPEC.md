@@ -3338,8 +3338,29 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 
 #### M8-05 Backup/Restore
 
-- PostgreSQL、文件、Milvus、配置清单；
-- 验收：空目录恢复并通过 query smoke。
+- 状态：`IN PROGRESS`；脚本与人工审批 Workflow 可以创建加密快照并恢复到非 live 的空目标，但未完成真实主机
+  演练前不得标记 `DONE`，也不得把本地静态测试称为生产恢复证据；
+- 快照边界：备份必须包含 PostgreSQL custom-format dump、Content-addressed ObjectStore 归档、Milvus Hook
+  生成的 reference、运行时 Provider/index fingerprint、Compose/Caddy 清单、metadata 和 SHA-256 checksums；
+  `.env.production`、数据库凭据、Age identity、MCP pepper、模型权重、日志和整个 Milvus 文件不得进入快照；
+- 加密：生产必须设置 `BACKUP_AGE_RECIPIENT`，恢复 `.age` payload 必须设置指向受保护 identity 文件的
+  `BACKUP_AGE_IDENTITY`；明文只在显式 `BACKUP_ALLOW_PLAINTEXT=1` 的开发/演练中允许，失败清理不能留下半成品；
+- 事实核验：restore 先验证 backup 目录命名、metadata schema、commit SHA 与 backend/frontend immutable image
+  绑定、payload 存在、所有 checksum、Milvus reference 和当前运行时配置。恢复目标必须是绝对路径，且不得等于
+  `DEPLOY_PATH` 或其子目录；脚本禁止 `docker compose down --volumes`、DROP DATABASE 和删除整个 Milvus 文件；
+- 恢复顺序：在目标 root 准备 Compose/Caddy 与既有 secret env，启动 PostgreSQL，执行 `pg_restore` 与 migration，
+  使用打包的 ObjectStore CLI 恢复对象，调用 Milvus Hook 恢复指定 backup，运行 revision-aware reconcile，最后
+  启动 API/Worker/frontend/gateway；任何中间失败都不得报告成功；
+- restore drill：`.github/workflows/backup.yml` 只允许从 `main` 手动触发，要求 `production` Environment 审批、
+  `BACKUP`/`RESTORE-DRILL` 二次确认、SSH host-key pinning、不并发取消，并将 `restore-drill` 映射到隔离恢复流程；
+  成功标准是目标环境通过 `/health/live`、匿名 `/auth/me`、单租户 overview、query smoke 和 reconcile，而不是只看
+  容器启动；输出只允许 backup id、目标路径和布尔结果；
+- 验收：先以 Bash syntax、静态契约、workflow YAML、CLI packaging 和禁止 destructive command 的测试固定边界，
+  再在非 live 空目标主机执行一次 backup 与 restore-drill，保存 workflow URL、SHA、migration、checksum、reconcile
+  和 query smoke 结果，不保存 dump、对象内容或任何 secret；
+- 回滚：移除脚本/Workflow 不删除已有备份或业务数据；恢复失败只清理本次 target 临时目录，live PostgreSQL、
+  ObjectStore、Root/Leaf、Trace、Milvus 和 volumes 必须不受影响；
+- PR：`feat/m8-backup-restore`。
 
 #### M8-06 Public Release
 

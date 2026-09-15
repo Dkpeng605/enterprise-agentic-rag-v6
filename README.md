@@ -387,6 +387,32 @@ Worker、前端和 gateway。Smoke 会检查 Caddy HTTPS 下的 `/health/live`�
 镜像，不删除 PostgreSQL、ObjectStore、Root/Leaf、Trace、Milvus 或 volume，也不执行 migration downgrade；因此
 生产 migration 必须保持向后兼容。预生产主机未完成一次成功的 deploy 和 rollback 演练前，不得称为公网发布。
 
+### M8-05 备份与恢复
+
+`scripts/production-backup.sh` 与 `.github/workflows/backup.yml` 提供人工确认的生产备份和隔离恢复演练。
+备份包含 PostgreSQL custom-format dump、ObjectStore 归档、Milvus 备份 Hook 引用、运行时 Provider/index 指纹、
+Compose/Caddy 清单和 SHA-256 校验文件；不包含 `.env.production`、密钥或模型文件。生产备份必须配置
+`BACKUP_AGE_RECIPIENT`，恢复加密内容必须提供 `BACKUP_AGE_IDENTITY`；明文只允许显式设置
+`BACKUP_ALLOW_PLAINTEXT=1` 的开发/演练环境。
+
+恢复前会校验 backup 目录名、metadata 与 commit/image 对应关系、所有校验和以及 Milvus Hook。恢复目标必须是
+绝对路径，且不能是 `DEPLOY_PATH` 或其子目录；脚本不会执行 `docker compose down --volumes`、删除整个 Milvus
+文件或覆盖 live 环境配置。`restore-drill` 是隔离恢复入口，会在目标环境执行 migration、ObjectStore/Milvus
+恢复、revision-aware reconcile，并通过 HTTPS `/health/live`、匿名工作区和 query smoke 后才报告成功：
+
+```bash
+gh workflow run backup.yml --ref main \
+  -f action=backup -f confirmation=BACKUP
+gh workflow run backup.yml --ref main \
+  -f action=restore-drill -f confirmation=RESTORE-DRILL \\
+  -f backup_path=/absolute/path/to/release-backup
+gh run watch
+```
+
+Workflow 仅允许从 `main` 手动触发，并绑定 `production` Environment；服务器上的恢复目标、Age identity、
+Milvus Hook 和 SSH host key 必须通过 Environment 配置。当前仓库已完成脚本/Workflow 的静态契约验收，但没有
+把本地静态检查冒充真实生产恢复；M8-05 要标记为完成仍需在非 live 目标目录成功执行一次空目录恢复演练。
+
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
 
 ```bash
@@ -705,7 +731,8 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M8-02 Production Compose/Caddy：已完成（尚未公网发布）
 - M8-03 GHCR immutable images：已完成
 - M8-04 Deploy/Rollback：已实现，待预生产主机演练
-- 下一项：M8-05 Backup/Restore
+- M8-05 Backup/Restore：已实现，待非 live 目标恢复演练
+- 下一项：M8-06 公网发布
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
