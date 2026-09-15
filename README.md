@@ -276,6 +276,25 @@ docker build --platform=linux/amd64 -f infra/production/backend.Dockerfile -t en
 docker build --platform=linux/amd64 -f infra/production/frontend.Dockerfile -t enterprise-rag-frontend:local .
 ```
 
+### 生产 API 组合根（Compose 前置）
+
+生产环境的 `enterprise_rag.main:app` 会根据 `APP_ENVIRONMENT=production` 装配远程 Embedding、远程
+Reranker、OpenAI-compatible LLM（同一模型同时负责查询规划、回答、证据评估和人工清洗）、Milvus 原生 BM25
+以及 server-backed Milvus。它只负责 HTTP 查询、工作区、管理端、Trace、评测和 MCP；不会在 API 进程内启动摄取
+Worker，摄取由独立的 `enterprise-rag-worker` 通过 PostgreSQL lease 领取，API 与 Worker 共享同一个
+`index_revision`。
+
+生产组合拒绝本地 Embedding/Reranker/LLM、Milvus Lite、Hashing Sparse 和明文 MCP URL，并要求配置数据库、会话、
+管理员 bootstrap、LLM/Embedding/Reranker、远程 Milvus、MCP pepper 与 metrics token。模型身份绑定生产环境变量；
+本机 Provider 选择文件不会覆盖生产模型，避免管理员在本地 UI 的选择误改变远程生产请求。
+
+迁移后可直接以单个 Uvicorn worker 启动 API（公网网络拓扑仍等待 M8-02 Compose）：
+
+```bash
+APP_ENVIRONMENT=production \
+  uv run --project backend uvicorn enterprise_rag.main:app --host 0.0.0.0 --port 8000 --workers 1
+```
+
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
 
 ```bash
@@ -354,7 +373,7 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `GET /api/v1/documents/{id}/pipeline`、`/pipeline/roots/{root_id}` — 租户隔离的处理链路、Root/Leaf 与清洗 audit
 - `GET /api/v1/documents/{id}/llm-cleaning/preflight`、`POST /api/v1/documents/{id}/llm-cleaning` — 一次远程清洗预检、明确确认、重切分与索引重建
 - `GET /api/v1/ingestion-jobs`、`GET /api/v1/ingestion-jobs/{id}` — 摄取任务 cursor 列表、筛选与详情
-- `POST /api/v1/queries`、`POST /api/v1/queries/stream` — 同步与 SSE 查询契约；未注入 QueryRunner 的当前启动入口会返回 503
+- `POST /api/v1/queries`、`POST /api/v1/queries/stream` — 同步与 SSE 查询契约；开发骨架未注入 QueryRunner 时返回 503，生产入口使用真实远程组合
 - `GET /api/v1/traces`、`/api/v1/traces/query`、`/api/v1/traces/ingestion` — 租户内 Trace 筛选与 cursor 分页；Query 列表支持 mode/status/degraded
 - `GET /api/v1/traces/query/{trace_id}` — 已净化的 Query 瀑布、排名变化、Recovery 和降级投影
 - `/api/v1/evaluations/catalog`、`/api/v1/evaluations/runs`、`/api/v1/evaluations/compare` — 预算预检、租户评测历史、报告与受控比较
@@ -430,7 +449,7 @@ pnpm --dir=frontend generate:api
 账号 `admin`、密码 `admin`；只有尚未存在系统管理员时才会在 PostgreSQL 中创建 bootstrap 账号，密码以
 Argon2id 保存，创建后可从环境中移除 bootstrap password。生产环境会拒绝这组弱凭据，必须显式配置强凭据。
 
-数据库迁移、匿名 session、集合/文档 API、查询预算和集成测试需要 PostgreSQL；若未配置数据库、对象目录或 session secret，静态 OpenAPI 仍完整可用，但业务路由返回稳定 503。M4 已完成 QueryRunner、同步/SSE、检索和 Agentic RAG 的可组合契约与服务；当前 `enterprise_rag.main:app` 尚未注入具体 QueryRunner，所以查询端点会稳定返回 503，生产 Provider 组合与进程入口会在后续里程碑接入。
+数据库迁移、匿名 session、集合/文档 API、查询预算和集成测试需要 PostgreSQL；若未配置数据库、对象目录或 session secret，静态 OpenAPI 仍完整可用，但业务路由返回稳定 503。M4 已完成 QueryRunner、同步/SSE、检索和 Agentic RAG 的可组合契约与服务；开发默认入口仍保留未注入 Runner 的稳定骨架，`APP_ENVIRONMENT=production` 时 `enterprise_rag.main:app` 会切换到真实生产组合根。
 
 Milvus Lite 通过 PyMilvus 嵌入运行，无需启动独立服务。契约测试会创建隔离的临时 `.db` 文件；运行数据应放在已忽略的 `data/runtime/` 下，不得提交到 Git。同一个 Milvus Lite 文件只能由一个应用进程打开。
 
@@ -590,6 +609,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R15 Pipeline Inspector 图片受保护预览：已完成
 - M8-00 独立摄取 Worker 前置 Slice：已完成
 - M8-01 生产镜像：已完成
+- 生产 API 组合根（M8-02 前置）：已完成
 - 下一项：M8-02 Production Compose/Caddy
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。

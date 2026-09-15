@@ -321,6 +321,26 @@ docker build --platform=linux/amd64 -f infra/production/backend.Dockerfile -t en
 docker build --platform=linux/amd64 -f infra/production/frontend.Dockerfile -t enterprise-rag-frontend:local .
 ```
 
+### Production API composition root (Compose prerequisite)
+
+When `APP_ENVIRONMENT=production`, `enterprise_rag.main:app` composes the remote Embedding, remote Reranker,
+OpenAI-compatible LLM (used by planning, answering, evidence assessment, and manual cleaning), Milvus native BM25,
+and server-backed Milvus. It owns HTTP queries, workspace, administration, Trace, evaluation, and MCP only; it does not
+start an ingestion Worker inside the API process. The separate `enterprise-rag-worker` claims ingestion through PostgreSQL
+leases, and the API and Worker share the same `index_revision`.
+
+The production composition rejects local Embedding/Reranker/LLM, Milvus Lite, Hashing Sparse, and plaintext MCP URLs. It
+requires database, session, admin bootstrap, LLM/Embedding/Reranker, remote Milvus, MCP pepper, and metrics-token settings.
+Model identity is bound to production environment variables; the local Provider selection file cannot override a production
+model request.
+
+After migrations, the API can be started as one Uvicorn worker (public network topology is still supplied by M8-02 Compose):
+
+```bash
+APP_ENVIRONMENT=production \
+  uv run --project backend uvicorn enterprise_rag.main:app --host 0.0.0.0 --port 8000 --workers 1
+```
+
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
 To stop PostgreSQL only:
 
@@ -403,7 +423,7 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `GET /api/v1/documents/{id}/pipeline` and `/pipeline/roots/{root_id}` — tenant-scoped processing, Root/Leaf, and cleaning audit views
 - `GET /api/v1/documents/{id}/llm-cleaning/preflight` and `POST /api/v1/documents/{id}/llm-cleaning` — one-pass remote-cleaning preflight, explicit confirmation, rechunking, and index rebuild
 - `GET /api/v1/ingestion-jobs` and `GET /api/v1/ingestion-jobs/{id}` — cursor-paginated job filtering and detail
-- `POST /api/v1/queries` and `POST /api/v1/queries/stream` — synchronous and SSE query contracts; the current entry point returns 503 until a QueryRunner is injected
+- `POST /api/v1/queries` and `POST /api/v1/queries/stream` — synchronous and SSE query contracts; the development skeleton returns 503 without a QueryRunner, while the production entrypoint uses the real remote composition
 - `GET /api/v1/traces`, `/api/v1/traces/query`, and `/api/v1/traces/ingestion` — tenant-scoped Trace filtering and cursor pagination; Query lists support mode/status/degraded
 - `GET /api/v1/traces/query/{trace_id}` — sanitized Query waterfall, rank movement, Recovery, and degradation projection
 - `/api/v1/evaluations/catalog`, `/api/v1/evaluations/runs`, and `/api/v1/evaluations/compare` — budget preflight, tenant run history, reports, and controlled comparison
@@ -420,7 +440,7 @@ ENTERPRISE_RAG_MCP_STDIO_FACTORY=your_package.bootstrap:build_mcp_server \
   uv run --project backend enterprise-rag-mcp-stdio
 ```
 
-The factory must be a no-argument function returning `MCPServer`. No default production Provider composition exists yet, so the entry point does not present test data as a working service; `backend/tests/fixtures/mcp_stdio_server.py` is only a real-SDK subprocess contract fixture. stdout is reserved for stdio JSON-RPC and application logs must use stderr.
+The factory must be a no-argument function returning `MCPServer`. The default development entrypoint remains deliberately unconfigured; `backend/tests/fixtures/mcp_stdio_server.py` is only a real-SDK subprocess contract fixture. stdout is reserved for stdio JSON-RPC and application logs must use stderr.
 
 The composition root creates the Streamable HTTP server with `build_http_mcp_app(...)`; its fixed endpoint is
 `/mcp`. The Mac runtime now shares the REST `KnowledgeApplication` and uses the real PostgreSQL Catalog, current
@@ -621,6 +641,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R15 protected image preview in the Pipeline Inspector: complete
 - M8-00 standalone ingestion Worker prerequisite: complete
 - M8-01 production images: complete
+- Production API composition root (M8-02 prerequisite): complete
 - Next: M8-02 production Compose/Caddy
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
