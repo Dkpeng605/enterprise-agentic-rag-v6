@@ -282,9 +282,19 @@ async def _complete_json(
 
 
 def _bounded_evidence(items: Sequence[EvidenceItem], limit: int) -> list[dict[str, object]]:
+    # The assessor receives a bounded window.  Retrieval/root order is optimized
+    # for ranking and can put a useful hit from a later alternative route after a
+    # long, low-confidence hit.  Rank only this model-input window by confidence
+    # so one reliable route can be assessed even when the other routes are empty
+    # or the total evidence exceeds the context budget.  The index tie-breaker
+    # keeps the payload deterministic and does not create a per-route quota.
+    ranked = sorted(
+        enumerate(items),
+        key=lambda pair: (-pair[1].confidence, pair[0]),
+    )
     remaining = limit
     result: list[dict[str, object]] = []
-    for item in items:
+    for _, item in ranked:
         if remaining <= 0:
             break
         text = item.text[:remaining]

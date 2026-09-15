@@ -286,6 +286,19 @@ def test_query_plan_requires_explicit_opt_in_for_alternative_routes() -> None:
             use_sub_queries=True,
         )
 
+    with pytest.raises(ValueError, match="at most four"):
+        QueryPlan(
+            original_query="原始问题",
+            rewritten_query="改写后的检索路径",
+            intent=QueryIntent.FACTUAL,
+            sub_queries=("路径一", "路径二", "路径三", "路径四", "路径五"),
+            requirements=("原始问题",),
+            scope=QueryScope(),
+            language="zh",
+            mode=QueryMode.STANDARD,
+            use_sub_queries=True,
+        )
+
 
 def test_hit_and_citation_validate_rank_score_and_source_boundaries() -> None:
     root = make_root()

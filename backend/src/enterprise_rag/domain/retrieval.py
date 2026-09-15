@@ -21,6 +21,9 @@ class QueryMode(StrEnum):
     DEEP = "deep"
 
 
+_MAX_SUB_QUERIES = 4
+
+
 def _validate_text_tuple(values: tuple[str, ...], field_name: str) -> None:
     if any(not value.strip() for value in values):
         raise ValueError(f"{field_name} must not contain empty values")
@@ -92,6 +95,8 @@ class QueryPlan:
             raise ValueError("use_sub_queries must be boolean")
         if self.use_sub_queries and len(self.sub_queries) < 2:
             raise ValueError("use_sub_queries requires at least two alternative retrieval routes")
+        if self.use_sub_queries and len(self.sub_queries) > _MAX_SUB_QUERIES:
+            raise ValueError("use_sub_queries allows at most four alternative retrieval routes")
         if not self.use_sub_queries and (
             len(self.sub_queries) != 1
             or self.sub_queries[0].strip() != self.rewritten_query.strip()
