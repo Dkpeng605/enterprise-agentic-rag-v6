@@ -102,6 +102,7 @@ class DocumentDeletionService:
 
 class ReconcileIssueKind(StrEnum):
     ORPHAN_VECTOR = "orphan_vector"
+    UNKNOWN_VECTOR_REVISION = "unknown_vector_revision"
     VECTOR_COUNT_MISMATCH = "vector_count_mismatch"
     MISSING_OBJECT = "missing_object"
     ORPHAN_OBJECT = "orphan_object"
@@ -189,27 +190,72 @@ class ReconcileService:
         return ReconcileReport(tuple(issues))
 
     async def run_vectors(self, *, now: datetime, apply: bool = False) -> ReconcileReport:
-        """Reconcile only version-owned vectors without mutating objects or jobs."""
+        """Reconcile version and index-revision-owned vectors only.
+
+        Milvus survives an application restart, while PostgreSQL may be restored or
+        recreated independently.  Every new projection carries its raw index
+        revision in diagnostic metadata so an old revision for an otherwise valid
+        version can be removed without touching the active revision.  Collections
+        created before this marker existed remain report-only when their version is
+        still present; their ownership cannot be proven safely.
+        """
 
         projections = {
-            (item.tenant_id, item.version_id): item.count
+            (item.index_revision, item.tenant_id, item.version_id): item.count
             for item in await self._vector_store.list_version_projections()
         }
         async with self._database.session() as session:
             snapshot = await DocumentLifecycleRepository(session).reconcile_snapshot(now=now)
         issues: list[ReconcileIssue] = []
 
-        for vector_key, actual in sorted(projections.items(), key=lambda item: str(item[0])):
+        expected_versions = {
+            (tenant_id, version_id)
+            for tenant_id, version_id, _ in snapshot.vector_counts
+        }
+        for (revision, tenant_id, version_id), actual in sorted(
+            projections.items(), key=lambda item: str(item[0])
+        ):
+            if revision is None:
+                identity = f"{tenant_id}:{version_id}:unknown"
+                if (tenant_id, version_id) not in expected_versions:
+                    repaired = False
+                    if apply:
+                        await self._vector_store.delete_by_version(tenant_id, version_id)
+                        repaired = True
+                    issues.append(
+                        ReconcileIssue(
+                            ReconcileIssueKind.ORPHAN_VECTOR,
+                            identity,
+                            0,
+                            actual,
+                            repaired,
+                        )
+                    )
+                else:
+                    issues.append(
+                        ReconcileIssue(
+                            ReconcileIssueKind.UNKNOWN_VECTOR_REVISION,
+                            identity,
+                            None,
+                            actual,
+                            False,
+                        )
+                    )
+                continue
+
+            vector_key = (tenant_id, version_id, revision)
             if vector_key in snapshot.vector_counts:
                 continue
             repaired = False
             if apply:
-                await self._vector_store.delete_by_version(*vector_key)
+                await self._vector_store.delete_by_version_revision(
+                    tenant_id, version_id, revision
+                )
                 repaired = True
             issues.append(
                 ReconcileIssue(
                     ReconcileIssueKind.ORPHAN_VECTOR,
-                    f"{vector_key[0]}:{vector_key[1]}",
+                    f"{tenant_id}:{version_id}:{revision}",
                     0,
                     actual,
                     repaired,
@@ -219,12 +265,12 @@ class ReconcileService:
         for vector_key, expected in sorted(
             snapshot.vector_counts.items(), key=lambda item: str(item[0])
         ):
-            actual = projections.get(vector_key, 0)
+            actual = projections.get((vector_key[2], vector_key[0], vector_key[1]), 0)
             if actual != expected:
                 issues.append(
                     ReconcileIssue(
                         ReconcileIssueKind.VECTOR_COUNT_MISMATCH,
-                        f"{vector_key[0]}:{vector_key[1]}",
+                        f"{vector_key[0]}:{vector_key[1]}:{vector_key[2]}",
                         expected,
                         actual,
                         False,

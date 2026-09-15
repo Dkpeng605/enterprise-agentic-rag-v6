@@ -112,10 +112,13 @@ async def test_milvus_lite_contract_covers_schema_upsert_search_filter_and_delet
         assert await store.count_by_version(TENANT_A, VERSION_A) == 2
         assert await store.count_by_version(TENANT_B, VERSION_A) == 1
         projections = await store.list_version_projections()
-        assert {(item.tenant_id, item.version_id, item.count) for item in projections} == {
-            (TENANT_A, VERSION_A, 2),
-            (TENANT_A, VERSION_B, 1),
-            (TENANT_B, VERSION_A, 1),
+        assert {
+            (item.index_revision, item.tenant_id, item.version_id, item.count)
+            for item in projections
+        } == {
+            (REVISION, TENANT_A, VERSION_A, 2),
+            (REVISION, TENANT_A, VERSION_B, 1),
+            (REVISION, TENANT_B, VERSION_A, 1),
         }
 
         dense_hits = await store.dense_search(
@@ -169,6 +172,31 @@ async def test_milvus_lite_contract_covers_schema_upsert_search_filter_and_delet
         assert await store.delete_by_version(TENANT_A, VERSION_A) == 2
         assert await store.count_by_version(TENANT_A, VERSION_A) == 0
         assert await store.count_by_version(TENANT_B, VERSION_A) == 1
+    finally:
+        await store.aclose()
+
+
+@pytest.mark.anyio
+async def test_version_projections_remain_separate_by_index_revision(
+    database_path: Path,
+) -> None:
+    store = MilvusLiteVectorStore(database_path)
+    other_revision = "test-revision-v2"
+    await store.ensure_revision(IndexSchema(revision=REVISION, dimension=3))
+    await store.ensure_revision(IndexSchema(revision=other_revision, dimension=3))
+    try:
+        await store.upsert([record("revision-one", index_revision=REVISION)])
+        await store.upsert([record("revision-two", index_revision=other_revision)])
+
+        projections = await store.list_version_projections()
+
+        assert {
+            (item.index_revision, item.tenant_id, item.version_id, item.count)
+            for item in projections
+        } == {
+            (REVISION, TENANT_A, VERSION_A, 1),
+            (other_revision, TENANT_A, VERSION_A, 1),
+        }
     finally:
         await store.aclose()
 

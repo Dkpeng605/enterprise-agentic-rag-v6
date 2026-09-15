@@ -50,7 +50,7 @@ class DeletionContext:
 
 @dataclass(frozen=True, slots=True)
 class ReconcileDatabaseSnapshot:
-    vector_counts: dict[tuple[UUID, UUID], int]
+    vector_counts: dict[tuple[UUID, UUID, str], int]
     object_keys: frozenset[str]
     expired_leases: int
 
@@ -219,16 +219,18 @@ class DocumentLifecycleRepository:
             select(
                 DocumentModel.tenant_id,
                 DocumentVersionModel.id,
+                RootModel.index_revision,
                 func.count(LeafModel.id),
             )
             .join(DocumentVersionModel, DocumentVersionModel.document_id == DocumentModel.id)
-            .outerjoin(LeafModel, LeafModel.version_id == DocumentVersionModel.id)
+            .join(RootModel, RootModel.version_id == DocumentVersionModel.id)
+            .outerjoin(LeafModel, LeafModel.root_id == RootModel.id)
             .where(DocumentVersionModel.status != "deleted")
-            .group_by(DocumentModel.tenant_id, DocumentVersionModel.id)
+            .group_by(DocumentModel.tenant_id, DocumentVersionModel.id, RootModel.index_revision)
         )
         vector_counts = {
-            (tenant_id, version_id): int(count)
-            for tenant_id, version_id, count in rows
+            (tenant_id, version_id, index_revision): int(count)
+            for tenant_id, version_id, index_revision, count in rows
         }
         object_keys = frozenset(
             await self.session.scalars(

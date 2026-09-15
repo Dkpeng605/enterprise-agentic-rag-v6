@@ -46,6 +46,7 @@ ORPHAN_DOCUMENT = UUID("01900000-0000-7000-8000-000000000505")
 ORPHAN_VERSION = UUID("01900000-0000-7000-8000-000000000506")
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 REVISION = "delete-reconcile-v1"
+STALE_REVISION = "delete-reconcile-old-v1"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -389,6 +390,69 @@ async def test_reconcile_reports_read_only_and_repairs_only_safe_orphans(
             ReconcileIssueKind.MISSING_OBJECT,
         }
         assert second_run.repaired_count == 0
+    finally:
+        await vector_store.aclose()
+        await database.dispose()
+
+
+@pytest.mark.anyio
+async def test_reconcile_removes_stale_revision_without_touching_active_vectors(
+    tmp_path: Path,
+) -> None:
+    database = Database(DATABASE_URL)
+    object_store = LocalObjectStore(tmp_path / "objects")
+    vector_store = MilvusLiteVectorStore(tmp_path / "milvus.db")
+    await vector_store.ensure_revision(IndexSchema(REVISION, 3))
+    await vector_store.ensure_revision(IndexSchema(STALE_REVISION, 3))
+    reconcile = ReconcileService(database, vector_store, object_store)
+    try:
+        await seed_base(database)
+        document_id, version_id, _ = await register_document(
+            database, object_store, logical_name="revision-owner"
+        )
+        await add_ready_content_and_vector(
+            database, vector_store, document_id=document_id, version_id=version_id
+        )
+        await vector_store.upsert(
+            [
+                VectorRecord(
+                    index_revision=STALE_REVISION,
+                    leaf_id="leaf_" + "9" * 64,
+                    root_id="root_" + "a" * 64,
+                    tenant_id=TENANT_ID,
+                    collection_id=COLLECTION_A,
+                    document_id=document_id,
+                    version_id=version_id,
+                    status="ready",
+                    dense_vector=(0.0, 1.0, 0.0),
+                    sparse_vector={2: 1.0},
+                )
+            ]
+        )
+
+        dry_run = await reconcile.run_vectors(now=NOW)
+
+        assert dry_run.repaired_count == 0
+        assert {issue.kind for issue in dry_run.issues} == {
+            ReconcileIssueKind.ORPHAN_VECTOR
+        }
+        assert any(STALE_REVISION in issue.identity for issue in dry_run.issues)
+        assert await vector_store.count_by_version_revision(
+            TENANT_ID, version_id, REVISION
+        ) == 1
+        assert await vector_store.count_by_version_revision(
+            TENANT_ID, version_id, STALE_REVISION
+        ) == 1
+
+        applied = await reconcile.run_vectors(now=NOW, apply=True)
+
+        assert applied.repaired_count == 1
+        assert await vector_store.count_by_version_revision(
+            TENANT_ID, version_id, REVISION
+        ) == 1
+        assert await vector_store.count_by_version_revision(
+            TENANT_ID, version_id, STALE_REVISION
+        ) == 0
     finally:
         await vector_store.aclose()
         await database.dispose()
