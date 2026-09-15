@@ -267,7 +267,7 @@ uv run --project backend --env-file .env enterprise-rag-worker
 本地开发若使用 `milvus_lite`，API 与独立 Worker 不能同时打开同一个 `vectors.db`；独立 Worker 只能在 API 停止时运行。
 生产环境必须设置 `providers.vector_store=milvus_remote`，并提供 `VECTOR_STORE_URI`、`VECTOR_STORE_TOKEN`（可选
 `VECTOR_STORE_DATABASE`），让 API 与多个 Worker 共享 server-backed Milvus。该入口完成了生产 Worker 前置 Slice，
-生产镜像已在 M8-01 完成；Compose、备份和公网发布仍属于后续 M8 Slice。
+生产镜像已在 M8-01 完成；Compose 已在 M8-02 完成，备份、部署演练和公网发布仍属于后续 M8 Slice。
 
 ### M8-01 生产镜像
 
@@ -281,7 +281,7 @@ uv run --project backend --env-file .env enterprise-rag-worker
 
 本机以 `linux/amd64` 构建的可复核记录（Docker image inspect，2026-09-16）：backend `278238911` bytes（约
 265.3 MiB），frontend `22704397` bytes（约 21.7 MiB）。这只是当前基础镜像与依赖版本的构建记录，不是公网
-运行时容量承诺；M8-02 的生产 Compose、内部网络和外层 Caddy 配置已加入，公网发布仍需后续镜像与部署 Slice。
+运行时容量承诺；M8-02 的生产 Compose、内部网络和外层 Caddy 配置已加入，公网发布仍需后续部署、恢复演练与公网验收 Slice。
 
 ```bash
 docker build --platform=linux/amd64 -f infra/production/backend.Dockerfile -t enterprise-rag-backend:local .
@@ -300,7 +300,7 @@ Worker，摄取由独立的 `enterprise-rag-worker` 通过 PostgreSQL lease 领�
 管理员 bootstrap、LLM/Embedding/Reranker、远程 Milvus、MCP pepper 与 metrics token。模型身份绑定生产环境变量；
 本机 Provider 选择文件不会覆盖生产模型，避免管理员在本地 UI 的选择误改变远程生产请求。
 
-迁移后可直接以单个 Uvicorn worker 启动 API（公网域名与服务器部署仍需后续 M8-03～M8-06）：
+迁移后可直接以单个 Uvicorn worker 启动 API（公网域名与服务器部署仍需后续 M8-04～M8-06）：
 
 ```bash
 APP_ENVIRONMENT=production \
@@ -326,8 +326,8 @@ docker compose --env-file infra/production/.env.production \
   -f infra/production/compose.yml ps
 ```
 
-这一步只完成容器拓扑与本机可复核配置，不等于已经发布公网；GHCR immutable image、SSH 部署、备份恢复、域名和
-24 小时公网验收仍由 M8-03～M8-06 完成。停止服务但保留数据卷使用 `down`，不要加 `--volumes`：
+这一步只完成容器拓扑与本机可复核配置，不等于已经发布公网；SSH 部署、备份恢复、域名和 24 小时公网验收仍由
+M8-04～M8-06 完成，GHCR immutable image 已由 M8-03 交付。停止服务但保留数据卷使用 `down`，不要加 `--volumes`：
 
 ```bash
 docker compose --env-file infra/production/.env.production \
