@@ -72,6 +72,13 @@ Mac 组合同时在 `http://127.0.0.1:8000/mcp` 挂载官方 SDK v2 Streamable H
 - Reranker：`jinaai/jina-reranker-v2-base-multilingual`；
 - LLM：`MiniMax-M3`，通过 `.env` 中的 `LLM_BASE_URL` 调用。
 
+图片 Caption 默认关闭（`vision=none`）：Loader 提取的图片仍会保存到本地 ObjectStore，但不离开本机。
+如需演示真实图片理解，在 `.env` 中配置 `ENTERPRISE_RAG__PROVIDERS__VISION=openai_compatible`、
+`VISION_BASE_URL`、`VISION_API_KEY` 和 `VISION_MODEL`；适配器会以 OpenAI-compatible
+`/chat/completions` 的 text + base64 data URI 调用模型。远程 Vision 只发送图片，不发送未授权文档正文，
+并对 429、5xx 和传输错误执行有界重试。管理员也可以在 `/admin/providers` 选择关闭或启用该 profile；
+选择写入本机的 restart-bound 文件，重启后才生效，密钥永不返回前端。
+
 默认 MiniLM 的 registry 描述是 512 input tokens，但本机 FastEmbed tokenizer 实测上限是 128；页面和
 Splitter 以运行时实测值为准。Provider 管理页会同时显示 profile 声明值和当前进程探测到的有效值。
 需要 512 输入 token/512 维向量时，可在 `.env` 中改为
@@ -96,7 +103,7 @@ pnpm --dir=frontend dev
 上传 PDF/DOCX/XLSX/XLS/CSV/HTML/TXT/Markdown、查看真实解析与摄取进度，再到“知识问答”观察
 Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引用。Provider 状态可在
 “租户总览”或 `http://127.0.0.1:8000/health/doctor` 查看。管理员登录后，Provider 状态卡片的“管理与选择”
-会打开 `/admin/providers`：页面读取当前注册表，展示可用 Embedding/Reranker/Sparse profile、维度、有效 token
+会打开 `/admin/providers`：页面读取当前注册表，展示可用 Embedding/Reranker/Vision/Sparse profile、维度、有效 token
 上限、语言说明和本地/远程属性，并可保存下一次启动配置。选择不是热切换；重启 backend 后生效，Embedding
 变更还必须重新摄取/重建文档。
 
@@ -280,7 +287,7 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `/api/v1/evaluations/catalog`、`/api/v1/evaluations/runs`、`/api/v1/evaluations/compare` — 预算预检、租户评测历史、报告与受控比较
 - `GET /api/v1/traces/{trace_id}` — 阶段耗时、候选排名、分数和降级详情
 - `GET /health/live`、`GET /health/ready`、`GET /health/doctor` — 存活、就绪和已净化 Provider 诊断
-- `GET /api/v1/admin/providers`、`POST /api/v1/admin/providers/select` — 系统管理员读取当前 Provider 注册表、可选 Embedding/Reranker/Sparse profile，并保存重启生效的选择
+- `GET /api/v1/admin/providers`、`POST /api/v1/admin/providers/select` — 系统管理员读取当前 Provider 注册表、可选 Embedding/Reranker/Vision/Sparse profile，并保存重启生效的选择
 - `GET /api/v1/workspace/mcp` — 当前组合根提供的 MCP Server、6 个只读 Tool、4 类 Resource 和 stdio/HTTP 传输状态
 - `GET /metrics` — Prometheus text exposition；生产环境必须使用独立 Bearer token
 
@@ -326,7 +333,7 @@ Trace 阶段/批次/稳定错误检查器、MCP 能力目录，以及预算评�
 匿名用户无需登录即可进入 `/workspace/*`；`/workspace/overview` 会读取当前 tenant 的集合、文档、
 索引、24 小时 Query 与最近任务聚合，并并列显示 `/health/doctor` 的 Provider 状态；
 `/workspace/documents` 支持集合 CRUD、筛选、上传、详情和安全删除，`/workspace/ingestion` 展示
-后台任务真实进度；`/admin/providers` 展示实时 Provider 注册表并提供 Embedding/Reranker/Sparse 选择，其他 `/admin/*`
+后台任务真实进度；`/admin/providers` 展示实时 Provider 注册表并提供 Embedding/Reranker/Vision/Sparse 选择，其他 `/admin/*`
 仍需系统管理员身份。Embedding 切换属于 restart-bound 的索引契约：重启 Mac backend 后，管理员在
 `/admin/providers` 的“Embedding 索引兼容状态”面板中可以看到当前 revision、每个文档的 Root/Leaf/vector
 数量与旧 revision，并点击“重建不兼容文档”。重建先在新 Milvus revision 投影向量，成功写入 PostgreSQL
@@ -502,6 +509,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R8 Mac Streamable HTTP MCP 真实组合：已完成
 - M7-R9 Milvus 原生 BM25 Sparse：已完成
 - M7-R10 Provider 失败路径与重建投影完整性：已完成
+- M7-R11 真实 OpenAI-compatible Vision Provider 与目录选择：已完成
 - 下一项：M8 公网发布
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
@@ -634,7 +642,7 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 
 Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
-M7-R7～R10 已补齐 Provider 重建一致性、真实 Mac Streamable HTTP MCP、Milvus 原生 BM25 以及远程 Provider 失败路径。重启不会自动清除 Milvus 持久化 collection；若 PostgreSQL 与 Milvus 的事实边界不一致，先停止 API，再使用按 tenant/version 定向的 reconcile 或安全重建，禁止删除整个 Milvus 文件。
+M7-R7～R11 已补齐 Provider 重建一致性、真实 Mac Streamable HTTP MCP、Milvus 原生 BM25、远程 Provider 失败路径以及真实 OpenAI-compatible Vision。重启不会自动清除 Milvus 持久化 collection；若 PostgreSQL 与 Milvus 的事实边界不一致，先停止 API，再使用按 tenant/version 定向的 reconcile 或安全重建，禁止删除整个 Milvus 文件。
 
 M1～M7 已完成（52/64 Slice）。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、EDD 评测闭环、公开 Benchmark Adapter、完整 Vue3/TypeScript 工作区，以及 Compose 中可复现的浏览器全旅程。M7-R1 另提供不计入 64 个发布 Slice 的 Mac 真实 Provider 开发组合；生产镜像、进程和公网部署仍属于 M8，因此默认入口不会把离线验收或 Mac 开发组合冒充生产服务。
 
@@ -648,7 +656,9 @@ PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr
 
 结构化 Splitter 使用版本化的段落/句子感知策略：在 Root 内优先保留标题、段落、列表、代码围栏、表格行和完整句子，再应用 target/max 限制；新摄取的 Leaf 不重叠，Root 在检索后负责恢复完整上下文。只有单个结构单元本身超过预算时才降级为 token 硬切，并在 Leaf metadata 标记 `boundary=token_limit_hard_cut`、`hard_cut=true`。macOS 真实运行时直接复用 FastEmbed tokenizer 与模型输入上限，实际安全预算为配置上限和 `model_input_limit - 1` 的较小值；每个 Root/Leaf 都保存实际 tokenizer、预算、边界和硬切计数，前端可逐块核对。表格续块会重复表头且计入 token 上限；Root/Leaf ID 对相同 version、index revision、内容和顺序保持稳定。
 
-图片增强服务先把 Loader 提取的原始图片写入内容寻址 ObjectStore，再调用可插拔 Vision 端口。默认 `vision: none` 会保留图片并跳过 caption；Vision 异常只将 caption 标记为降级，不会丢弃已存图片或泄露供应商错误。ObjectStore 写入失败仍会中止摄取，因为图片持久化不是可选数据。
+图片增强服务先把 Loader 提取的原始图片写入内容寻址 ObjectStore，再调用可插拔 Vision 端口。默认 `vision: none` 会保留图片并跳过 caption；`openai_compatible` 通过 `/chat/completions` 发送 text + `data:image/*;base64,...` 多模态请求，严格要求一个非空字符串 caption，并对 429/5xx/传输错误执行最多配置次数的退避重试。Vision 异常只将 caption 标记为降级，不会丢弃已存图片或泄露供应商错误；Root metadata 记录图片尺寸、MIME、hash、对象键、caption 状态和错误码，供 Pipeline Inspector 核对实际结果。ObjectStore 写入失败仍会中止摄取，因为图片持久化不是可选数据。
+
+Pipeline Inspector 的 `IMAGE ENRICHMENT` 面板直接读取当前 Root 的持久化事实，展示图片数量、页码/序号/名称、MIME、尺寸、SHA-256、ObjectStore key、Caption、`created/skipped/degraded` 状态、实际 Vision Provider/Model 及状态计数。它还逐一用已保存 Leaf 的 `retrieval_text` 核对 Caption 是否真的进入检索，并明确标出没有进入的情况；页面不预览原始图片，也不根据当前配置补造历史结果。
 
 Embedding 端口提供本地多语和 OpenAI-compatible 两种实现，并通过 `EMBEDDING_MODEL` 选择 FastEmbed profile。本地默认使用 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling、registry 描述为 512 input tokens），首次调用会下载约 0.22GB 模型；运行时不会盲信 registry：优先读取实际 truncation limit；如果 FastEmbed ONNX wrapper 不暴露该字段，则用超出 registry 上限的探测文本调用 `token_count`，识别被 tokenizer 截断后的真实上限（当前缓存模型实际报告 128）。可选 `BAAI/bge-small-zh-v1.5` profile 实测为 512 维、512 input tokens，适合中文本地部署；切换时同时设置 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`，并通过新 index revision 隔离旧向量。Provider 暴露真实 tokenizer 的 `count_tokens` 与输入上限，拒绝达到模型上限的单项输入，Splitter 与 Embedding 使用同一个计数器。远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试；SiliconFlow `BAAI/bge-m3` profile 固定校验 1024 维并采用官方 8192 token 上限，但因为 HTTP API 不暴露 tokenizer，本地计数明确标记为 deterministic estimate。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
 

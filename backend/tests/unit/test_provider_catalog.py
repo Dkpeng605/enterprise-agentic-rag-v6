@@ -148,6 +148,42 @@ def test_sparse_profile_is_restart_selectable_and_persisted(tmp_path: Path) -> N
     }
 
 
+def test_provider_catalog_exposes_vision_profiles_and_persists_restart_selection(
+    tmp_path: Path,
+) -> None:
+    registry = ProviderRegistry()
+    registry.register(FakeProvider(ProviderKind.VISION, "none"))
+    options = cast(
+        list[dict[str, object]],
+        RuntimeProviderCatalog(
+            registry=registry,
+            selection_path=tmp_path / "provider-selection.json",
+            current_models={"vision": "none"},
+            remote_credentials=frozenset({"vision"}),
+        ).to_dict()["options"],
+    )
+
+    vision = {str(option["key"]): option for option in options if option["kind"] == "vision"}
+    assert vision["none"]["selected"] is True
+    assert vision["none"]["available"] is True
+    assert vision["openai_compatible"]["available"] is True
+
+    catalog = RuntimeProviderCatalog(
+        registry=registry,
+        selection_path=tmp_path / "provider-selection.json",
+        current_models={"vision": "none"},
+        remote_credentials=frozenset({"vision"}),
+    )
+    selected = catalog.select(kind="vision", key="openai_compatible")
+    selection = cast(dict[str, object], selected["selection"])
+
+    assert selection["vision_provider"] == "none"
+    assert selection["pending_vision_provider"] == "openai_compatible"
+    assert load_provider_selection(tmp_path / "provider-selection.json") == {
+        "vision_provider": "openai_compatible"
+    }
+
+
 def test_applied_restart_selection_is_current_and_no_longer_reported_as_pending(
     tmp_path: Path,
 ) -> None:

@@ -217,7 +217,9 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
     )
     query_planner = QueryPlanningService(LanguageModelQueryPlanner(language_model))
     ocr = TesseractOcrEngine(languages=active.ingestion.pdf_ocr_languages)
-    vision = build_vision_provider(active)
+    vision = build_vision_provider(
+        active, provider_name=selection.get("vision_provider", active.providers.vision)
+    )
     loaders = (
         PdfLoader(
             ocr,
@@ -249,6 +251,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         reranker,
         language_model,
         splitter,
+        vision,
     ):
         registry.register(provider)
     registry.register(cast(Provider, evaluator))
@@ -308,6 +311,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
             "embedding": embedding_model,
             "reranker": reranker_model,
             "llm": llm_model,
+            "vision": vision.info().name,
             "sparse_encoder": sparse_info.name,
         },
         current_embedding_dimension=embedding.dimension,
@@ -317,6 +321,13 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
             for kind, configured in (
                 ("embedding", embedding_remote_key),
                 ("reranker", reranker_remote_key),
+                (
+                    "vision",
+                    active.credentials.vision_base_url is not None
+                    and active.credentials.vision_api_key is not None
+                    and active.credentials.vision_model is not None
+                    and bool(active.credentials.vision_model.strip()),
+                ),
             )
             if configured
         ),

@@ -8332,7 +8332,8 @@
               "embedding",
               "reranker",
               "sparse_encoder",
-              "llm"
+              "llm",
+              "vision"
             ],
             "title": "Kind"
           },

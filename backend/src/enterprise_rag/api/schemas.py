@@ -655,7 +655,7 @@ class ProviderReindexResponse(ApiModel):
 
 
 class ProviderSelectionRequest(ApiModel):
-    kind: Literal["embedding", "reranker", "sparse_encoder", "llm"]
+    kind: Literal["embedding", "reranker", "sparse_encoder", "llm", "vision"]
     key: str = Field(min_length=1, max_length=500)
 
 

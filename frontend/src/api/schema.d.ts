@@ -1715,7 +1715,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "embedding" | "reranker" | "sparse_encoder" | "llm";
+            kind: "embedding" | "reranker" | "sparse_encoder" | "llm" | "vision";
             /** Key */
             key: string;
         };

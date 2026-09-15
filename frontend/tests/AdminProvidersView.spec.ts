@@ -13,6 +13,9 @@ const catalog: ProviderCatalog = {
   providers: [{
     kind: 'embedding', name: 'local_multilingual_minilm', version: 'local-v1',
     capabilities: ['documents'], is_remote: false, health: 'healthy',
+  }, {
+    kind: 'vision', name: 'none', version: '1', capabilities: ['skip_caption'],
+    is_remote: false, health: 'healthy',
   }],
   options: [
     {
@@ -50,10 +53,23 @@ const catalog: ProviderCatalog = {
       language_note: null, note: '确定性词法投影', selected: false, available: true,
       unavailable_reason: null, requires_restart: true,
     },
+    {
+      kind: 'vision', key: 'none', name: 'none', model: 'none', label: '关闭图片 Caption（降级）',
+      provider: '内置', capabilities: ['skip_caption'], is_remote: false, dimension: null,
+      input_token_limit: null, language_note: null, note: '图片仍会保存，但不调用远程 Vision Provider',
+      selected: true, available: true, unavailable_reason: null, requires_restart: true,
+    },
+    {
+      kind: 'vision', key: 'openai_compatible', name: 'openai_compatible', model: '由 VISION_MODEL 环境变量提供',
+      label: 'OpenAI-compatible Vision', provider: 'Configured endpoint',
+      capabilities: ['image-caption', 'chat-completions'], is_remote: true, dimension: null,
+      input_token_limit: null, language_note: '取决于所配置模型', note: '必须配置 Vision endpoint、密钥与模型',
+      selected: false, available: true, unavailable_reason: null, requires_restart: true,
+    },
   ],
   selection: {
     embedding_model: 'local', reranker_model: 'local-reranker', llm_model: 'minimax-m3',
-    sparse_encoder: 'milvus_builtin_bm25',
+    vision_provider: 'none', sparse_encoder: 'milvus_builtin_bm25',
     pending_restart: false,
   },
 }
@@ -119,6 +135,17 @@ describe('Provider management', () => {
     await flushPromises()
 
     expect(providerApi.select).toHaveBeenCalledWith('sparse_encoder', 'hashing_lexical')
+  })
+
+  it('shows the configured Vision profile and makes it restart-selectable', async () => {
+    const wrapper = mount(AdminProvidersView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('OpenAI-compatible Vision')
+    await wrapper.find('input[value="openai_compatible"]').trigger('change')
+    await flushPromises()
+
+    expect(providerApi.select).toHaveBeenCalledWith('vision', 'openai_compatible')
   })
 
   it('shows incompatible documents and offers a real revision rebuild', async () => {

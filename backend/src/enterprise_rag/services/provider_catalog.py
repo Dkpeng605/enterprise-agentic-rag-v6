@@ -35,6 +35,7 @@ class ProviderOption:
     input_token_limit: int | None = None
     language_note: str | None = None
     note: str | None = None
+    credential_hint: str = "SILICONFLOW_API_KEY"
 
     def to_dict(self, *, selected: bool, available: bool) -> dict[str, object]:
         return {
@@ -53,7 +54,7 @@ class ProviderOption:
             "selected": selected,
             "available": available,
             "unavailable_reason": (
-                None if available else "需要在 backend 环境配置 SILICONFLOW_API_KEY"
+                None if available else f"需要在 backend 环境配置 {self.credential_hint}"
             ),
             "requires_restart": True,
         }
@@ -141,6 +142,30 @@ _OPTIONS: tuple[ProviderOption, ...] = (
         note="官方 API /rerank；模型支持长输入，RAG 默认仍只重排候选 Leaf",
     ),
     ProviderOption(
+        kind=ProviderKind.VISION.value,
+        key="none",
+        name="none",
+        model="none",
+        label="关闭图片 Caption（降级）",
+        provider="内置",
+        capabilities=("skip_caption",),
+        is_remote=False,
+        note="图片仍会保存，但不调用远程 Vision Provider",
+    ),
+    ProviderOption(
+        kind=ProviderKind.VISION.value,
+        key="openai_compatible",
+        name="openai_compatible",
+        model="由 VISION_MODEL 环境变量提供",
+        label="OpenAI-compatible Vision",
+        provider="Configured endpoint",
+        capabilities=("image-caption", "chat-completions", "http", "remote"),
+        is_remote=True,
+        language_note="取决于所配置模型",
+        note="通过 /chat/completions 发送 base64 图片；必须配置 Vision endpoint、密钥与模型",
+        credential_hint="VISION_BASE_URL + VISION_API_KEY + VISION_MODEL",
+    ),
+    ProviderOption(
         kind=ProviderKind.SPARSE_ENCODER.value,
         key="hashing_lexical",
         name="hashing_lexical",
@@ -182,6 +207,7 @@ def load_provider_selection(path: Path) -> dict[str, str]:
         "embedding_dimension",
         "reranker_model",
         "llm_model",
+        "vision_provider",
         "sparse_encoder",
     }
     result: dict[str, str] = {}
@@ -218,6 +244,7 @@ class RuntimeProviderCatalog:
             "embedding": self._current_models.get("embedding", ""),
             "reranker": self._current_models.get("reranker", ""),
             "llm": self._current_models.get("llm", ""),
+            "vision": self._current_models.get("vision", ""),
             "sparse_encoder": self._current_models.get("sparse_encoder", ""),
         }
         pending = {
@@ -226,6 +253,7 @@ class RuntimeProviderCatalog:
                 ("embedding_model", "embedding"),
                 ("reranker_model", "reranker"),
                 ("llm_model", "llm"),
+                ("vision_provider", "vision"),
                 ("sparse_encoder", "sparse_encoder"),
             )
             if field in self._selection and self._selection[field] != selected[kind]
@@ -237,6 +265,7 @@ class RuntimeProviderCatalog:
                 "embedding_model": selected["embedding"],
                 "reranker_model": selected["reranker"],
                 "llm_model": selected["llm"],
+                "vision_provider": selected["vision"],
                 "sparse_encoder": selected["sparse_encoder"],
                 "pending_restart": bool(pending),
                 **(
@@ -252,6 +281,11 @@ class RuntimeProviderCatalog:
                 **(
                     {"pending_llm_model": pending["llm_model"]}
                     if "llm_model" in pending
+                    else {}
+                ),
+                **(
+                    {"pending_vision_provider": pending["vision_provider"]}
+                    if "vision_provider" in pending
                     else {}
                 ),
                 **(
@@ -296,18 +330,23 @@ class RuntimeProviderCatalog:
             raise ValueError("The requested Provider profile is not available.")
         if option.is_remote and option.kind not in self._remote_credentials:
             raise ValueError(
-                "The requested remote Provider requires SILICONFLOW_API_KEY "
-                "in the backend environment."
+                "The requested remote Provider requires "
+                f"{option.credential_hint} in the backend environment."
             )
         field = {
             ProviderKind.EMBEDDING.value: "embedding_model",
             ProviderKind.RERANKER.value: "reranker_model",
+            ProviderKind.VISION.value: "vision_provider",
             ProviderKind.SPARSE_ENCODER.value: "sparse_encoder",
         }.get(kind)
         if field is None:
             raise ValueError("This Provider kind is not restart-selectable.")
         selection = dict(self._selection)
-        selection[field] = option.key if kind == ProviderKind.SPARSE_ENCODER.value else option.model
+        selection[field] = (
+            option.key
+            if kind in {ProviderKind.SPARSE_ENCODER.value, ProviderKind.VISION.value}
+            else option.model
+        )
         if option.dimension is not None:
             selection["embedding_dimension"] = str(option.dimension)
         self._write_selection(selection)
