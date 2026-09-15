@@ -507,6 +507,12 @@ docker compose -f infra/compose/compose.e2e.yml up postgres backend frontend
 These compatibility commands have been verified from the repository's current Chinese path through
 the complete browser journey.
 
+The development and E2E Compose files define different stable project names
+(`enterprise-agentic-rag-v6-dev` and `enterprise-agentic-rag-v6-e2e`). E2E rebuilds, stops, and
+`--volumes` cleanup therefore affect only the E2E PostgreSQL instance and runtime volume; they cannot
+accidentally operate on the local development database. Do not override this isolation by reusing a
+generic `compose` project name.
+
 Open `http://127.0.0.1:4173`. This composition uses deterministic hashing Dense/Sparse
 retrieval and extractive answers for local demonstrations and acceptance; it is not a claim
 about production semantic-model quality. Anonymous sessions have all business permissions in

@@ -1,3 +1,5 @@
+name: enterprise-agentic-rag-v6-e2e
+
 services:
   postgres:
     image: postgres:17-alpine
