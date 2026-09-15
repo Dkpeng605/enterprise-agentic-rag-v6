@@ -1,0 +1,167 @@
+name: enterprise-agentic-rag-v6
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+x-backend-environment: &backend-environment
+  APP_ENVIRONMENT: production
+  APP_COMMIT_SHA: ${APP_COMMIT_SHA:?set APP_COMMIT_SHA in .env.production}
+  PUBLIC_BASE_URL: https://${PUBLIC_DOMAIN:?set PUBLIC_DOMAIN in .env.production}
+  MCP_PUBLIC_BASE_URL: https://${PUBLIC_DOMAIN}
+  ENTERPRISE_RAG__INGESTION__OBJECT_STORE_ROOT: /data/runtime/object-store
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    env_file:
+      - .env.production
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-enterprise_rag}
+      POSTGRES_USER: ${POSTGRES_USER:-enterprise_rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - private
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 0.75
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE in .env.production}
+    env_file:
+      - .env.production
+    environment: *backend-environment
+    command: ["alembic", "-c", "/app/backend/alembic.ini", "upgrade", "head"]
+    volumes:
+      - runtime-data:/data/runtime
+    networks:
+      - private
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    mem_limit: 384m
+    cpus: 0.5
+    logging: *default-logging
+
+  api:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE in .env.production}
+    env_file:
+      - .env.production
+    environment: *backend-environment
+    command: ["uvicorn", "enterprise_rag.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    volumes:
+      - runtime-data:/data/runtime
+    expose:
+      - "8000"
+    networks:
+      - private
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 512m
+    cpus: 1.0
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE in .env.production}
+    env_file:
+      - .env.production
+    environment: *backend-environment
+    command: ["enterprise-rag-worker"]
+    volumes:
+      - runtime-data:/data/runtime
+    networks:
+      - private
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 512m
+    cpus: 1.0
+    logging: *default-logging
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?set FRONTEND_IMAGE in .env.production}
+    expose:
+      - "8080"
+    networks:
+      - private
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 96m
+    cpus: 0.5
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  gateway:
+    image: caddy:2.10-alpine
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?set PUBLIC_DOMAIN in .env.production}
+    ports:
+      - "${HTTP_BIND:-0.0.0.0}:80:80"
+      - "${HTTPS_BIND:-0.0.0.0}:443:443"
+    volumes:
+      - ./gateway.Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - private
+    depends_on:
+      api:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 96m
+    cpus: 0.5
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider --no-check-certificate https://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  postgres-data:
+  runtime-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  private:
+    driver: bridge

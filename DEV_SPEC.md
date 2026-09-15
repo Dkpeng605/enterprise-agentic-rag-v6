@@ -1697,9 +1697,9 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M5 | MCP 与全链路可观测性 | 6 | 完成 |
 | M6 | EDD 评测闭环与公开 Benchmark Adapter | 6 | 完成 |
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 完成 |
-| M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
+| M8 | 2GB VPS 首次公网发布 | 6 | 进行中 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 54/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 55/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -3201,7 +3201,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 
 #### M8-00 独立摄取 Worker 前置 Slice（已完成）
 
-- 状态：`DONE`；独立 Worker 已作为真实 console script 和生产组合根提交，M8-01～M8-06 仍未完成；
+- 状态：`DONE`；独立 Worker 已作为真实 console script 和生产组合根提交，M8-03～M8-06 仍未完成；
 - 范围边界：本 Slice 交付真实 Worker 进程和 server-backed Milvus 前置能力，但不把 Worker 单独交付误报为生产镜像、Compose 或公网多副本发布完成；
 - 目标：把 M3 的真实摄取 Pipeline 从 API 组合根中抽出为可独立启动、可优雅停止、可恢复的进程入口，
   为后续镜像、Compose 和部署提供明确的 Job Worker 边界；不得用静态成功状态或空处理器替代真实 Loader、
@@ -3221,7 +3221,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 关键限制：Milvus Lite `.db` 仍只支持单进程打开，PostgreSQL lease 不能解决两个进程同时打开同一个 Lite 文件；
   因此 M7 的 `mac_runtime`/离线 E2E 继续使用单进程 API+Worker，独立 Worker 使用 Lite 时只能在 API 停止时运行。
   生产 Worker 使用本 Slice 的 `MilvusRemoteVectorStore`，允许 API 与多个 Worker 共享 server-backed Milvus，但不等于
-  已完成生产镜像或公网发布；
+  已完成公网发布；M8-01 镜像与 M8-02 Compose 已在后续 Slice 交付；
 - 后续前置项已解除：M8-01～M8-06 继续负责镜像、Compose、部署、备份和公网验收；它们不得回退到共享 Milvus Lite 文件；
 - EDD 验收：Worker 单测覆盖首次过期恢复、恢复间隔、单进程串行执行、轮询异常继续、cooperative stop 和资源
   关闭幂等；Settings 测试覆盖四个边界变量和非法值；Runtime 测试证明真实 Pipeline composition、生产环境
@@ -3252,9 +3252,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   444 passed/4 skipped、Ruff、strict Mypy、frontend 58 passed/typecheck/build、OpenAPI drift 和 quality gate；
 - 回滚：删除两张生产 Dockerfile、Caddyfile 和 `.dockerignore` 约束即可回到 M8-00 的进程入口，不删除任何数据库、
   对象或 Milvus 数据；
-- PR：`feat/m8-production-images`，后续先创建 PR、等待 required checks 全绿，再 squash merge。
+- PR：`feat/m8-production-images`，已创建并在 required checks 全绿后 squash merge（PR #92）。
 
-#### M8-02 Production Compose/Caddy
+#### M8-02 Production Compose/Caddy（已完成，未公网发布）
 
 - 前置组合根（已完成）：`backend/src/enterprise_rag/production_api.py` 装配生产 HTTP API 所需的远程 Embedding、
   远程 Reranker、OpenAI-compatible LLM、Milvus 原生 BM25 和 `MilvusRemoteVectorStore`；`main.py` 仅在
@@ -3264,17 +3264,18 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 拓扑约束：生产组合拒绝本地 Embedding/Reranker/LLM、Milvus Lite、Hashing Sparse 和明文 MCP URL；启动前必须有
   数据库、Session、管理员 bootstrap、LLM/Embedding/Reranker、远程 Milvus、MCP pepper、metrics token。生产模型
   身份只来自环境变量，不使用本机 Provider selection 文件覆盖，防止本地 UI 选择污染远程请求；
-- 网络、volume、TLS、资源、日志（待本 Slice）：API、Worker、PostgreSQL、Frontend 只能加入内部网络；只有外层
+- 网络、volume、TLS、资源、日志：API、Worker、PostgreSQL、Frontend 只能加入 `private` 内部网络；只有外层
   Caddy 发布 80/443，API/Worker/PostgreSQL/Milvus 不暴露公网端口；为 ObjectStore、备份和运行配置声明持久化卷，
   为 API/Worker 配置 CPU/内存边界、结构化日志和轮转；Caddy 必须保留 SSE/MCP 长连接、SPA history fallback 和
-  安全 Header；
-- EDD 前置验收：新增生产组合契约测试先验证错误拓扑和缺失 Provider，再验证远程 Milvus 构造参数、注册表 Provider
-  kind、真实 API 路由、index revision 和“无 background Worker”；后端全量测试、Ruff、strict Mypy、前端测试、
-  OpenAPI drift、quality gate 和 Browser E2E 必须保持全绿。Compose Slice 还必须用黑盒检查证明只有宿主 80/443
-  监听，并验证 API/Worker 共享远程 Milvus；
+  安全 Header。`runtime-data` 同时挂载 API/Worker，migration 以 `service_completed_successfully` gate API/Worker；
+- EDD 验收：生产组合契约测试验证错误拓扑和缺失 Provider、远程 Milvus 构造参数、注册表 Provider kind、真实 API
+  路由、index revision 和“无 background Worker”；Compose 契约测试解析 YAML，证明只有 gateway 声明宿主端口且仅为
+  80/443，证明 migration 顺序、共享 runtime volume、内部网络与 API/Worker 命令；Caddy 契约测试证明 API、SPA、
+  SSE/MCP 路由和安全 Header。后端全量测试、Ruff、strict Mypy、前端测试、OpenAPI drift、quality gate 和 Browser
+  E2E 均保持全绿；真实远程 Milvus/域名验收不在本机 CI 内完成，属于后续部署 Slice；
 - 回滚：将 `APP_ENVIRONMENT` 切回 development 或恢复原有本地组合即可回滚 API 组合选择；不删除 PostgreSQL、
   ObjectStore、Root/Leaf、Trace 或 Milvus revision；Compose 回滚只切换 immutable image tag，不在主机上删除持久卷；
-- PR：前置组合根待以独立 PR 提交；Compose/Caddy 仍需另一个 Slice，必须先创建 PR、required checks 全绿后再 squash merge。
+- PR：组合根已在 PR #93 中完成并 squash merge；Compose/Caddy 本 Slice 待独立 PR，必须先创建 PR、required checks 全绿后再 squash merge。
 
 #### M8-03 GHCR
 

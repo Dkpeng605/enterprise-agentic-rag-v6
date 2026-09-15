@@ -1,0 +1,24 @@
+{$PUBLIC_DOMAIN} {
+    encode gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+
+    @stream {
+        path /api/v1/queries/stream /mcp*
+    }
+    reverse_proxy @stream api:8000 {
+        flush_interval -1
+    }
+
+    @api {
+        path /api/* /health/* /metrics /docs /docs/* /openapi.json
+    }
+    reverse_proxy @api api:8000
+    reverse_proxy frontend:8080
+}
