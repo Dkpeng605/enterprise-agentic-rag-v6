@@ -208,6 +208,47 @@ async def test_one_of_four_routes_can_cover_the_single_original_requirement() ->
 
 
 @pytest.mark.anyio
+async def test_invalid_assessor_requirements_are_ignored_without_tightening_route_coverage(
+) -> None:
+    requirement = "原始问题"
+
+    class InvalidAssessor:
+        async def assess(
+            self,
+            requirements: tuple[str, ...],
+            evidence: tuple[EvidenceItem, ...],
+            score: float,
+        ) -> EvidenceAssessment:
+            del requirements, evidence
+            return EvidenceAssessment(
+                score,
+                ("子查询一", "子查询二"),
+                (),
+                (),
+                EvidenceDecision.ANSWER,
+                "错误地把检索路径当成了回答要求",
+            )
+
+    request = DeepRecoveryRequest(
+        requirement,
+        (requirement,),
+        QueryScope(),
+        (evidence("a", confidence=1.0, covered=(requirement,)),),
+    )
+
+    result = await DeepRecoveryController(
+        assessor=InvalidAssessor(),
+        executor=FakeExecutor(),
+        always_assess=True,
+    ).run(request)
+
+    assert result.decision is EvidenceDecision.ANSWER
+    assert result.assessment.covered_requirements == (requirement,)
+    assert result.assessment.missing_requirements == ()
+    assert result.assessor_degraded is True
+
+
+@pytest.mark.anyio
 async def test_middle_band_uses_assessor_once() -> None:
     assessor = FakeAssessor()
     executor = FakeExecutor()

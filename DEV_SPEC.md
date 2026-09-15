@@ -1014,7 +1014,9 @@ Recovery 结果与现有 Evidence Ledger 按 Leaf ID 去重。每轮至少为 Re
 - 选择以原子 JSON 写入本机 `data/runtime/provider-selection.json` 的同级运行目录，服务重启时由 Composition Root 读取；接口返回 `pending_restart=true` 直到运行实例与持久化选择一致；
 - Embedding profile 至少提供默认 MiniLM（384 维，profile 声明 512 tokens，但当前缓存可能有效 128）、本地 `BAAI/bge-small-zh-v1.5`（512 维/512 tokens），以及 SiliconFlow `BAAI/bge-m3`（1024 维/官方 8192 tokens）；Reranker 至少提供本地 Jina/MS MARCO 与 SiliconFlow `BAAI/bge-reranker-v2-m3`；当前运行时有效 dimension/input limit 必须覆盖在 selected option 中；
 - SiliconFlow profile 通过共享 `SILICONFLOW_API_KEY` 或按 kind 覆盖的密钥启用；目录只返回 `available`/`unavailable_reason`，不得返回 key 或 secret endpoint。未配置凭据的远程选项必须禁用且后端拒绝持久化；
-- 切换 Embedding 不得热替换已有索引：启动时由模型名计算新的 index revision，旧 revision 不与新维度混用；管理员界面必须提示重启 backend 和重新摄取；
+- Mac Composition Root 同时支持两种来源：管理员选择文件保存 `embedding_provider`/`embedding_model` 与 `reranker_provider`/`reranker_model`，直接环境配置则使用 `providers.embedding=openai_compatible` 或 `providers.reranker=openai_compatible` 及对应 credentials。旧的仅含模型名的选择文件必须向后兼容，但不能让过期的本地模型名覆盖显式 API Provider 配置；
+- 切换 Embedding 不得热替换已有索引：启动时由实际 Provider、模型、Sparse profile 和维度计算新的 index revision，旧 revision 不与新维度混用；管理员界面必须提示重启 backend，并通过安全重建服务重新投影，不要求手工重新上传同一文档；
+- Mac 的 Reranker 运行时必须依据实际 Provider 装配本地 CrossEncoder、OpenAI-compatible HTTP Adapter 或显式 Noop，不能仅依据模型字符串把 API profile 当作本地模型下载；
 - 匿名用户仍可在总览查看非敏感 Provider 状态，但不能读取系统 Provider 目录或改变选择。
 
 ### 11.3 文档
@@ -1935,7 +1937,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - Evidence：每项以稳定 Leaf/Root ID、0～1 归一化 confidence、原始问题这一项 requirement 的覆盖、round number 和 Recovery route 记录；首轮 route 必须为空，Recovery 轮必须带与 action 一致的 provenance。多 sub-query 的 matched-query provenance 仅用于解释候选来源，不产生新的 requirement，也不构成逐分支覆盖义务；
 - 候选选择：Rerank 与 Root context 选择只按实际分数和稳定顺序执行，不为每条 sub-query 保留名额；matched-query provenance 不得驱动 coverage 配额。子查询仍可并行扩大证据来源，但任一分支的可靠证据都可以支撑唯一原始 requirement，其他分支无证据不能单独导致拒答；
 - Ledger：按 Leaf ID 跨首轮和所有 Recovery 轮去重，重复候选不覆盖首轮来源且计入 duplicate count；最终 Top-K 可配置为 Recovery 候选预留默认 2 个名额，避免首轮高分完全挤掉新增证据；
-- 评分：确定性分数为 `0.7 * requirement coverage + 0.3 * max evidence confidence`，其中 requirement 只有原始用户问题一项；`score >= 0.80` 直接 Answer，`score < 0.45` 直接 Recover，中间区间才调用 Evidence Assessor；Assessor 的 score、covered/missing requirement 必须与当前输入一致且不得引入未知 requirement；Assessor 评估所有分支的合并证据，不要求每个 sub-query 都独立覆盖；
+- 评分：确定性分数为 `0.7 * requirement coverage + 0.3 * max evidence confidence`，其中 requirement 只有原始用户问题一项；`score >= 0.80` 直接 Answer，`score < 0.45` 直接 Recover，中间区间才调用 Evidence Assessor；Assessor 的 score、covered/missing requirement 必须与当前输入一致且不得引入未知 requirement；覆盖/缺口分区不闭合或在仍有缺口时返回 `answer` 的 assessor 结果视为不可信，服务回退到原始 requirement 的确定性判断并记录 degraded，不得抛异常；Assessor 评估所有分支的合并证据，不要求每个 sub-query 都独立覆盖；
 - 路由：普通同义/召回不足走 Query Rewrite Hybrid；描述性概念走 HyDE Dense-only；型号、编号、精确术语走 Sparse-only 并保留原关键词；已证明 Scope 错误时走 Scope repair，只移除 `repairable_scope_fields` 明确列出的第一个条件；
 - 诚实边界：当前 Sparse Provider 是 hashing lexical，不是 BM25，因此本实现不使用 `BM25-only` 名称；`RetrievalMode.SPARSE_ONLY` 可在未来由真正 BM25 Provider 实现，不影响 Recovery 控制器；
 - 轮次：默认最多 2 轮；每轮 action 必须指向 missing requirement，执行结果的 round/route 必须匹配；达到上限仍为 Recover 时强制转为 Abstain，并给出简短边界原因，不继续隐式循环；

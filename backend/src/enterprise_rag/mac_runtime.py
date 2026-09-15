@@ -22,6 +22,7 @@ from enterprise_rag.adapters.ocr import TesseractOcrEngine
 from enterprise_rag.adapters.planners import LanguageModelQueryPlanner
 from enterprise_rag.adapters.rerankers import (
     LocalFastEmbedReranker,
+    NoopReranker,
     OpenAICompatibleReranker,
 )
 from enterprise_rag.adapters.sparse import HashingSparseEncoder, MilvusBuiltinBm25Encoder
@@ -59,6 +60,7 @@ from enterprise_rag.services.provider_catalog import (
     SILICONFLOW_RERANKER_MODEL,
     RuntimeProviderCatalog,
     load_provider_selection,
+    resolve_runtime_provider,
     selected_embedding_dimension,
     selected_runtime_model,
 )
@@ -85,8 +87,6 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         raise RuntimeError("LLM_MODEL is required by the Mac runtime")
     expected = {
         "llm": "openai_compatible",
-        "embedding": "local_multilingual_minilm",
-        "reranker": "local_cross_encoder",
         "vector_store": "milvus_lite",
     }
     selected = active.providers.model_dump()
@@ -100,15 +100,19 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
     model_cache = runtime_root.parent / "model-cache"
     selection_path = runtime_root.parent / "provider-selection.json"
     selection = load_provider_selection(selection_path)
-    embedding_model = selected_runtime_model(
+    embedding_provider, embedding_model = resolve_runtime_provider(
         selection,
         kind="embedding",
-        default=credentials.embedding_model or EMBEDDING_MODEL,
+        configured_provider=active.providers.embedding,
+        configured_model=credentials.embedding_model,
+        default_model=EMBEDDING_MODEL,
     )
-    reranker_model = selected_runtime_model(
+    reranker_provider, reranker_model = resolve_runtime_provider(
         selection,
         kind="reranker",
-        default=credentials.rerank_model or DEFAULT_RERANKER_MODEL,
+        configured_provider=active.providers.reranker,
+        configured_model=credentials.rerank_model,
+        default_model=DEFAULT_RERANKER_MODEL,
     )
     llm_model = selected_runtime_model(
         selection,
@@ -134,21 +138,29 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
 
     database = Database(credentials.database_url.get_secret_value())
     object_store = LocalObjectStore(runtime_root)
-    configured_embedding_dimension = selected_embedding_dimension(
-        selection, active.ingestion.embedding_dimension
+    configured_embedding_dimension = (
+        selected_embedding_dimension(selection, active.ingestion.embedding_dimension)
+        if active.providers.embedding != "openai_compatible"
+        or "embedding_provider" in selection
+        else active.ingestion.embedding_dimension
     )
     embedding: LocalMultilingualEmbedding | OpenAICompatibleEmbedding
-    if embedding_model == SILICONFLOW_EMBEDDING_MODEL:
+    if embedding_provider == "openai_compatible":
         if not embedding_remote_key:
             raise RuntimeError(
-                "SILICONFLOW_API_KEY or EMBEDDING_API_KEY is required for BAAI/bge-m3"
+                "EMBEDDING_API_KEY or SILICONFLOW_API_KEY is required for an "
+                "OpenAI-compatible Embedding Provider"
             )
         embedding = OpenAICompatibleEmbedding(
             base_url=str(credentials.embedding_base_url or shared_remote_base_url),
             api_key=embedding_remote_key,
             model=embedding_model,
-            provider_name="siliconflow",
-            dimension=1024,
+            provider_name=(
+                "siliconflow"
+                if embedding_model == SILICONFLOW_EMBEDDING_MODEL
+                else "openai_compatible"
+            ),
+            dimension=configured_embedding_dimension,
             input_token_limit=8192,
             tokenizer_name=f"estimated-tokenizer:{embedding_model}",
             batch_size=active.ingestion.embedding_batch_size,
@@ -183,25 +195,34 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         sparse_version=sparse_info.version,
     )
     vector_store = MilvusLiteVectorStore(runtime_root.parent / "milvus" / "vectors.db")
-    reranker: LocalFastEmbedReranker | OpenAICompatibleReranker
-    if reranker_model == SILICONFLOW_RERANKER_MODEL:
+    reranker: LocalFastEmbedReranker | NoopReranker | OpenAICompatibleReranker
+    if reranker_provider == "openai_compatible":
         if not reranker_remote_key:
             raise RuntimeError(
-                "SILICONFLOW_API_KEY or RERANK_API_KEY is required for BAAI/bge-reranker-v2-m3"
+                "RERANK_API_KEY or SILICONFLOW_API_KEY is required for an "
+                "OpenAI-compatible Reranker Provider"
             )
         reranker = OpenAICompatibleReranker(
             base_url=str(credentials.rerank_base_url or shared_remote_base_url),
             api_key=reranker_remote_key,
             model=reranker_model,
-            provider_name="siliconflow",
+            provider_name=(
+                "siliconflow"
+                if reranker_model == SILICONFLOW_RERANKER_MODEL
+                else "openai_compatible"
+            ),
             timeout_seconds=active.cost_guard.provider_timeout_seconds,
             max_retries=active.cost_guard.provider_max_retries,
         )
-    else:
+    elif reranker_provider == "none":
+        reranker = NoopReranker()
+    elif reranker_provider == "local_cross_encoder":
         reranker = LocalFastEmbedReranker(
             model_name=reranker_model,
             cache_dir=model_cache / "reranker",
         )
+    else:
+        raise RuntimeError(f"Unknown Mac Reranker Provider: {reranker_provider}")
     raw_language_model = OpenAICompatibleLanguageModel(
         base_url=str(credentials.llm_base_url),
         api_key=credentials.llm_api_key.get_secret_value(),
@@ -309,7 +330,9 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         selection_path=selection_path,
         current_models={
             "embedding": embedding_model,
+            "embedding_provider": embedding_provider,
             "reranker": reranker_model,
+            "reranker_provider": reranker_provider,
             "llm": llm_model,
             "vision": vision.info().name,
             "sparse_encoder": sparse_info.name,

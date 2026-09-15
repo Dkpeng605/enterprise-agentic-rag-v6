@@ -410,6 +410,7 @@ class DeepRecoveryController:
         if should_use_assessor:
             try:
                 assessed = await self._assessor.assess(requirements, evidence, score)
+                _validate_assessment(assessed, requirements)
             except Exception as error:
                 llm_calls, input_tokens, output_tokens = _error_usage(error)
                 decision = (
@@ -438,12 +439,6 @@ class DeepRecoveryController:
                     ),
                     True,
                 )
-            if set(assessed.covered_requirements) - set(requirements):
-                raise ValueError("Evidence Assessor returned unknown covered requirements")
-            if set(assessed.missing_requirements) - set(requirements):
-                raise ValueError("Evidence Assessor returned unknown missing requirements")
-            if set(assessed.covered_requirements) & set(assessed.missing_requirements):
-                raise ValueError("Evidence Assessor returned overlapping requirements")
             return assessed, True
         if score >= self._high:
             return (
@@ -465,6 +460,36 @@ class DeepRecoveryController:
                 False,
             )
         raise AssertionError("middle-band evidence must be assessed")
+
+
+def _validate_assessment(
+    assessment: EvidenceAssessment, requirements: tuple[str, ...]
+) -> None:
+    """Keep assessor output inside the one-user-requirement boundary.
+
+    Assessors are Providers and therefore untrusted. In particular, a model must
+    not be able to turn retrieval-route labels into new answer obligations or
+    claim ``answer`` while its partition still has an uncovered requirement.
+    Invalid output is handled by the caller's deterministic fallback.
+    """
+
+    if not isinstance(assessment, EvidenceAssessment):
+        raise ValueError("Evidence Assessor returned an invalid assessment")
+    covered = set(assessment.covered_requirements)
+    missing = set(assessment.missing_requirements)
+    requirement_set = set(requirements)
+    if covered - requirement_set:
+        raise ValueError("Evidence Assessor returned unknown covered requirements")
+    if missing - requirement_set:
+        raise ValueError("Evidence Assessor returned unknown missing requirements")
+    if covered & missing:
+        raise ValueError("Evidence Assessor returned overlapping requirements")
+    if covered | missing != requirement_set:
+        raise ValueError("Evidence Assessor returned an incomplete requirement partition")
+    if missing and assessment.decision is EvidenceDecision.ANSWER:
+        raise ValueError("Evidence Assessor answered with missing requirements")
+    if assessment.conflicts and assessment.decision is EvidenceDecision.ANSWER:
+        raise ValueError("Evidence Assessor ignored an evidence conflict")
 
 
 _EXACT_TERM = re.compile(r"(?:[A-Z]{2,}[\w-]*|\w*\d[\w.-]*|型号|编号|版本号)")

@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,6 +18,11 @@ MULTILINGUAL_RERANKER_MODEL = "jinaai/jina-reranker-v2-base-multilingual"
 SILICONFLOW_EMBEDDING_MODEL = "BAAI/bge-m3"
 SILICONFLOW_RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
+
+_REMOTE_PROFILE_MODELS = {
+    "embedding": {SILICONFLOW_EMBEDDING_MODEL},
+    "reranker": {SILICONFLOW_RERANKER_MODEL},
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,8 +209,10 @@ def load_provider_selection(path: Path) -> dict[str, str]:
     if not isinstance(payload, dict):
         raise RuntimeError("The Provider selection file must contain an object.")
     allowed = {
+        "embedding_provider",
         "embedding_model",
         "embedding_dimension",
+        "reranker_provider",
         "reranker_model",
         "llm_model",
         "vision_provider",
@@ -214,6 +222,19 @@ def load_provider_selection(path: Path) -> dict[str, str]:
     for key, value in payload.items():
         if key not in allowed or not isinstance(value, str) or not value.strip():
             raise RuntimeError("The Provider selection file contains an invalid field.")
+        if key == "embedding_provider" and value not in {
+            "local_multilingual_minilm",
+            "openai_compatible",
+        }:
+            raise RuntimeError(
+                "The Provider selection file contains an invalid Embedding Provider."
+            )
+        if key == "reranker_provider" and value not in {
+            "local_cross_encoder",
+            "openai_compatible",
+            "none",
+        }:
+            raise RuntimeError("The Provider selection file contains an invalid Reranker Provider.")
         result[key] = value
     return result
 
@@ -247,30 +268,56 @@ class RuntimeProviderCatalog:
             "vision": self._current_models.get("vision", ""),
             "sparse_encoder": self._current_models.get("sparse_encoder", ""),
         }
+        selected_provider = {
+            "embedding": self._current_models.get("embedding_provider")
+            or _default_runtime_provider("embedding", selected["embedding"]),
+            "reranker": self._current_models.get("reranker_provider")
+            or _default_runtime_provider("reranker", selected["reranker"]),
+        }
         pending = {
             field: self._selection[field]
             for field, kind in (
+                ("embedding_provider", "embedding"),
                 ("embedding_model", "embedding"),
+                ("reranker_provider", "reranker"),
                 ("reranker_model", "reranker"),
                 ("llm_model", "llm"),
                 ("vision_provider", "vision"),
                 ("sparse_encoder", "sparse_encoder"),
             )
-            if field in self._selection and self._selection[field] != selected[kind]
+            if field in self._selection
+            and self._selection[field]
+            != (
+                selected_provider[kind]
+                if field in {"embedding_provider", "reranker_provider"}
+                else selected[kind]
+            )
         }
         return {
             "providers": [info.to_dict() for info in self._registry.list_info()],
             "options": [self._option_dict(option, selected=selected) for option in _OPTIONS],
             "selection": {
                 "embedding_model": selected["embedding"],
+                "embedding_provider": selected_provider["embedding"],
                 "reranker_model": selected["reranker"],
+                "reranker_provider": selected_provider["reranker"],
                 "llm_model": selected["llm"],
                 "vision_provider": selected["vision"],
                 "sparse_encoder": selected["sparse_encoder"],
                 "pending_restart": bool(pending),
                 **(
+                    {"pending_embedding_provider": pending["embedding_provider"]}
+                    if "embedding_provider" in pending
+                    else {}
+                ),
+                **(
                     {"pending_embedding_model": pending["embedding_model"]}
                     if "embedding_model" in pending
+                    else {}
+                ),
+                **(
+                    {"pending_reranker_provider": pending["reranker_provider"]}
+                    if "reranker_provider" in pending
                     else {}
                 ),
                 **(
@@ -342,6 +389,14 @@ class RuntimeProviderCatalog:
         if field is None:
             raise ValueError("This Provider kind is not restart-selectable.")
         selection = dict(self._selection)
+        provider_field = {
+            ProviderKind.EMBEDDING.value: "embedding_provider",
+            ProviderKind.RERANKER.value: "reranker_provider",
+        }.get(kind)
+        if provider_field is not None:
+            selection[provider_field] = (
+                "openai_compatible" if option.is_remote else option.name
+            )
         selection[field] = (
             option.key
             if kind in {ProviderKind.SPARSE_ENCODER.value, ProviderKind.VISION.value}
@@ -381,6 +436,56 @@ def selected_runtime_model(selection: dict[str, str], *, kind: str, default: str
     return selection.get(field, default)
 
 
+def resolve_runtime_provider(
+    selection: Mapping[str, str],
+    *,
+    kind: str,
+    configured_provider: str,
+    configured_model: str | None,
+    default_model: str,
+) -> tuple[str, str]:
+    """Resolve a restart-bound profile without losing Provider identity.
+
+    Older selection files stored only a model name. Preserve those files by
+    recognizing the known remote profiles, while giving an explicit
+    ``*_provider`` field precedence for new selections. An environment-level
+    OpenAI-compatible configuration wins over an old model-only local profile.
+    """
+
+    if kind not in _REMOTE_PROFILE_MODELS:
+        raise ValueError(f"runtime Provider selection is unsupported for {kind}")
+    model_field = f"{kind}_model"
+    provider_field = f"{kind}_provider"
+    selected_model = selection.get(model_field)
+    configured_model_value = configured_model.strip() if configured_model else ""
+    model = (selected_model or configured_model_value or default_model).strip()
+    selected_provider = selection.get(provider_field)
+    if selected_provider:
+        allowed = {
+            "embedding": {"openai_compatible", "local_multilingual_minilm"},
+            "reranker": {"openai_compatible", "local_cross_encoder", "none"},
+        }[kind]
+        if selected_provider not in allowed:
+            raise ValueError(f"runtime Provider selection is invalid for {kind}")
+        return selected_provider, model
+    if configured_provider == "openai_compatible":
+        # A model-only file predates explicit Provider identity. Do not let a
+        # stale local model silently replace explicit API configuration.
+        return configured_provider, configured_model_value or model
+    if selected_model in _REMOTE_PROFILE_MODELS[kind]:
+        return "openai_compatible", model
+    return configured_provider, model
+
+
 def selected_embedding_dimension(selection: dict[str, str], default: int) -> int:
     value = selection.get("embedding_dimension")
     return int(value) if value is not None else default
+
+
+def _default_runtime_provider(kind: str, model: str) -> str:
+    if model in _REMOTE_PROFILE_MODELS.get(kind, set()):
+        return "openai_compatible"
+    return {
+        "embedding": "local_multilingual_minilm",
+        "reranker": "local_cross_encoder",
+    }.get(kind, "")
