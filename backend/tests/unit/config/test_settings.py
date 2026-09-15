@@ -12,6 +12,7 @@ def test_default_settings_are_valid_and_immutable() -> None:
     assert settings.app.environment == "development"
     assert settings.providers.vector_store == "milvus_lite"
     assert settings.providers.ocr == "tesseract"
+    assert settings.providers.vision == "none"
     assert settings.providers.reranker == "local_cross_encoder"
     assert settings.ingestion.pdf_ocr_languages == ("chi_sim", "eng")
     assert settings.ingestion.overlap_tokens == 0
@@ -164,6 +165,49 @@ def test_remote_reranker_requires_its_own_production_credentials() -> None:
         )
 
     assert raised.value.details == {"fields": ("RERANK_API_KEY", "RERANK_BASE_URL", "RERANK_MODEL")}
+
+
+def test_openai_compatible_vision_settings_are_loaded_and_masked() -> None:
+    secret = "vision-must-not-appear"
+    settings = load_settings(
+        environ={
+            "VISION_BASE_URL": "https://vision.example/v1",
+            "VISION_API_KEY": secret,
+            "VISION_MODEL": "vision-model",
+        },
+        overrides={"providers": {"vision": "openai_compatible"}},
+    )
+
+    assert settings.providers.vision == "openai_compatible"
+    assert str(settings.credentials.vision_base_url) == "https://vision.example/v1"
+    assert settings.credentials.vision_api_key is not None
+    assert settings.credentials.vision_api_key.get_secret_value() == secret
+    assert settings.credentials.vision_model == "vision-model"
+    assert secret not in repr(settings)
+
+
+def test_production_remote_vision_requires_its_own_credentials() -> None:
+    environment = {
+        "ADMIN_BOOTSTRAP_EMAIL": "admin@example.test",
+        "ADMIN_BOOTSTRAP_PASSWORD": "password",
+        "DATABASE_URL": "postgresql+asyncpg://example.test/db",
+        "MCP_TOKEN_PEPPER": "pepper",
+        "METRICS_TOKEN": "metrics",
+        "SESSION_SECRET": "session",
+    }
+    with pytest.raises(SettingsError) as raised:
+        load_settings(
+            environ=environment,
+            overrides={
+                "app": {"environment": "production"},
+                "providers": {"llm": "mock", "vision": "openai_compatible"},
+            },
+        )
+
+    assert raised.value.code is SettingsErrorCode.CONFIG_SECRET_MISSING
+    assert raised.value.details == {
+        "fields": ("VISION_API_KEY", "VISION_BASE_URL", "VISION_MODEL")
+    }
 
 
 @pytest.mark.parametrize(

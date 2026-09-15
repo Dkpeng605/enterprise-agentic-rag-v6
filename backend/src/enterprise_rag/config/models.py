@@ -173,6 +173,9 @@ class CredentialSettings(SettingsModel):
     rerank_base_url: AnyHttpUrl | None = None
     rerank_api_key: SecretStr | None = None
     rerank_model: str | None = None
+    vision_base_url: AnyHttpUrl | None = None
+    vision_api_key: SecretStr | None = None
+    vision_model: str | None = None
     siliconflow_base_url: AnyHttpUrl | None = None
     siliconflow_api_key: SecretStr | None = None
     mcp_token_pepper: SecretStr | None = None

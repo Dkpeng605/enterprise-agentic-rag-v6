@@ -33,6 +33,9 @@ ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "RERANK_BASE_URL": ("credentials", "rerank_base_url"),
     "RERANK_API_KEY": ("credentials", "rerank_api_key"),
     "RERANK_MODEL": ("credentials", "rerank_model"),
+    "VISION_BASE_URL": ("credentials", "vision_base_url"),
+    "VISION_API_KEY": ("credentials", "vision_api_key"),
+    "VISION_MODEL": ("credentials", "vision_model"),
     "SILICONFLOW_BASE_URL": ("credentials", "siliconflow_base_url"),
     "SILICONFLOW_API_KEY": ("credentials", "siliconflow_api_key"),
     "MCP_TOKEN_PEPPER": ("credentials", "mcp_token_pepper"),
@@ -47,7 +50,7 @@ KNOWN_PROVIDERS: dict[str, frozenset[str]] = {
     "splitter": frozenset({"structure_aware"}),
     "evaluator": frozenset({"deterministic"}),
     "ocr": frozenset({"tesseract"}),
-    "vision": frozenset({"none"}),
+    "vision": frozenset({"none", "openai_compatible"}),
     "sparse_encoder": frozenset({"hashing_lexical", "milvus_builtin_bm25"}),
 }
 
@@ -164,6 +167,10 @@ def _validate_production_secrets(settings: AppSettings) -> None:
                 missing.append(env_name)
     if settings.providers.reranker == "openai_compatible":
         for env_name in ("RERANK_API_KEY", "RERANK_BASE_URL", "RERANK_MODEL"):
+            if is_missing(getattr(credentials, ENV_ALIASES[env_name][-1])):
+                missing.append(env_name)
+    if settings.providers.vision == "openai_compatible":
+        for env_name in ("VISION_API_KEY", "VISION_BASE_URL", "VISION_MODEL"):
             if is_missing(getattr(credentials, ENV_ALIASES[env_name][-1])):
                 missing.append(env_name)
     if missing:
