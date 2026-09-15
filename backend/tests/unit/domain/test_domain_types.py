@@ -218,6 +218,7 @@ def test_query_plan_serializes_scope_without_mutable_lists() -> None:
         scope=QueryScope(collection_ids=(COLLECTION_ID,), titles=("Policy",)),
         language="en",
         mode=QueryMode.DEEP,
+        use_sub_queries=True,
     )
 
     assert plan.to_dict()["scope"] == {
@@ -229,6 +230,7 @@ def test_query_plan_serializes_scope_without_mutable_lists() -> None:
         "versions": [],
         "sections": [],
     }
+    assert plan.to_dict()["use_sub_queries"] is True
     with pytest.raises(ValueError, match="duplicates"):
         QueryScope(titles=("same", "same"))
 
@@ -254,6 +256,34 @@ def test_query_plan_accepts_only_the_original_user_requirement(
             scope=QueryScope(),
             language="zh",
             mode=QueryMode.STANDARD,
+            use_sub_queries=True,
+        )
+
+
+def test_query_plan_requires_explicit_opt_in_for_alternative_routes() -> None:
+    with pytest.raises(ValueError, match="without sub-queries"):
+        QueryPlan(
+            original_query="原始问题",
+            rewritten_query="改写后的检索路径",
+            intent=QueryIntent.FACTUAL,
+            sub_queries=("替代路径一", "替代路径二"),
+            requirements=("原始问题",),
+            scope=QueryScope(),
+            language="zh",
+            mode=QueryMode.STANDARD,
+        )
+
+    with pytest.raises(ValueError, match="at least two alternative"):
+        QueryPlan(
+            original_query="原始问题",
+            rewritten_query="改写后的检索路径",
+            intent=QueryIntent.FACTUAL,
+            sub_queries=("改写后的检索路径",),
+            requirements=("原始问题",),
+            scope=QueryScope(),
+            language="zh",
+            mode=QueryMode.STANDARD,
+            use_sub_queries=True,
         )
 
 

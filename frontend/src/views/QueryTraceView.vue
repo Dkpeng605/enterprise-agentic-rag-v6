@@ -228,8 +228,8 @@ onMounted(() => loadTraces())
             <div class="trace-section-head"><div><p class="section-kicker">QUERY PLAN</p><h3>查询改写与子查询</h3></div><span v-if="detail.plan">{{ detail.plan.provider }} · {{ detail.plan.intent }} · {{ detail.plan.language }}</span></div>
             <template v-if="detail.plan">
               <div class="query-plan-copy"><article><span>ORIGINAL</span><p>{{ detail.plan.original_query }}</p></article><article><span>REWRITTEN</span><p>{{ detail.plan.rewritten_query }}</p></article></div>
-              <div class="query-branches"><article v-for="(query, index) in detail.plan.sub_queries" :key="`${index}-${query}`"><span>SUB-QUERY {{ index + 1 }}</span><strong>{{ query }}</strong><small>{{ detail.plan.sub_queries.length === 1 ? '未拆分' : `共 ${detail.plan.sub_queries.length} 条并行检索分支` }} · {{ queryMatchLabel(query) }}</small></article></div>
-              <div v-if="detail.plan.requirements.length" class="query-requirements"><span>REQUIREMENTS / 最终必须覆盖的需求</span><div><b v-for="requirement in detail.plan.requirements" :key="requirement">{{ requirementLabel(requirement) }}</b></div></div>
+              <div class="query-branches"><article v-for="(query, index) in detail.plan.sub_queries" :key="`${index}-${query}`"><span>{{ detail.plan.use_sub_queries ? `ALTERNATIVE ROUTE ${index + 1}` : 'PRIMARY ROUTE' }}</span><strong>{{ query }}</strong><small>{{ detail.plan.use_sub_queries ? `LLM 已明确启用，共 ${detail.plan.sub_queries.length} 条替代检索路径` : 'LLM 未启用子查询，仅执行一条改写路径' }} · {{ queryMatchLabel(query) }}</small></article></div>
+              <div v-if="detail.plan.requirements.length" class="query-requirements"><span>REQUIREMENT / 仅原始问题需要覆盖</span><div><b v-for="requirement in detail.plan.requirements" :key="requirement">{{ requirementLabel(requirement) }}</b></div><small>替代检索路径不新增 requirement，也不要求每条路径分别命中。</small></div>
             </template>
             <p v-else class="trace-inline-empty">旧 Trace 未保存 QueryPlan，无法从最终结果反推改写或子查询。</p>
           </section>

@@ -216,6 +216,8 @@ async def test_answer_author_receives_leaf_subquery_requirement_hints() -> None:
     await author.draft(plan=coverage_plan, roots=(selected_root,))
 
     payload = json.loads(model.requests[0].user_prompt)
+    assert payload["use_sub_queries"] is False
+    assert payload["requirements"] == ["定义和期限是什么？"]
     assert payload["roots"][0]["leaf_evidence"] == [
         {
             "leaf_id": LEAF_ID,

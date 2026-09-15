@@ -885,7 +885,7 @@ verifying 98-100%
 Planner 输入问题、模式、授权集合目录和有限历史，输出严格 JSON。规则：
 
 - 原始问题不得丢失；
-- 最多 4 个 sub-query；默认只使用 1 条原始/改写检索路径，只有 LLM 明确判断需要且返回 2～4 条有意义的互补路径时才启用多路检索。Service 不根据 factual 意图、标点或连接词自行推断是否拆分，也不压制 LLM 已明确返回的多路；
+- 最多 4 个 sub-query；Planner 必须显式返回 `use_sub_queries` 布尔开关。`false` 是默认且只执行 1 条 rewritten query；只有 LLM 明确返回 `true` 并给出 2～4 条都服务于同一原始问题的替代检索路径时才启用多路检索。比较双方、多条件或多跳问题的不同方面不是替代路径，不能仅因意图、标点或连接词而拆分；Service 不自行推断，也不把 `false` 下误填的多路变成运行开关；
 - requirements 与 sub-query 解耦：无论问题类型和检索路径数量，QueryPlan 只保留 1 个 requirement，且必须来自原始用户问题；
 - sub-query 只是获取同一 requirement 的替代检索路径，不是新的回答义务；任一分支提供足够可靠的证据即可覆盖该 requirement，不要求所有分支分别有证据；
 - Scope 只能引用目录中存在且调用方有权访问的值；
@@ -894,7 +894,7 @@ Planner 输入问题、模式、授权集合目录和有限历史，输出严格
 
 ### 10.2 召回
 
-每个 sub-query 并行执行：
+当且仅当 `use_sub_queries=true` 时，每个替代 sub-query 并行执行；否则只执行唯一 rewritten query：
 
 - Dense Top 40；
 - Sparse Top 40；
@@ -1884,7 +1884,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - 输入：按每个 sub-query 的 Dense、Sparse 分路分别计分，空分路仍保留诊断；同一 Leaf 跨方法/跨 query 聚合为一个候选，并记录每种方法出现过的最小 rank；
 - 完整性：单分路重复 Leaf 和同一 Leaf 映射不同 Root 均拒绝，防止重复计分或错误引用；
 - 排序：先按 fused score 降序，完全同分时按 Leaf ID 升序，结果不依赖输入分路顺序；
-- 配额：单查询融合全局排序后先执行每 Root 最多 3 个 Leaf，再截取默认 Top 30；多子查询融合将每 Root 配额提升为 `max(3, sub_query_count)`，避免互补分支在同一 Root 内过早互相淘汰，但仍受全局 Top 30 限制。诊断必须记录实际 Root 配额、输入数、唯一 Leaf 数、Root 配额丢弃数和 Top-K 丢弃数；该配额调整不得改变租户/Scope 校验、Root 回源或引用核验边界；
+- 配额：单查询融合全局排序后先执行每 Root 最多 3 个 Leaf，再截取默认 Top 30；仅在 `use_sub_queries=true` 时将每 Root 配额提升为 `max(3, sub_query_count)`，避免替代路径在同一 Root 内过早淘汰证据，但仍受全局 Top 30 限制。诊断必须记录实际 Root 配额、输入数、唯一 Leaf 数、Root 配额丢弃数和 Top-K 丢弃数；该配额调整不得改变租户/Scope 校验、Root 回源或引用核验边界；
 - 验收：手算两 query/四分路 fixture 精确匹配公式，覆盖原始分数不参与、跨路去重、稳定 tie-break、Root 配额、全局 Top-K、空输入和冲突身份。
 
 #### M4-03 Reranker
@@ -1912,12 +1912,12 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 #### M4-05 QueryPlan
 
 - 输入：`PlannerRequest` 包含非空原问题、最多 20 轮带 user/assistant role 的历史、调用方显式 `QueryScope` 和不可由模型覆盖的 Standard/Deep mode；不把 tenant 或授权声明交给 Planner；
-- Provider：可插拔 `QueryPlannerProvider` 返回不可信结构化 mapping，必须精确包含 rewritten_query、intent、sub_queries、requirements、scope、language，禁止未知字段；intent 只接受领域枚举，sub-query 为 1～4 个、Provider requirements 字段为 0～8 个非空且不重复字符串并仅作为不可信输入解析；服务最终始终将 requirements 规范化为原始用户问题这一项；
+- Provider：可插拔 `QueryPlannerProvider` 返回不可信结构化 mapping，必须精确包含 rewritten_query、intent、`use_sub_queries`、sub_queries、requirements、scope、language，禁止未知字段；intent 只接受领域枚举，`use_sub_queries=false` 时实际计划只保留 1 条且必须等于 rewritten query，`true` 时必须有 2～4 条非空且不重复的替代路径；Provider requirements 字段为 0～8 个非空且不重复字符串并仅作为不可信输入解析；服务最终始终将 requirements 规范化为原始用户问题这一项；
 - Scope：collection/document 必须是 UUID。Planner 只能在调用方已提供的 ID 集合内继续收窄，调用方未提供 ID 时禁止模型凭空加入；调用方显式 metadata 不能被替换，未显式设置的 title、organization、media type、active version UUID 与 section 可由 Planner 提取，最终仍由 M4-04 PostgreSQL 事实源校验；
 - 输出：生成不可变 `QueryPlan`，original query 保持原样、mode 固定沿用请求；Provider 名、是否降级及稳定错误码单独保存在 `PlannerOutcome`，不把供应商异常文本放入计划；
 - Requirement 安全边界：无条件忽略 Provider requirements 的语义内容，使用原始用户问题作为唯一 requirement；多 sub-query 不会复制或拆分 requirement。证据评估、Answer Author 与最终 Verify 只对这一项执行覆盖判断；任一分支证据可支撑它，其他分支缺证据不得单独造成拒答；
 - 降级：Provider 不可用、未知/缺失字段、坏枚举、重复/超量列表、非法 UUID 或 Scope 扩大均整体丢弃模型结果，使用确定性 fallback；fallback 保留调用方 Scope、最近 user 历史补足指代，并始终使用单一检索路径和单一原始问题 requirement，不在故障路径默认拆分；
-- 验收：覆盖合法比较计划、Deep mode 不可覆盖、Collection 越权扩张、非法 UUID、未知字段、重复子查询、Provider 安全降级，以及比较 + 多条件 + 指代的确定性结果。
+- 验收：覆盖合法单路计划、LLM 显式开启的替代路径计划、显式关闭时拒绝启动多路、缺失/非法开关安全降级、Deep mode 不可覆盖、Collection 越权扩张、非法 UUID、未知字段、重复子查询、Provider 安全降级，以及比较 + 多条件 + 指代的确定性结果。
 
 #### M4-06 Standard
 
@@ -1928,7 +1928,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - LLM 上限：Standard 将 Planner 尝试计为第 1 次、答案生成计为第 2 次，运行时硬校验不得超过 2；Embedding、Sparse 与 Reranker 不计为 LLM call；Planner 降级不会重试或增加调用；
 - 结果：返回 status、answer、QueryPlan、Root context、完整 transitions、LLM call 数、Planner/Reranker degraded 标记和净化 error code；任何未分类异常进入 Failed，不回显异常文本；
 - 端口：新增最小 `LanguageModel.complete(CompletionRequest) -> CompletionResult`，请求约束 system/user prompt 与输出上限，响应约束非空文本和非负 token 计数，为 M4-08/M4-10 的验证及配额提供稳定接口；
-- 验收：正常路径精确匹配八个状态且恰好 2 次模型调用；两路 sub-query 均执行；无结果仍校验 Scope 且跳过 Rerank/Answer；Planner 降级对外可见且不增加模型调用。
+- 验收：正常单路路径精确匹配八个状态且恰好 2 次模型调用；显式开启时两路替代 sub-query 均执行；关闭时只执行 rewritten query；无结果仍校验 Scope 且跳过 Rerank/Answer；Planner 降级对外可见且不增加模型调用。
 
 #### M4-07 Deep
 
@@ -2522,9 +2522,9 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   CrossEncoder、Root 恢复、grounded LLM answer 和领域 Citation；无 Root 时跳过 LLM 并返回
   `no_results`。LLM Prompt 明确只能使用编号证据并要求 `[n]` 引用；UI Citation 的 quote 仍直接截取
   已授权 Root，不能信任模型伪造引用。单一原始 requirement 的 Standard 最多使用 3 个 Root；存在多条
-  替代 sub-query 时使用覆盖感知的候选保留，最多使用 5 个 Root，Deep 最多使用 5 个 Root。这里保留的是
+  替代 sub-query 时最多使用 5 个 Root，Deep 最多使用 5 个 Root。这里保留的是
   检索路径的证据机会，不是为每条 sub-query 创建 requirement，也不要求每条路径分别有证据；任一分支的
-  可靠证据都可以支撑同一个原始 requirement；
+  可靠证据都可以支撑同一个原始 requirement；子查询数量不会变成 requirement 数量，也不会把未命中的替代路径算作缺口；
 - Deep 限制：此增强入口的 Deep 只扩大综合证据窗口，尚未装配 M4-07 多轮 Recovery Controller，
   README 与 UI/验收不得宣称已经执行多轮 Recovery。该差距应在后续独立 Slice 接入，而不是隐式补齐；
 - 本地安全：`.env.mac.example` 只能包含占位 token；真实 `.env` 必须被 Git 忽略。文档和 query 在
@@ -2598,9 +2598,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 验收：Standard 单查询、比较型多子查询、Planner 降级、Dense/Sparse 某路为空、授权过滤、Reranker
   降级、Deep recovery 和旧 Trace 缺字段均有后端投影及 Vue 测试；真实 Mac QueryRunner 必须装配计划。
 - 实现边界：Mac 组合装配共享 bounded OpenAI-compatible LLM 的结构化 Planner Adapter；默认保持一条精确子查询，
-  只有 LLM 明确判断需要时才生成 2～4 条互补分支，禁止为增加数量制造重复。所有分支共享唯一的原始问题
+  只有 LLM 显式返回 `use_sub_queries=true` 且判断需要时才生成 2～4 条面向同一原始问题的替代分支，禁止为增加数量制造重复。所有分支共享唯一的原始问题
   requirement。Provider 失败或输出不合格时整体回退为单一路径，并只读取最近 user turn 补足指代；
-- 持久化投影：`rag.query_planning` 保存 original/rewritten/intent/language/sub-queries/provider/degraded；
+- 持久化投影：`rag.query_planning` 保存 original/rewritten/intent/language/`use_sub_queries`/sub-queries/provider/degraded；
   每个 `rag.retrieval.branch` 保存 branch index/query、Dense/Sparse requested/returned、交集与 unique；
   RRF、Scope Guard、Rerank、Root Restore 与 Answer spans 保存输入/输出/拒绝/截断/usage。专用 API 将其
   投影为 `plan`、`retrieval_branches`、`stage_metrics`，旧 Trace 返回 null/空数组；
@@ -2683,9 +2683,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   描述本机修复记录，不作为固定产品指标或 CI 断言；
 - Planner Adapter：复用 Mac 组合已有 `BoundedLanguageModel`，发送当前 query、最多 12 条调用方历史、
   服务端 Scope 和 mode；system contract 要求仅返回一个 JSON object，包含 rewritten_query、领域 intent、
-  1～4 条唯一 sub_queries 与 Provider requirements 字段、原样 Scope 与 language。默认执行一条路径，只有
-  LLM 明确判断需要且返回 2～4 条有意义的互补路径时才保留多路；Service 不根据 factual 意图、标点或连接词
-  自行压制合法的 LLM 多路结果，并把 requirements 统一规范化为原始 query 这一项。Prompt 不发送
+  `use_sub_queries`、1～4 条唯一 sub_queries 与 Provider requirements 字段、原样 Scope 与 language。默认执行一条路径，只有
+  LLM 明确返回 `use_sub_queries=true` 且返回 2～4 条面向同一原始问题的替代路径时才保留多路；比较、多条件或多跳问题的各个方面不得冒充替代路径。Service 不根据 factual 意图、标点或连接词
+  自行压制合法的 LLM 多路结果，也不把 `false` 下误填的多路变成运行开关，并把 requirements 统一规范化为原始 query 这一项。Prompt 不发送
   Root 文本；回答 Provider 仍只接收授权后 Root。Adapter 不拥有共享 LLM 生命周期，不能重复关闭底层连接；
 - 信任边界：Provider JSON 先解析为 mapping，再由 `QueryPlanningService` 执行 exact-field、枚举、数量、
   重复、UUID 和 Scope 只收窄校验；模型不能改变 Standard/Deep mode。非 JSON、数组、尾随文本、未知字段、
@@ -3133,8 +3133,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   LLM 明确返回多路时各分支仍共享唯一原始 requirement，且任一分支证据可通过最终覆盖核验。随后用 Root recovery
   测试证明上下文预算按本轮选中 Leaf 的实际 evidence 计算，同时保留完整 Root clean text 供 Citation Verify；
   最后用 Trace 测试证明计划、分支 provenance、回答生成降级与 Assessor 降级可独立筛选、持久化并展示。
-- Planner 归一化：`sub_queries` 默认只有 `(rewritten_query,)`；只有 LLM 明确判断需要且返回 2～4 条有意义的互补
-  路径时才保留多路。Service 不依据 factual 意图、标点或连接词额外压制合法的 LLM 多路结果。无论 factual、
+- Planner 归一化：`use_sub_queries=false` 时 `sub_queries` 实际强制只有 `(rewritten_query,)`；只有 LLM 显式返回
+  `use_sub_queries=true` 且返回 2～4 条面向同一原始问题的替代路径时才保留多路。Service 不依据 factual、
+  标点或连接词额外推断，也不把关闭开关下误填的多路变为运行分支。无论 factual、
   comparison、多条件、流程、总结还是多跳请求，`requirements` 始终收敛为用户
   原问题这一项。多路分支共享该 requirement，不要求每个分支分别覆盖；该规则只约束执行计划，不伪造 LLM 成功，也不放宽 Scope。
 - Root evidence budget：`max_parent_chars` 只对发送给 Answer/Assessor 的已授权、已重排 Leaf 原文片段

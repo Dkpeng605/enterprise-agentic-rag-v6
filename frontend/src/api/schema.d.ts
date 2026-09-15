@@ -1797,6 +1797,8 @@ export interface components {
             sub_queries: string[];
             /** Requirements */
             requirements: string[];
+            /** Use Sub Queries */
+            use_sub_queries: boolean;
         };
         /** QueryRankChangeResponse */
         QueryRankChangeResponse: {

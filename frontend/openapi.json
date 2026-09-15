@@ -8657,6 +8657,10 @@
             },
             "type": "array",
             "title": "Requirements"
+          },
+          "use_sub_queries": {
+            "type": "boolean",
+            "title": "Use Sub Queries"
           }
         },
         "additionalProperties": false,
@@ -8669,7 +8673,8 @@
           "intent",
           "language",
           "sub_queries",
-          "requirements"
+          "requirements",
+          "use_sub_queries"
         ],
         "title": "QueryPlanResponse"
       },

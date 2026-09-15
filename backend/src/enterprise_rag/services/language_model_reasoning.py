@@ -229,7 +229,8 @@ _ASSESS_SYSTEM_PROMPT = """You are the evidence assessor in a Deep RAG graph.
 Return exactly one JSON object, without Markdown or extra text. Judge only the supplied evidence.
 The requirements list contains the original user-level question, not one requirement per retrieval
 sub-query. Evidence from any one sub-query may be sufficient; do not require every sub-query to
-produce a separate supporting item. Partition every requirement into exactly one of
+produce a separate supporting item. Sub-query labels are retrieval provenance only: they never
+create, split, or strengthen a requirement. Partition every requirement into exactly one of
 covered_requirements or missing_requirements.
 List concrete contradictions in conflicts. Use decision answer only when all requirements are
 covered
@@ -240,7 +241,11 @@ _ANSWER_SYSTEM_PROMPT = """You are the cited answer author in an enterprise RAG 
 Return exactly one compact JSON object, without Markdown, extra text, or a chain of thought. Do not
 show step-by-step reasoning, analysis, or a plan. Think privately and output only the final object.
 Use only supplied Root evidence. The leaf_evidence requirement_hints are retrieval provenance,
-not proof; verify every claim against the accompanying source text. For every requirement that
+not proof; verify every claim against the accompanying source text. The query plan contains one
+original user-level requirement. Sub-queries are alternative retrieval routes only: they never
+create requirements, and you do not need a separate paragraph or citation for each route. If one
+route supplies sufficient reliable evidence for the original requirement, that is enough; do not
+reject a grounded answer because another route returned no evidence. For every requirement that
 the source supports, write a concise factual paragraph or clearly separated sentence and cite it.
 Keep the response small: at most 4 short paragraphs, at most 6 citations, and one short verbatim
 quote per citation (preferably under 120 characters). Each paragraph has text, citation_ids, and
@@ -305,6 +310,8 @@ def _answer_payload(plan: QueryPlan, roots: Sequence[RootContext]) -> str:
             "task": "draft",
             "query": plan.original_query,
             "rewritten_query": plan.rewritten_query,
+            "use_sub_queries": plan.use_sub_queries,
+            "sub_queries": list(plan.sub_queries),
             "requirements": list(plan.requirements),
             "language": plan.language,
             "roots": [

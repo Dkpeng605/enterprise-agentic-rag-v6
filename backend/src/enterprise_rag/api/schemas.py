@@ -420,6 +420,7 @@ class QueryPlanResponse(ApiModel):
     language: str
     sub_queries: list[str]
     requirements: list[str]
+    use_sub_queries: bool
 
 
 class QueryRetrievalBranchResponse(ApiModel):

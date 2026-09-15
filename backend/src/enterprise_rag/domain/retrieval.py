@@ -80,6 +80,7 @@ class QueryPlan:
     scope: QueryScope
     language: str
     mode: QueryMode
+    use_sub_queries: bool = False
 
     def __post_init__(self) -> None:
         require_non_empty(self.original_query, "original_query")
@@ -87,13 +88,20 @@ class QueryPlan:
         require_non_empty(self.language, "language")
         _validate_text_tuple(self.sub_queries, "sub_queries")
         _validate_text_tuple(self.requirements, "requirements")
+        if not isinstance(self.use_sub_queries, bool):
+            raise ValueError("use_sub_queries must be boolean")
+        if self.use_sub_queries and len(self.sub_queries) < 2:
+            raise ValueError("use_sub_queries requires at least two alternative retrieval routes")
+        if not self.use_sub_queries and (
+            len(self.sub_queries) != 1
+            or self.sub_queries[0].strip() != self.rewritten_query.strip()
+        ):
+            raise ValueError("a plan without sub-queries must use exactly the rewritten query")
         if (
             len(self.requirements) != 1
             or self.requirements[0].strip() != self.original_query.strip()
         ):
-            raise ValueError(
-                "requirements must contain exactly the original user query"
-            )
+            raise ValueError("requirements must contain exactly the original user query")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -105,6 +113,7 @@ class QueryPlan:
             "scope": self.scope.to_dict(),
             "language": self.language,
             "mode": self.mode.value,
+            "use_sub_queries": self.use_sub_queries,
         }
 
 

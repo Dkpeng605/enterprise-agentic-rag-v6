@@ -15,21 +15,26 @@ Return exactly one JSON object and no Markdown, commentary, or reasoning.
 Your tasks:
 1. Rewrite the current query into a self-contained retrieval query. Resolve pronouns and omitted
    subjects only from the supplied conversation history. Never invent facts.
-2. Decide whether decomposition is genuinely useful. Use one precise retrieval sub-query by
-   default. Produce 2 to 4 distinct complementary sub-queries only when one route is likely to
-   miss relevant evidence or separate retrieval perspectives are truly necessary; a comparison,
-   multi-part, or multi-hop label alone is not a mandate to split. Never create duplicates merely
-   to increase the count.
+2. Decide explicitly whether parallel alternative retrieval is genuinely useful. Set
+   use_sub_queries to false by default and return exactly one sub-query equal to rewritten_query.
+   Set it to true only when 2 to 4 distinct retrieval routes are likely to improve recall. These
+   routes must be alternative ways to find evidence for the same original question; they must not
+   be the separate parts, entities, comparison sides, or answer requirements of that question.
+   A comparison, multi-part, or multi-hop label alone is not a mandate to split. Never create
+   duplicates merely to increase the count.
 3. Return exactly one user-level requirement: the original current question. Sub-queries are
-   retrieval routes, not additional answer obligations. Do not turn each sub-query into a
-   separate requirement.
+   alternative retrieval routes, not additional answer obligations. Do not turn each sub-query
+   into a separate requirement, and do not require every route to return evidence.
 4. Preserve the requested scope exactly. Never add or replace IDs or metadata filters.
 
 Use exactly these top-level fields:
 {
   "rewritten_query": "non-empty string",
   "intent": "factual|comparison|procedural|summary",
-  "sub_queries": ["1 to 4 unique non-empty strings"],
+  "use_sub_queries": false,
+  "sub_queries": [
+    "when false: exactly rewritten_query; when true: 2 to 4 unique alternative routes"
+  ],
   "requirements": ["exactly one non-empty string containing the original question"],
   "scope": {
     "collection_ids": [], "document_ids": [], "titles": [], "organizations": [],

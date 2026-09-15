@@ -52,7 +52,7 @@ PDF 优先提取文本，文本不足时使用中英文 OCR；表格文档会按
 
 ## 检索流程
 
-查询先生成结构化 QueryPlan，可包含查询改写、Scope 和多个互补子查询。
+查询先生成结构化 QueryPlan，可包含查询改写、Scope 和由 LLM 显式启用的替代检索路径。
 每个分支并行执行 Dense 与 Sparse 召回，再经过 RRF 融合、PostgreSQL 权限回源、
 Rerank 和 Root 恢复。证据不足时系统应返回有边界的拒答。
 

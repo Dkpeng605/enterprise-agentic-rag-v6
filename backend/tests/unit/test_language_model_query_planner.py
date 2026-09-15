@@ -47,6 +47,7 @@ def planner_payload() -> Mapping[str, object]:
     return {
         "rewritten_query": "计算机学院辅导员的联系电话是什么？",
         "intent": "factual",
+        "use_sub_queries": True,
         "sub_queries": [
             "计算机学院辅导员联系电话",
             "计算机学院学生工作办公室联系方式",
@@ -99,10 +100,11 @@ async def test_language_model_planner_sends_bounded_context_and_parses_json() ->
     }
     assert prompt["requested_scope"]["titles"] == ["选课指南"]
     assert "exactly one JSON object" in completion.system_prompt
-    assert "Use one precise retrieval sub-query by" in completion.system_prompt
+    assert "Set" in completion.system_prompt
+    assert "use_sub_queries to false by default" in completion.system_prompt
     assert "default" in completion.system_prompt
     assert "not a mandate to split" in completion.system_prompt
-    assert "Do not turn each sub-query into a" in completion.system_prompt
+    assert "Do not turn each sub-query" in completion.system_prompt
     assert "separate requirement" in completion.system_prompt
 
 
