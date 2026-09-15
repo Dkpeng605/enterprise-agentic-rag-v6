@@ -587,6 +587,7 @@ class SemanticQueryRunner:
             "deep_decision": deep_decision,
             "recovery_rounds": recovery_rounds,
             "assessor_degraded": assessor_degraded,
+            "generation_degraded": answer_status == "generation_degraded",
             "answer_status": answer_status,
         }
 

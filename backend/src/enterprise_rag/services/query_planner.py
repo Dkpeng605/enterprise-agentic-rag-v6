@@ -109,6 +109,12 @@ class QueryPlanningService:
         rewritten = _required_text(payload["rewritten_query"])
         intent = QueryIntent(_required_text(payload["intent"]))
         sub_queries = _text_tuple(payload["sub_queries"], 1, self._max_sub_queries)
+        sub_queries = _normalize_sub_queries(
+            request,
+            intent=intent,
+            rewritten=rewritten,
+            sub_queries=sub_queries,
+        )
         requirements = _text_tuple(payload["requirements"], 0, 8)
         requirements = _normalize_requirements(
             request,
@@ -274,6 +280,32 @@ def _normalize_requirements(
     ):
         return (query,)
     return provider_requirements
+
+
+def _normalize_sub_queries(
+    request: PlannerRequest,
+    *,
+    intent: QueryIntent,
+    rewritten: str,
+    sub_queries: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Prevent a factual question from becoming an accidental multi-branch search.
+
+    A model may return several paraphrases for a single factual question. They do not
+    add coverage: they multiply Dense/Sparse ranked lists, duplicate the same Root, and
+    make the answer verifier see less useful Root diversity after fusion. Explicitly
+    multi-part factual questions still retain their sub-queries because the original
+    query contains a recognized conjunction or delimiter.
+    """
+
+    query = request.query.strip()
+    if (
+        intent is QueryIntent.FACTUAL
+        and _intent(query) is QueryIntent.FACTUAL
+        and not _MULTI_SPLIT.search(query)
+    ):
+        return (rewritten,)
+    return sub_queries
 
 
 def _error_usage(error: Exception) -> tuple[int, int, int]:

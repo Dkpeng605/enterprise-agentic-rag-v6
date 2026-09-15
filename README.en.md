@@ -235,6 +235,17 @@ reasoning, adjust the local output bound in `config/macos.example.yaml` or with 
 Do not hide the issue by disabling `response_format`, removing citation verification, or marking answer
 errors as answered.
 
+Abstention diagnosis keeps three dimensions separate: Query `status` (`answered`/`abstained`/`no_results`; a
+lower-level Trace may also record `error`/`cancelled`),
+answer-stage `answer_status` (including `not_generated`, `generation_degraded`, `answered`, `repaired`, and
+`abstained`), and component flags such as `planner_degraded`, `reranker_degraded`, `assessor_degraded`, and
+`generation_degraded`. `assessor_degraded` means that bounded recovery continued after an assessor failure; it
+does not mean that retrieval returned no evidence. `generation_degraded` means no verifiable answer structure was
+obtained and must not be relabelled as success. Query Trace `degraded=true` uses an OR over these stable flags, so
+Assessor and Answer Generation degradation are included; `degraded=false` keeps only runs with no recorded component
+degradation. Per-run candidate counts and abstention rates are diagnostics, not Recall/MRR, and do not replace
+gold-labelled Evaluation metrics.
+
 If an older checkout shared the application and test database, stop the backend and run the read-only
 check before applying deletion. The command reconciles PostgreSQL facts with Milvus projections by
 `tenant/version/index_revision`. New projections persist a revision marker, so a stale revision for a
@@ -564,6 +575,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R9 native Milvus BM25 Sparse: complete
 - M7-R10 Provider failure paths and projection integrity: complete
 - M7-R12 revision-aware Milvus reconcile: complete
+- M7-R13 abstention diagnosis and evidence-budget fixes: complete
 - Next: M8 public deployment
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.

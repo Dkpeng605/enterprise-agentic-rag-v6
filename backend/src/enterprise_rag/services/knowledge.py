@@ -290,6 +290,7 @@ def _diagnostic_attributes(values: Mapping[str, object]) -> dict[str, object]:
         for key, value in values.items()
         if (key.endswith("_degraded") and isinstance(value, bool))
         or (key.endswith("_provider") and isinstance(value, str))
+        or (key == "answer_status" and isinstance(value, str))
     }
 
 

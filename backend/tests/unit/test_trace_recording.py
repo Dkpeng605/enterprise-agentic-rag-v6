@@ -22,6 +22,7 @@ from enterprise_rag.services import (
     QueryExecution,
     QueryRunStatus,
 )
+from enterprise_rag.services.knowledge import _diagnostic_attributes
 from enterprise_rag.services.query_api import ProgressSink
 
 SESSION_ID = UUID("01900000-0000-7000-8000-000000005402")
@@ -121,6 +122,26 @@ def test_buffered_exporter_keeps_rankings_and_drops_sensitive_values() -> None:
     assert "private question" not in serialized
     assert "private-token" not in serialized
     assert "database secret" not in serialized
+
+
+def test_diagnostic_attributes_preserve_safe_answer_degradation_state() -> None:
+    attributes = _diagnostic_attributes(
+        {
+            "generation_degraded": True,
+            "assessor_degraded": False,
+            "answer_status": "generation_degraded",
+            "llm_provider": "openai_compatible",
+            "answer": "must-not-persist",
+            "prompt": "must-not-persist",
+        }
+    )
+
+    assert attributes == {
+        "generation_degraded": True,
+        "assessor_degraded": False,
+        "answer_status": "generation_degraded",
+        "llm_provider": "openai_compatible",
+    }
 
 
 @pytest.mark.anyio
