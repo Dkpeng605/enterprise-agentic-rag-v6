@@ -140,6 +140,29 @@ _OPTIONS: tuple[ProviderOption, ...] = (
         language_note="multilingual",
         note="官方 API /rerank；模型支持长输入，RAG 默认仍只重排候选 Leaf",
     ),
+    ProviderOption(
+        kind=ProviderKind.SPARSE_ENCODER.value,
+        key="hashing_lexical",
+        name="hashing_lexical",
+        model="blake2b-31bit-logtf-l2-v1",
+        label="Hashing Lexical（离线）",
+        provider="内置",
+        capabilities=("precomputed", "deterministic", "multilingual"),
+        is_remote=False,
+        note="确定性词法投影；不维护语料 IDF",
+    ),
+    ProviderOption(
+        kind=ProviderKind.SPARSE_ENCODER.value,
+        key="milvus_builtin_bm25",
+        name="milvus_builtin_bm25",
+        model="jieba-v1",
+        label="Milvus 原生 BM25",
+        provider="Milvus Lite",
+        capabilities=("bm25", "corpus_idf", "jieba", "multilingual"),
+        is_remote=False,
+        language_note="中文 / 中英混合",
+        note="由 Milvus Function 维护 TF/IDF；切换后生成新 revision",
+    ),
 )
 
 
@@ -154,7 +177,13 @@ def load_provider_selection(path: Path) -> dict[str, str]:
         raise RuntimeError("The Provider selection file is invalid.") from error
     if not isinstance(payload, dict):
         raise RuntimeError("The Provider selection file must contain an object.")
-    allowed = {"embedding_model", "embedding_dimension", "reranker_model", "llm_model"}
+    allowed = {
+        "embedding_model",
+        "embedding_dimension",
+        "reranker_model",
+        "llm_model",
+        "sparse_encoder",
+    }
     result: dict[str, str] = {}
     for key, value in payload.items():
         if key not in allowed or not isinstance(value, str) or not value.strip():
@@ -189,6 +218,7 @@ class RuntimeProviderCatalog:
             "embedding": self._current_models.get("embedding", ""),
             "reranker": self._current_models.get("reranker", ""),
             "llm": self._current_models.get("llm", ""),
+            "sparse_encoder": self._current_models.get("sparse_encoder", ""),
         }
         pending = {
             field: self._selection[field]
@@ -196,6 +226,7 @@ class RuntimeProviderCatalog:
                 ("embedding_model", "embedding"),
                 ("reranker_model", "reranker"),
                 ("llm_model", "llm"),
+                ("sparse_encoder", "sparse_encoder"),
             )
             if field in self._selection and self._selection[field] != selected[kind]
         }
@@ -206,6 +237,7 @@ class RuntimeProviderCatalog:
                 "embedding_model": selected["embedding"],
                 "reranker_model": selected["reranker"],
                 "llm_model": selected["llm"],
+                "sparse_encoder": selected["sparse_encoder"],
                 "pending_restart": bool(pending),
                 **(
                     {"pending_embedding_model": pending["embedding_model"]}
@@ -220,6 +252,11 @@ class RuntimeProviderCatalog:
                 **(
                     {"pending_llm_model": pending["llm_model"]}
                     if "llm_model" in pending
+                    else {}
+                ),
+                **(
+                    {"pending_sparse_encoder": pending["sparse_encoder"]}
+                    if "sparse_encoder" in pending
                     else {}
                 ),
                 **(
@@ -265,11 +302,12 @@ class RuntimeProviderCatalog:
         field = {
             ProviderKind.EMBEDDING.value: "embedding_model",
             ProviderKind.RERANKER.value: "reranker_model",
+            ProviderKind.SPARSE_ENCODER.value: "sparse_encoder",
         }.get(kind)
         if field is None:
             raise ValueError("This Provider kind is not restart-selectable.")
         selection = dict(self._selection)
-        selection[field] = option.model
+        selection[field] = option.key if kind == ProviderKind.SPARSE_ENCODER.value else option.model
         if option.dimension is not None:
             selection["embedding_dimension"] = str(option.dimension)
         self._write_selection(selection)

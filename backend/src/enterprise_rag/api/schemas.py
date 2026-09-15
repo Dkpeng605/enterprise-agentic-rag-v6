@@ -427,6 +427,7 @@ class QueryRetrievalBranchResponse(ApiModel):
     dense_returned: int
     sparse_requested: int
     sparse_returned: int
+    sparse_algorithm: str
     overlap_count: int
     unique_count: int
 
@@ -654,7 +655,7 @@ class ProviderReindexResponse(ApiModel):
 
 
 class ProviderSelectionRequest(ApiModel):
-    kind: Literal["embedding", "reranker", "llm"]
+    kind: Literal["embedding", "reranker", "sparse_encoder", "llm"]
     key: str = Field(min_length=1, max_length=500)
 
 

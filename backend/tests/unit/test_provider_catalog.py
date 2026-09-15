@@ -55,6 +55,10 @@ def test_provider_catalog_lists_live_registry_and_persists_restart_bound_selecti
     selection = cast(dict[str, object], payload["selection"])
     assert len(providers) == 3
     assert any(option["key"] == BGE_SMALL_ZH_MODEL for option in options)
+    assert {option["key"] for option in options if option["kind"] == "sparse_encoder"} == {
+        "hashing_lexical",
+        "milvus_builtin_bm25",
+    }
     assert selection["pending_restart"] is False
 
     updated = catalog.select(kind="embedding", key=BGE_SMALL_ZH_MODEL)
@@ -123,6 +127,24 @@ def test_siliconflow_profiles_are_selectable_with_kind_credentials(tmp_path: Pat
         "embedding_dimension": "1024",
         "embedding_model": SILICONFLOW_EMBEDDING_MODEL,
         "reranker_model": SILICONFLOW_RERANKER_MODEL,
+    }
+
+
+def test_sparse_profile_is_restart_selectable_and_persisted(tmp_path: Path) -> None:
+    catalog = RuntimeProviderCatalog(
+        registry=ProviderRegistry(),
+        selection_path=tmp_path / "provider-selection.json",
+        current_models={"sparse_encoder": "hashing_lexical"},
+    )
+
+    selected = catalog.select(kind="sparse_encoder", key="milvus_builtin_bm25")
+
+    selection = cast(dict[str, object], selected["selection"])
+    assert selection["pending_restart"] is True
+    assert selection["sparse_encoder"] == "hashing_lexical"
+    assert selection["pending_sparse_encoder"] == "milvus_builtin_bm25"
+    assert load_provider_selection(tmp_path / "provider-selection.json") == {
+        "sparse_encoder": "milvus_builtin_bm25"
     }
 
 

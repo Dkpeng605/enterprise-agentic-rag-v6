@@ -80,10 +80,10 @@ class DualSearchService:
         require_uuid7(tenant_id, "tenant_id")
         active_scope = scope or QueryScope()
         await self._vector_store.ensure_revision(
-            IndexSchema(index_revision, self._embedding.dimension)
+            IndexSchema(index_revision, self._embedding.dimension, self._sparse.mode)
         )
         query_hash = hashlib.sha256(query.encode()).hexdigest()
-        dense_vector, sparse_vector = await asyncio.gather(
+        dense_vector, sparse_encoding = await asyncio.gather(
             trace_async(
                 "rag.query_embedding",
                 self._embedding.embed_query(query),
@@ -106,10 +106,11 @@ class DualSearchService:
         sparse_request = SparseSearchRequest(
             index_revision=index_revision,
             tenant_id=tenant_id,
-            vector=sparse_vector,
+            vector=sparse_encoding.vector,
             top_k=self._sparse_top_k,
             collection_ids=active_scope.collection_ids,
             document_ids=active_scope.document_ids,
+            query_text=sparse_encoding.text,
         )
         dense_hits, sparse_hits = await asyncio.gather(
             self._search_dense(dense_request, query_hash),
@@ -142,7 +143,7 @@ class DualSearchService:
             query, tenant_id, index_revision, scope
         )
         await self._vector_store.ensure_revision(
-            IndexSchema(index_revision, self._embedding.dimension)
+            IndexSchema(index_revision, self._embedding.dimension, self._sparse.mode)
         )
         vector = await trace_async(
             "rag.query_embedding",
@@ -175,9 +176,9 @@ class DualSearchService:
             query, tenant_id, index_revision, scope
         )
         await self._vector_store.ensure_revision(
-            IndexSchema(index_revision, self._embedding.dimension)
+            IndexSchema(index_revision, self._embedding.dimension, self._sparse.mode)
         )
-        vector = await trace_async(
+        encoding = await trace_async(
             "rag.sparse_encoding",
             self._sparse.encode_query(query),
             attributes={"provider.name": self._sparse.info().name},
@@ -186,10 +187,11 @@ class DualSearchService:
             SparseSearchRequest(
                 index_revision=index_revision,
                 tenant_id=tenant_id,
-                vector=vector,
+                vector=encoding.vector,
                 top_k=self._sparse_top_k,
                 collection_ids=active_scope.collection_ids,
                 document_ids=active_scope.document_ids,
+                query_text=encoding.text,
             ),
             query_hash,
         )

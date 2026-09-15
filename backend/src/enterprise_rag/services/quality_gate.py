@@ -73,7 +73,7 @@ class SparseGoldenSubject:
             if document.collection_id in case.allowed_collections
             for root in document.roots
         }
-        query = await self._encoder.encode_query(case.question)
+        query = (await self._encoder.encode_query(case.question)).require_vector()
         ranked_roots = sorted(
             documents,
             key=lambda root_id: (-_dot(query, self._vectors[root_id]), root_id),
@@ -110,7 +110,10 @@ class SparseGoldenSubject:
         vectors = await self._encoder.encode_documents([root.text for root in roots])
         if len(vectors) != len(roots):
             raise ValueError("sparse encoder returned the wrong fixture vector count")
-        self._vectors = {root.id: vector for root, vector in zip(roots, vectors, strict=True)}
+        self._vectors = {
+            root.id: encoding.require_vector()
+            for root, encoding in zip(roots, vectors, strict=True)
+        }
         self._revision = golden_set.revision
 
 

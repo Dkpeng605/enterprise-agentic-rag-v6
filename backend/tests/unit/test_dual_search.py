@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from uuid import UUID
 
 import pytest
@@ -10,6 +10,8 @@ from enterprise_rag.ports import (
     ProviderHealth,
     ProviderInfo,
     ProviderKind,
+    SparseEncoding,
+    SparseMode,
     SparseSearchRequest,
     UpsertResult,
     VectorHit,
@@ -58,11 +60,15 @@ class FakeSparse:
             ProviderHealth.HEALTHY,
         )
 
-    async def encode_query(self, text: str) -> Mapping[int, float]:
-        self.queries.append(text)
-        return {7: 1.0}
+    @property
+    def mode(self) -> SparseMode:
+        return SparseMode.PRECOMPUTED
 
-    async def encode_documents(self, texts: Sequence[str]) -> list[Mapping[int, float]]:
+    async def encode_query(self, text: str) -> SparseEncoding:
+        self.queries.append(text)
+        return SparseEncoding(self.mode, vector={7: 1.0})
+
+    async def encode_documents(self, texts: Sequence[str]) -> list[SparseEncoding]:
         raise AssertionError(f"document sparse encoding must not run during search: {texts}")
 
     async def aclose(self) -> None:

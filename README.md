@@ -96,9 +96,18 @@ pnpm --dir=frontend dev
 上传 PDF/DOCX/XLSX/XLS/CSV/HTML/TXT/Markdown、查看真实解析与摄取进度，再到“知识问答”观察
 Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引用。Provider 状态可在
 “租户总览”或 `http://127.0.0.1:8000/health/doctor` 查看。管理员登录后，Provider 状态卡片的“管理与选择”
-会打开 `/admin/providers`：页面读取当前注册表，展示可用 Embedding/Reranker profile、维度、有效 token
+会打开 `/admin/providers`：页面读取当前注册表，展示可用 Embedding/Reranker/Sparse profile、维度、有效 token
 上限、语言说明和本地/远程属性，并可保存下一次启动配置。选择不是热切换；重启 backend 后生效，Embedding
-变更还必须重新摄取文档。
+变更还必须重新摄取/重建文档。
+
+Mac 完整语义组合默认使用 `milvus_builtin_bm25`。文档投影把 Leaf 的 `retrieval_text` 写入 Milvus
+启用 `jieba` Analyzer 的 VARCHAR 字段，由原生 `FunctionType.BM25` 维护 TF/IDF，并在
+`SPARSE_INVERTED_INDEX` 上以 `metric_type=BM25` 查询；应用层不会伪造 IDF 或返回一个实际未使用的
+sparse vector。它支持中文术语、英文编号和中英混合查询，租户、集合、文档和 `ready` 条件仍在同一次
+Milvus 请求中强制过滤。离线 Compose 示例继续使用 `hashing_lexical`，因为公开零成本评测需要稳定的
+预计算词法向量；两种模式都可插拔，不能共用同一个 revision。Provider 管理页可选择 Sparse 模式，
+重启 backend 后执行“重建不兼容文档”，系统会创建新 revision，成功交换 PostgreSQL 事实后才定向清理旧
+revision。
 
 首次打开页面并创建 Demo Tenant 后，可从受信任的本机终端签发一个绑定当前全部 active collection 的
 MCP Token。raw token 只写 stdout 一次，元数据写 stderr；不要把 token 复制进 Git、Issue 或终端日志：
@@ -271,7 +280,7 @@ ENTERPRISE_RAG_CONFIG_FILE=config/development.example.yaml \
 - `/api/v1/evaluations/catalog`、`/api/v1/evaluations/runs`、`/api/v1/evaluations/compare` — 预算预检、租户评测历史、报告与受控比较
 - `GET /api/v1/traces/{trace_id}` — 阶段耗时、候选排名、分数和降级详情
 - `GET /health/live`、`GET /health/ready`、`GET /health/doctor` — 存活、就绪和已净化 Provider 诊断
-- `GET /api/v1/admin/providers`、`POST /api/v1/admin/providers/select` — 系统管理员读取当前 Provider 注册表、可选 Embedding/Reranker profile，并保存重启生效的选择
+- `GET /api/v1/admin/providers`、`POST /api/v1/admin/providers/select` — 系统管理员读取当前 Provider 注册表、可选 Embedding/Reranker/Sparse profile，并保存重启生效的选择
 - `GET /api/v1/workspace/mcp` — 当前组合根提供的 MCP Server、6 个只读 Tool、4 类 Resource 和 stdio/HTTP 传输状态
 - `GET /metrics` — Prometheus text exposition；生产环境必须使用独立 Bearer token
 
@@ -317,7 +326,7 @@ Trace 阶段/批次/稳定错误检查器、MCP 能力目录，以及预算评�
 匿名用户无需登录即可进入 `/workspace/*`；`/workspace/overview` 会读取当前 tenant 的集合、文档、
 索引、24 小时 Query 与最近任务聚合，并并列显示 `/health/doctor` 的 Provider 状态；
 `/workspace/documents` 支持集合 CRUD、筛选、上传、详情和安全删除，`/workspace/ingestion` 展示
-后台任务真实进度；`/admin/providers` 展示实时 Provider 注册表并提供 Embedding/Reranker 选择，其他 `/admin/*`
+后台任务真实进度；`/admin/providers` 展示实时 Provider 注册表并提供 Embedding/Reranker/Sparse 选择，其他 `/admin/*`
 仍需系统管理员身份。Embedding 切换属于 restart-bound 的索引契约：重启 Mac backend 后，管理员在
 `/admin/providers` 的“Embedding 索引兼容状态”面板中可以看到当前 revision、每个文档的 Root/Leaf/vector
 数量与旧 revision，并点击“重建不兼容文档”。重建先在新 Milvus revision 投影向量，成功写入 PostgreSQL
@@ -642,7 +651,13 @@ Embedding 端口提供本地多语和 OpenAI-compatible 两种实现，并通过
   tests/contract/test_embedding_providers.py -m model)
 ```
 
-Sparse Encoder 使用稳定的多语词法 hash、log-TF 权重和 L2 归一化生成 Milvus 稀疏向量；它不等同于 BM25。Projection Service 将 Dense/Sparse 结果分批写为 `processing`，核对数量后激活为 `ready` 并再次核对。重复运行覆盖相同 Leaf ID；部分写入或核验失败只清理本次目标 `index_revision`，不会误删同一版本仍在工作的旧 revision。文档删除/全量 reconcile 仍可按版本清理所有 revision。
+Sparse 端口有两种明确模式：离线/评测的 `hashing_lexical` 用稳定多语词法 hash、log-TF 和 L2 归一化
+生成预计算向量；Mac 完整语义组合的 `milvus_builtin_bm25` 只传递文本，由 Milvus 原生 BM25 Function
+和 `jieba` Analyzer 维护语料 TF/IDF。两者都不把一种模式伪装成另一种；`IndexSchema` 将 sparse mode
+纳入 revision，旧 Hashing collection 与 BM25 collection 不能混用。Projection Service 按模式分批写入
+`processing`，核对数量后激活为 `ready` 并再次核对。重复运行覆盖相同 Leaf ID；部分写入或核验失败只清理
+本次目标 revision，不会误删同一版本仍在工作的旧 revision。文档删除/全量 reconcile 仍可按版本清理所有
+revision。
 
 Provider Reindex Service 将旧 PostgreSQL Root/Leaf 和旧 Milvus projection 视为可回滚事实：先按当前
 Embedding tokenizer 重新切分并投影新 revision，再在事务中交换 Root/Leaf，最后按旧 revision 定向清理。
@@ -652,7 +667,10 @@ Embedding tokenizer 重新切分并投影新 revision，再在事务中交换 Ro
 
 匿名工作区 API 使用服务端 session 将所有请求强制绑定到固定 demo tenant。匿名 `demo_operator` 拥有该租户内的集合和文档管理权限，但不能进入系统管理面；写操作需要轮换的 CSRF token。管理员使用独立数据库 session、Argon2id 密码与系统角色，前端路由守卫只改善体验，后端仍会对每个系统请求鉴权。集合 CRUD、流式上传、文档 cursor 分页、详情、任务查询和幂等异步删除均使用统一错误模型与 request ID，跨租户 ID 一律表现为 404。
 
-双路 Search Service 对每个 query 分别生成 Dense 与 Sparse 向量，并并行调用两条独立检索路径。tenant 与授权 collection/document scope 在调用 VectorStore 前写入两路请求，Milvus 再强制追加 `status=ready`；任何 scope 都不能在召回后补过滤。两路原始分数保持独立并附带最小诊断，融合由 M4-02 负责。
+双路 Search Service 对每个 query 分别生成 Dense 与 Sparse 输入；Hashing 产生 query vector，BM25 产生
+query text，并并行调用两条独立检索路径。tenant 与授权 collection/document scope 在调用 VectorStore
+前写入两路请求，Milvus 再强制追加 `status=ready`；任何 scope 都不能在召回后补过滤。两路原始分数保持
+独立并附带最小诊断，融合由 M4-02 负责；Query Trace 会显示每个分支实际使用的 Sparse 算法。
 
 RRF Fusion 按每个 query 的 Dense/Sparse 排名列表计算 `Σ 1/(k+rank)`，不直接混加不可比较的原始分数。同一 Leaf 跨分路去重，同一 Root 默认最多保留 3 个 Leaf，全局默认保留 30 个；完全同分使用 Leaf ID 稳定排序，并报告各类配额丢弃数量。
 
@@ -669,7 +687,7 @@ Query Planning Service 将结构化 Planner 输出视为不可信输入，严格
 
 Standard Query Graph 使用显式状态机串联 Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer。每次运行返回真实状态转移；RRF、授权 Leaf 或二次校验 Root 为空都会进入 NoResults 并跳过答案模型。Standard 固定把 Planner 尝试计为第 1 次 LLM 调用、最终答案计为第 2 次并执行硬上限；Planner 降级不触发额外调用。未分类故障进入带净化错误码的 Failed 状态，不把异常文本交给客户端。
 
-Deep Recovery 使用按 Leaf ID 跨轮去重的 Evidence Ledger，并给 Recovery 新证据预留最终名额。通用 Controller 默认以 0.45/0.80 双阈值决定直接恢复、调用 Assessor 或直接回答；Mac 真实组合采用更严格的 `always_assess` 策略，对每次有证据的 Deep 决策调用当前 LLM，模型只判断 requirement 覆盖、冲突和决策，最终分数仍由覆盖率与检索置信度计算。默认最多两轮，仍有缺口则 Abstain。四条恢复路径为 Rewrite Hybrid、HyDE Dense-only、Exact-term Sparse-only 和仅放宽 Planner 新增且调用方未指定字段的 Scope repair；每条路径都重新执行检索、RRF、权限校验、Rerank 与 Root 恢复。当前 Sparse 实现是 hashing lexical，不是 BM25，因此代码和文档都不会把精确术语路径虚称为 BM25；未来可替换真正 BM25 Provider。
+Deep Recovery 使用按 Leaf ID 跨轮去重的 Evidence Ledger，并给 Recovery 新证据预留最终名额。通用 Controller 默认以 0.45/0.80 双阈值决定直接恢复、调用 Assessor 或直接回答；Mac 真实组合采用更严格的 `always_assess` 策略，对每次有证据的 Deep 决策调用当前 LLM，模型只判断 requirement 覆盖、冲突和决策，最终分数仍由覆盖率与检索置信度计算。默认最多两轮，仍有缺口则 Abstain。四条恢复路径为 Rewrite Hybrid、HyDE Dense-only、Exact-term Sparse-only 和仅放宽 Planner 新增且调用方未指定字段的 Scope repair；每条路径都重新执行检索、RRF、权限校验、Rerank 与 Root 恢复。Mac 完整组合的精确术语路径使用真实 Milvus BM25 Provider；离线公开评测仍使用 Hashing Lexical 获得零成本确定性分数，两种模式均不会互相冒充。
 
 Answer Verification 要求每个事实段落绑定引用；引用 Root 必须来自本轮授权上下文、Leaf 必须属于该 Root，quote 必须是 Root clean text 中真实存在的连续片段，同时覆盖 QueryPlan 的全部 requirements。结构或覆盖错误最多 Repair 一次，并使用完全相同的证据集合再次校验；Evidence conflict 不会通过改写掩盖，而是直接 Abstain。最终只有验证通过的答案会生成带 document/root/Leaf、page/section、quote 和 score 的领域 Citation；其余返回有边界拒答和空引用，不泄露供应商错误。
 

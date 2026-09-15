@@ -84,7 +84,7 @@ class DeterministicLocalQueryRunner:
 
         await self._progress(emit, QueryProgressStage.RETRIEVING, "执行 Dense / Sparse 检索")
         await self._vector_store.ensure_revision(
-            IndexSchema(self._index_revision, self._embedding.dimension)
+            IndexSchema(self._index_revision, self._embedding.dimension, self._sparse.mode)
         )
         searched = await trace_async(
             "rag.retrieval",

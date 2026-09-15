@@ -106,7 +106,9 @@ async def test_real_mounted_runtime_supports_catalog_search_resources_verify_and
     try:
         await _seed(database)
         dense = await embedding.embed_query("保留期限 三年 AB-120")
-        sparse_vector = await sparse.encode_query("保留期限 三年 AB-120")
+        sparse_vector = (
+            await sparse.encode_query("保留期限 三年 AB-120")
+        ).require_vector()
         await vector_store.ensure_revision(IndexSchema(REVISION, embedding.dimension))
         await vector_store.upsert(
             (

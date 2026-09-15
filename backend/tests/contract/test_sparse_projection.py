@@ -191,8 +191,9 @@ async def test_sparse_encoder_is_stable_multilingual_normalized_and_closable() -
     repeated = await encoder.encode_query("企业 Enterprise enterprise")
 
     assert first == repeated
-    assert len(first) == 3
-    assert math.sqrt(sum(value * value for value in first.values())) == pytest.approx(1.0)
+    first_vector = first.require_vector()
+    assert len(first_vector) == 3
+    assert math.sqrt(sum(value * value for value in first_vector.values())) == pytest.approx(1.0)
     with pytest.raises(AppError) as raised:
         await encoder.encode_query("!!!")
     assert raised.value.code is ErrorCode.EMBEDDING_INPUT_INVALID
@@ -225,7 +226,9 @@ async def test_projection_batches_activates_verifies_and_is_idempotent(tmp_path:
         assert second.verified_count == 3
         assert await store.count_by_version(TENANT_ID, VERSION_ID) == 3
 
-        query_vector: Mapping[int, float] = await HashingSparseEncoder().encode_query("企业")
+        query_vector: Mapping[int, float] = (
+            await HashingSparseEncoder().encode_query("企业")
+        ).require_vector()
         hits = await store.sparse_search(SparseSearchRequest(REVISION, TENANT_ID, query_vector, 3))
         assert hits[0].leaf_id == leaves()[0].id
         dense = await store.dense_search(

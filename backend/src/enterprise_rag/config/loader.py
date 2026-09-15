@@ -48,7 +48,7 @@ KNOWN_PROVIDERS: dict[str, frozenset[str]] = {
     "evaluator": frozenset({"deterministic"}),
     "ocr": frozenset({"tesseract"}),
     "vision": frozenset({"none"}),
-    "sparse_encoder": frozenset({"hashing_lexical"}),
+    "sparse_encoder": frozenset({"hashing_lexical", "milvus_builtin_bm25"}),
 }
 
 PRODUCTION_REQUIRED_ENV = (

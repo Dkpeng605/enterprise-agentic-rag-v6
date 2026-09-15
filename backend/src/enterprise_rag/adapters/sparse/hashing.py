@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, ProviderKind
+from enterprise_rag.ports.sparse import SparseEncoding, SparseMode
 
 _LEXICAL_TOKEN = re.compile(r"[\u3400-\u9fff]|[A-Za-z0-9_]+", re.UNICODE)
 _MAX_INDEX = 2**31 - 1
@@ -27,13 +28,17 @@ class HashingSparseEncoder:
             health=ProviderHealth.UNAVAILABLE if self._closed else ProviderHealth.HEALTHY,
         )
 
-    async def encode_documents(self, texts: Sequence[str]) -> list[Mapping[int, float]]:
-        self._ensure_open()
-        return [self._encode(text) for text in texts]
+    @property
+    def mode(self) -> SparseMode:
+        return SparseMode.PRECOMPUTED
 
-    async def encode_query(self, text: str) -> Mapping[int, float]:
+    async def encode_documents(self, texts: Sequence[str]) -> list[SparseEncoding]:
         self._ensure_open()
-        return self._encode(text)
+        return [SparseEncoding(self.mode, vector=self._encode(text)) for text in texts]
+
+    async def encode_query(self, text: str) -> SparseEncoding:
+        self._ensure_open()
+        return SparseEncoding(self.mode, vector=self._encode(text))
 
     async def aclose(self) -> None:
         self._closed = True

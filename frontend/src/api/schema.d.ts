@@ -1715,7 +1715,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "embedding" | "reranker" | "llm";
+            kind: "embedding" | "reranker" | "sparse_encoder" | "llm";
             /** Key */
             key: string;
         };
@@ -1874,6 +1874,8 @@ export interface components {
             sparse_requested: number;
             /** Sparse Returned */
             sparse_returned: number;
+            /** Sparse Algorithm */
+            sparse_algorithm: string;
             /** Overlap Count */
             overlap_count: number;
             /** Unique Count */
