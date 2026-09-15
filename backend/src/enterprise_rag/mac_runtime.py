@@ -29,7 +29,6 @@ from enterprise_rag.adapters.rerankers import (
 from enterprise_rag.adapters.sparse import HashingSparseEncoder, MilvusBuiltinBm25Encoder
 from enterprise_rag.adapters.splitters import StructureAwareSplitter
 from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
-from enterprise_rag.adapters.vision import NoopVisionProvider
 from enterprise_rag.api import create_app
 from enterprise_rag.config import AppSettings, load_settings
 from enterprise_rag.mcp import build_http_mcp_app
@@ -63,6 +62,7 @@ from enterprise_rag.services.provider_catalog import (
     selected_embedding_dimension,
     selected_runtime_model,
 )
+from enterprise_rag.services.vision_provider import build_vision_provider
 from enterprise_rag.services.workspace import WorkspaceService
 
 LOGGER = logging.getLogger(__name__)
@@ -217,7 +217,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
     )
     query_planner = QueryPlanningService(LanguageModelQueryPlanner(language_model))
     ocr = TesseractOcrEngine(languages=active.ingestion.pdf_ocr_languages)
-    vision = NoopVisionProvider()
+    vision = build_vision_provider(active)
     loaders = (
         PdfLoader(
             ocr,
