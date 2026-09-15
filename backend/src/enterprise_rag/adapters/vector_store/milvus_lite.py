@@ -1,4 +1,4 @@
-"""Milvus Lite implementation of the VectorStore contract."""
+"""Milvus VectorStore implementations for local Lite and remote servers."""
 
 import asyncio
 import os
@@ -70,14 +70,36 @@ async def _observe_milvus[ResultT](
             metrics.observe_milvus(operation=operation, status=status)
 
 
-class MilvusLiteVectorStore:
-    """A single-process local projection store serialized behind an async lock."""
+class _MilvusVectorStore:
+    """Shared Milvus implementation with an explicit local/remote client boundary."""
 
-    def __init__(self, database_path: str | Path, *, collection_prefix: str = "rag") -> None:
-        path = Path(database_path).resolve()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._client = MilvusClient(str(path))
+    def __init__(
+        self,
+        endpoint: str | Path,
+        *,
+        collection_prefix: str = "rag",
+        remote: bool,
+        token: str | None = None,
+        db_name: str | None = None,
+    ) -> None:
+        if remote:
+            if not isinstance(endpoint, str) or not endpoint.strip():
+                raise ValueError("remote Milvus URI must not be blank")
+            if token is None or not token.strip():
+                raise ValueError("remote Milvus token must not be blank")
+            self._client = MilvusClient(
+                uri=endpoint.strip(),
+                token=token,
+                **({"db_name": db_name} if db_name is not None else {}),
+            )
+        else:
+            path = Path(endpoint).resolve()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._client = MilvusClient(str(path))
         self._prefix = collection_prefix
+        self._remote = remote
+        self._provider_name = "milvus_remote" if remote else "milvus_lite"
+        self._provider_version = "2.6" if remote else "1"
         self._dimensions: dict[str, int] = {}
         self._sparse_modes: dict[str, SparseMode] = {}
         self._lock = asyncio.Lock()
@@ -86,12 +108,12 @@ class MilvusLiteVectorStore:
     def info(self) -> ProviderInfo:
         return ProviderInfo(
             kind=ProviderKind.VECTOR_STORE,
-            name="milvus_lite",
-            version="1",
+            name=self._provider_name,
+            version=self._provider_version,
             capabilities=frozenset(
                 {"dense_search", "sparse_search", "metadata_filter", "delete", "count"}
             ),
-            is_remote=False,
+            is_remote=self._remote,
             health=(ProviderHealth.UNAVAILABLE if self._closed else ProviderHealth.HEALTHY),
         )
 
@@ -606,4 +628,35 @@ class MilvusLiteVectorStore:
 
     def _ensure_open(self) -> None:
         if self._closed:
-            raise RuntimeError("Milvus Lite vector store is closed")
+            raise RuntimeError("Milvus vector store is closed")
+
+
+class MilvusLiteVectorStore(_MilvusVectorStore):
+    """Single-process local Milvus Lite store used by development and E2E."""
+
+    def __init__(self, database_path: str | Path, *, collection_prefix: str = "rag") -> None:
+        super().__init__(
+            database_path,
+            collection_prefix=collection_prefix,
+            remote=False,
+        )
+
+
+class MilvusRemoteVectorStore(_MilvusVectorStore):
+    """Milvus server adapter safe for API and Worker processes to share."""
+
+    def __init__(
+        self,
+        uri: str,
+        *,
+        token: str,
+        db_name: str | None = None,
+        collection_prefix: str = "rag",
+    ) -> None:
+        super().__init__(
+            uri,
+            collection_prefix=collection_prefix,
+            remote=True,
+            token=token,
+            db_name=db_name,
+        )

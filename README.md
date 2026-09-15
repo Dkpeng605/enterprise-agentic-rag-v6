@@ -237,17 +237,25 @@ Milvus Lite 只允许单进程打开；运行以上命令时后端必须处于�
 Provider 猜测归属。带有 revision 标记的 stale projection 会报告 `orphan_vector`，`--apply` 只删除该
 tenant/version/revision。
 
-### 本机单进程 Worker 与生产 Worker 范围
+### 本机单进程 Worker 与生产 Worker
 
 当前本机入口由 `mac_runtime` 在同一个 FastAPI 进程内启动轮询 Worker，复用真实 Loader、Cleaner、Splitter、
 Embedding、Sparse、Vision、Projection、Milvus 和持久化 Trace；上传后的任务会通过 PostgreSQL lease、heartbeat、
 过期恢复和最大重试完成摄取。启动本机服务只需要执行上面的 `./scripts/mac-backend.sh`，不要额外启动第二个
 进程打开同一个 Milvus Lite `vectors.db`。
 
-独立生产 Worker 暂缓，不属于本次本机验收，也不宣称已经完成公网多副本部署。当前 Milvus Lite `.db` 只支持
-单进程打开；未来 M8 必须先接入支持跨进程访问的 Milvus Adapter/Standalone Milvus，或用受保护的 Projection RPC
-让唯一持有 Lite 的进程执行投影，之后才能恢复独立 Worker、镜像、Compose 和服务器部署工作。Worker 专用实现若
-在工作树中存在，只作为未提交的实验代码保留，不是当前仓库启动契约。
+M8-00 已提供独立的 `enterprise-rag-worker` 进程入口。它复用真实 Loader、Cleaner、Splitter、Embedding、Sparse、
+Vision、Projection 和 Trace，通过 PostgreSQL `SKIP LOCKED`、lease、heartbeat、过期恢复和最大重试协调多个 Worker；
+每个进程同一时刻只执行一个 Pipeline，收到 `SIGINT`/`SIGTERM` 后停止领取并逆序关闭资源。启动独立 Worker：
+
+```bash
+uv run --project backend --env-file .env enterprise-rag-worker
+```
+
+本地开发若使用 `milvus_lite`，API 与独立 Worker 不能同时打开同一个 `vectors.db`；独立 Worker 只能在 API 停止时运行。
+生产环境必须设置 `providers.vector_store=milvus_remote`，并提供 `VECTOR_STORE_URI`、`VECTOR_STORE_TOKEN`（可选
+`VECTOR_STORE_DATABASE`），让 API 与多个 Worker 共享 server-backed Milvus。该入口完成了生产 Worker 前置 Slice，
+但生产镜像、Compose、备份和公网发布仍属于后续 M8 Slice。
 
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
 
@@ -561,7 +569,8 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R13 拒答率诊断与证据预算修复：已完成
 - M7-R14 部分答案状态与拒答率口径修复：已完成
 - M7-R15 Pipeline Inspector 图片受保护预览：已完成
-- 下一项：M8 公网发布
+- M8-00 独立摄取 Worker 前置 Slice：已完成
+- 下一项：M8-01 生产镜像
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
@@ -734,7 +743,7 @@ Embedding tokenizer 重新切分并投影新 revision，再通过 ProjectionResu
 切换但索引尚未重建”和“当前 revision 已完整可检索”，不会把旧向量伪装成新模型结果。远程 Embedding 与
 Reranker 的 transport 异常使用有界重试并返回净化错误，Reranker 身份校验失败时回退到有限的 RRF 顺序。
 
-摄取 Pipeline 在文档注册事务内创建或复用 Job，按 Loader → 图片增强 → Cleaner → Splitter → PostgreSQL → Milvus → 最终提交的顺序运行。每个 checkpoint 同时续租、更新单调进度并确认取消；确定性输入错误直接失败，瞬时错误按上限重试。失败或取消会补偿该版本的 PostgreSQL 内容和 Milvus 投影，只有双存储核验完成后文档才进入 `ready`。服务层通过 `run_once(owner=...)` 驱动；M7-08 离线组合已提供单进程轮询 Worker，M8 仍需交付生产进程与资源约束。
+摄取 Pipeline 在文档注册事务内创建或复用 Job，按 Loader → 图片增强 → Cleaner → Splitter → PostgreSQL → Milvus → 最终提交的顺序运行。每个 checkpoint 同时续租、更新单调进度并确认取消；确定性输入错误直接失败，瞬时错误按上限重试。失败或取消会补偿该版本的 PostgreSQL 内容和 Milvus 投影，只有双存储核验完成后文档才进入 `ready`。服务层通过 `run_once(owner=...)` 驱动；M7-08 离线组合提供单进程轮询 Worker，M8-00 另提供独立生产 Worker 进程与资源约束。
 
 匿名工作区 API 使用服务端 session 将所有请求强制绑定到固定 demo tenant。匿名 `demo_operator` 拥有该租户内的集合和文档管理权限，但不能进入系统管理面；写操作需要轮换的 CSRF token。管理员使用独立数据库 session、Argon2id 密码与系统角色，前端路由守卫只改善体验，后端仍会对每个系统请求鉴权。集合 CRUD、流式上传、文档 cursor 分页、详情、任务查询和幂等异步删除均使用统一错误模型与 request ID，跨租户 ID 一律表现为 404。
 

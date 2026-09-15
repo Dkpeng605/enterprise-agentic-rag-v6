@@ -6,6 +6,17 @@ from pydantic import ValidationError
 from enterprise_rag.config import SettingsError, SettingsErrorCode, load_settings
 
 
+def production_environment() -> dict[str, str]:
+    return {
+        "ADMIN_BOOTSTRAP_EMAIL": "admin@example.test",
+        "ADMIN_BOOTSTRAP_PASSWORD": "strong-password",
+        "DATABASE_URL": "postgresql+asyncpg://example.test/db",
+        "MCP_TOKEN_PEPPER": "pepper",
+        "METRICS_TOKEN": "metrics",
+        "SESSION_SECRET": "session-secret",
+    }
+
+
 def test_default_settings_are_valid_and_immutable() -> None:
     settings = load_settings(environ={})
 
@@ -236,6 +247,31 @@ def test_unknown_provider_has_stable_error() -> None:
 
     assert raised.value.code is SettingsErrorCode.CONFIG_PROVIDER_UNKNOWN
     assert raised.value.details == {"kind": "embedding", "name": "invented"}
+
+
+def test_production_rejects_single_process_milvus_lite() -> None:
+    with pytest.raises(SettingsError) as raised:
+        load_settings(
+            environ=production_environment(),
+            overrides={"app": {"environment": "production"}, "providers": {"llm": "mock"}},
+        )
+
+    assert raised.value.code is SettingsErrorCode.CONFIG_VALUE_INVALID
+    assert raised.value.details == {"fields": ("providers.vector_store",)}
+
+
+def test_production_remote_milvus_requires_uri_and_token() -> None:
+    with pytest.raises(SettingsError) as raised:
+        load_settings(
+            environ=production_environment(),
+            overrides={
+                "app": {"environment": "production"},
+                "providers": {"llm": "mock", "vector_store": "milvus_remote"},
+            },
+        )
+
+    assert raised.value.code is SettingsErrorCode.CONFIG_SECRET_MISSING
+    assert raised.value.details == {"fields": ("VECTOR_STORE_TOKEN", "VECTOR_STORE_URI")}
 
 
 def test_nested_environment_can_override_numeric_setting() -> None:

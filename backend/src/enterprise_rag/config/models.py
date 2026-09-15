@@ -184,6 +184,9 @@ class CredentialSettings(SettingsModel):
     rerank_base_url: AnyHttpUrl | None = None
     rerank_api_key: SecretStr | None = None
     rerank_model: str | None = None
+    vector_store_uri: AnyHttpUrl | None = None
+    vector_store_token: SecretStr | None = None
+    vector_store_database: str | None = None
     vision_base_url: AnyHttpUrl | None = None
     vision_api_key: SecretStr | None = None
     vision_model: str | None = None

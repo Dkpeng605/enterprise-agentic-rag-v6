@@ -33,6 +33,9 @@ ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "RERANK_BASE_URL": ("credentials", "rerank_base_url"),
     "RERANK_API_KEY": ("credentials", "rerank_api_key"),
     "RERANK_MODEL": ("credentials", "rerank_model"),
+    "VECTOR_STORE_URI": ("credentials", "vector_store_uri"),
+    "VECTOR_STORE_TOKEN": ("credentials", "vector_store_token"),
+    "VECTOR_STORE_DATABASE": ("credentials", "vector_store_database"),
     "WORKER_POLL_INTERVAL_SECONDS": ("worker", "poll_interval_seconds"),
     "WORKER_RECOVERY_INTERVAL_SECONDS": ("worker", "recovery_interval_seconds"),
     "WORKER_RECOVERY_LIMIT": ("worker", "recovery_limit"),
@@ -50,7 +53,7 @@ KNOWN_PROVIDERS: dict[str, frozenset[str]] = {
     "llm": frozenset({"mock", "openai_compatible"}),
     "embedding": frozenset({"local_multilingual_minilm", "openai_compatible"}),
     "reranker": frozenset({"local_cross_encoder", "openai_compatible", "none"}),
-    "vector_store": frozenset({"milvus_lite"}),
+    "vector_store": frozenset({"milvus_lite", "milvus_remote"}),
     "splitter": frozenset({"structure_aware"}),
     "evaluator": frozenset({"deterministic"}),
     "ocr": frozenset({"tesseract"}),
@@ -177,6 +180,10 @@ def _validate_production_secrets(settings: AppSettings) -> None:
         for env_name in ("VISION_API_KEY", "VISION_BASE_URL", "VISION_MODEL"):
             if is_missing(getattr(credentials, ENV_ALIASES[env_name][-1])):
                 missing.append(env_name)
+    if settings.providers.vector_store == "milvus_remote":
+        for env_name in ("VECTOR_STORE_URI", "VECTOR_STORE_TOKEN"):
+            if is_missing(getattr(credentials, ENV_ALIASES[env_name][-1])):
+                missing.append(env_name)
     if missing:
         raise SettingsError(
             SettingsErrorCode.CONFIG_SECRET_MISSING,
@@ -194,6 +201,12 @@ def _validate_production_secrets(settings: AppSettings) -> None:
             SettingsErrorCode.CONFIG_VALUE_INVALID,
             "Configuration validation failed.",
             {"fields": ("ADMIN_BOOTSTRAP_EMAIL", "ADMIN_BOOTSTRAP_PASSWORD")},
+        )
+    if settings.providers.vector_store == "milvus_lite":
+        raise SettingsError(
+            SettingsErrorCode.CONFIG_VALUE_INVALID,
+            "A production deployment cannot use the single-process Milvus Lite store.",
+            {"fields": ("providers.vector_store",)},
         )
 
 

@@ -3199,10 +3199,10 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 
 ### M8：首次公网发布
 
-#### M8-00 独立摄取 Worker 前置 Slice（暂缓，不属于当前本机验收）
+#### M8-00 独立摄取 Worker 前置 Slice（已完成）
 
-- 状态：`WON'T NOW / 暂缓`；当前优先保证 M7-R1 Mac 单进程 API+Worker 可启动、可上传、可摄取、可查询，M8-01～M8-06 不进入本次本机 PR；
-- 范围边界：本节保留未来生产 Worker 的详细契约，当前不得把工作树中的实验实现、Worker 单测或 console script 当作已合并启动能力，也不得以本机单进程 Worker 宣称公网多副本生产完成；
+- 状态：`DONE`；独立 Worker 已作为真实 console script 和生产组合根提交，M8-01～M8-06 仍未完成；
+- 范围边界：本 Slice 交付真实 Worker 进程和 server-backed Milvus 前置能力，但不把 Worker 单独交付误报为生产镜像、Compose 或公网多副本发布完成；
 - 目标：把 M3 的真实摄取 Pipeline 从 API 组合根中抽出为可独立启动、可优雅停止、可恢复的进程入口，
   为后续镜像、Compose 和部署提供明确的 Job Worker 边界；不得用静态成功状态或空处理器替代真实 Loader、
   Cleaner、Splitter、Embedding、Sparse、Projection 和 Trace；
@@ -3213,18 +3213,16 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 生命周期：启动时组合真实资源，收到 SIGINT/SIGTERM 后停止继续领取任务，等待当前有界的 Pipeline 返回，再逆序
   关闭 Tracer、Provider、Milvus、ObjectStore 和 Database；取消必须传播，轮询异常只能记录净化后的结构化事件并
   继续轮询；无任务时使用可被 stop event 唤醒的有界等待；
-- 未来配置与入口：待恢复 M8 时新增 `enterprise-rag-worker` console script 及
+- 配置与入口：新增 `enterprise-rag-worker` console script 及
   `WORKER_POLL_INTERVAL_SECONDS`、`WORKER_RECOVERY_INTERVAL_SECONDS`、`WORKER_RECOVERY_LIMIT`、
   `WORKER_LEASE_SECONDS`；`config/development.example.yaml`、`config/macos.example.yaml`、`.env.example`、
   中英文 README 必须同步启动命令、默认值、资源边界和停止方式；不提交 `.env`、密钥、模型权重、对象文件或
   Milvus `.db`；
-- 关键限制：当前 VectorStore 是 Milvus Lite 单进程 `.db` Adapter。PostgreSQL lease 只解决 Job 领取，不能
-  解决两个进程同时打开同一个 Lite 文件；因此独立 Worker 与 API 不能在当前组合中持续共享同一个
-  `vectors.db`。M7 的 `mac_runtime`/离线 E2E 继续使用单进程 API+Worker；独立 Worker 仅可在 API 停止时做
-  前置验证。本 Slice 不得把“多个 Worker 能协调 Job”描述为“API+Worker 已可多副本生产运行”；
-- M8 后续阻塞项：在 `M8-02 Production Compose/Caddy` 之前，必须新增支持跨进程访问的 Milvus Adapter/Standalone
-  Milvus，或实现受认证保护的 Projection RPC，使唯一持有 Lite 的进程执行投影。该选择需有 ADR、失败/恢复
-  测试、健康检查和备份恢复验证；在此之前禁止为同一个 Lite 文件配置 API+独立 Worker 多进程部署；
+- 关键限制：Milvus Lite `.db` 仍只支持单进程打开，PostgreSQL lease 不能解决两个进程同时打开同一个 Lite 文件；
+  因此 M7 的 `mac_runtime`/离线 E2E 继续使用单进程 API+Worker，独立 Worker 使用 Lite 时只能在 API 停止时运行。
+  生产 Worker 使用本 Slice 的 `MilvusRemoteVectorStore`，允许 API 与多个 Worker 共享 server-backed Milvus，但不等于
+  已完成生产镜像或公网发布；
+- 后续前置项已解除：M8-01～M8-06 继续负责镜像、Compose、部署、备份和公网验收；它们不得回退到共享 Milvus Lite 文件；
 - EDD 验收：Worker 单测覆盖首次过期恢复、恢复间隔、单进程串行执行、轮询异常继续、cooperative stop 和资源
   关闭幂等；Settings 测试覆盖四个边界变量和非法值；Runtime 测试证明真实 Pipeline composition、生产环境
   禁止本地 Embedding、owner 生成与二次关闭；后端 Ruff、strict Mypy、全量 Pytest、前端测试/typecheck/build、
@@ -3390,7 +3388,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - VPS 为 2GB 内存；
 - 生产 LLM/Embedding/Rerank 使用外部 API；
 - 本地开发支持中英双语小模型；
-- 生产向量库选 Milvus Lite；
+- 本机开发可使用 Milvus Lite；生产 API/Worker 组合必须使用支持跨进程访问的 server-backed Milvus；
 - 企业扩展在首个作品集上线后继续实现；
 - 不执行昂贵的全量公开数据集日常回归。
 

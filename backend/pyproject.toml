@@ -35,6 +35,7 @@ enterprise-rag-eval = "enterprise_rag.cli.eval:main"
 enterprise-rag-quality-gate = "enterprise_rag.cli.quality_gate:main"
 enterprise-rag-mcp-stdio = "enterprise_rag.mcp.stdio:main"
 enterprise-rag-mcp-token = "enterprise_rag.cli.mcp_token:main"
+enterprise-rag-worker = "enterprise_rag.production_worker:main"
 
 [dependency-groups]
 dev = [
