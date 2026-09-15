@@ -93,6 +93,7 @@ async def test_four_retrieval_routes_still_have_one_original_requirement() -> No
         plan(),
         sub_queries=("政策定义", "政策期限", "政策适用范围", "政策例外情况"),
         requirements=("政策是什么？",),
+        use_sub_queries=True,
     )
     draft = AnswerDraft(
         (DraftParagraph("政策定义明确。[1]", (1,)),),
@@ -114,6 +115,7 @@ async def test_answer_verification_does_not_require_empty_alternative_routes() -
         plan(),
         sub_queries=("路线一", "路线二", "路线三", "路线四"),
         requirements=("政策是什么？",),
+        use_sub_queries=True,
     )
     draft = AnswerDraft(
         (DraftParagraph("政策定义明确。[1]", (1,)),),

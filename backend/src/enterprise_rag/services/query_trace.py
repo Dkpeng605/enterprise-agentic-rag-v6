@@ -58,6 +58,7 @@ class QueryPlanSnapshot:
     language: str
     sub_queries: tuple[str, ...]
     requirements: tuple[str, ...] = ()
+    use_sub_queries: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +293,14 @@ def _plan(spans: tuple[StoredSpan, ...]) -> QueryPlanSnapshot | None:
     requirements = _texts(values.get("rag.plan.requirements"))
     if None in {provider, original, rewritten, intent, language} or not sub_queries:
         return None
+    # Older traces did not persist the explicit switch. Their multi-route plan
+    # was necessarily an opted-in plan under the previous contract, so infer it
+    # only when the field is absent; an explicit false must remain false.
+    use_sub_queries = (
+        _bool(values.get("rag.plan.use_sub_queries"))
+        if "rag.plan.use_sub_queries" in values
+        else len(sub_queries) > 1
+    )
     return QueryPlanSnapshot(
         provider or "",
         _bool(values.get("rag.degraded")),
@@ -301,6 +310,7 @@ def _plan(spans: tuple[StoredSpan, ...]) -> QueryPlanSnapshot | None:
         language or "",
         sub_queries,
         requirements,
+        use_sub_queries,
     )
 
 

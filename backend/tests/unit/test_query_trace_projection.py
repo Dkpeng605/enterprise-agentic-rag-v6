@@ -53,6 +53,7 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
                 "rag.plan.rewritten": "如何部署；同时如何回滚",
                 "rag.plan.intent": "procedural",
                 "rag.plan.language": "zh",
+                "rag.plan.use_sub_queries": True,
                 "rag.plan.sub_queries": ["如何部署", "如何回滚"],
                 "rag.plan.sub_query_count": 2,
                 "rag.plan.requirements": ["如何部署；同时如何回滚"],
@@ -204,6 +205,7 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
     assert projected.plan.provider == "deterministic"
     assert projected.plan.sub_queries == ("如何部署", "如何回滚")
     assert projected.plan.requirements == ("如何部署；同时如何回滚",)
+    assert projected.plan.use_sub_queries is True
     assert projected.retrieval_branches[0].overlap_count == 3
     assert projected.rankings[0].dense_rank == 1
     assert projected.rankings[0].dense_score == 0.9
@@ -294,7 +296,5 @@ def test_projects_evidence_assessment_answer_verification_and_span_degradation()
     assert projected.stage_metrics[1].attributes["repairs"] == 1
     assert projected.stage_metrics[1].missing_requirements == ("期限",)
     assert projected.stage_metrics[1].issues == ("missing_requirement",)
-    assert projected.degradations == (
-        QueryDegradation("evidence_assessor", "remote-assessor"),
-    )
+    assert projected.degradations == (QueryDegradation("evidence_assessor", "remote-assessor"),)
     assert projected.retrieval_branches == ()

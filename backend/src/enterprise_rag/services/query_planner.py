@@ -100,6 +100,7 @@ class QueryPlanningService:
             "rewritten_query",
             "intent",
             "sub_queries",
+            "use_sub_queries",
             "requirements",
             "scope",
             "language",
@@ -108,8 +109,15 @@ class QueryPlanningService:
             raise ValueError("planner response fields are invalid")
         rewritten = _required_text(payload["rewritten_query"])
         intent = QueryIntent(_required_text(payload["intent"]))
-        sub_queries = _text_tuple(payload["sub_queries"], 1, self._max_sub_queries)
-        sub_queries = _normalize_sub_queries(sub_queries=sub_queries)
+        use_sub_queries = _required_bool(payload["use_sub_queries"])
+        sub_queries = _text_tuple(
+            payload["sub_queries"], 2 if use_sub_queries else 1, self._max_sub_queries
+        )
+        sub_queries = _normalize_sub_queries(
+            rewritten=rewritten,
+            sub_queries=sub_queries,
+            use_sub_queries=use_sub_queries,
+        )
         requirements = _text_tuple(payload["requirements"], 0, 8)
         requirements = _normalize_requirements(
             request,
@@ -129,6 +137,7 @@ class QueryPlanningService:
             scope,
             language,
             request.mode,
+            use_sub_queries,
         )
 
     def _deterministic_plan(self, request: PlannerRequest) -> QueryPlan:
@@ -161,6 +170,7 @@ class QueryPlanningService:
             request.requested_scope,
             "zh" if _CJK.search(query) else "en",
             request.mode,
+            False,
         )
 
 
@@ -168,6 +178,12 @@ def _required_text(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("planner text field is invalid")
     return value.strip()
+
+
+def _required_bool(value: object) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError("planner boolean field is invalid")
+    return value
 
 
 def _text_tuple(value: object, minimum: int, maximum: int) -> tuple[str, ...]:
@@ -262,18 +278,22 @@ def _normalize_requirements(
 
 def _normalize_sub_queries(
     *,
+    rewritten: str,
     sub_queries: tuple[str, ...],
+    use_sub_queries: bool,
 ) -> tuple[str, ...]:
-    """Keep the LLM's explicit retrieval-route decision separate from coverage.
+    """Apply the LLM's explicit opt-in before any retrieval work starts.
 
-    The prompt makes one route the default. If the model deliberately returns
-    multiple validated, distinct routes, the service must preserve them even when
-    the original wording has no deterministic punctuation or intent signal. Such
-    signals are not reliable substitutes for the model's decision and would
-    suppress valid multi-hop or multi-perspective retrieval. Requirements are
+    ``use_sub_queries`` is the only switch that can activate parallel retrieval.
+    When it is false, the model-provided list is constrained to the single
+    rewritten route. A true decision is reserved for alternative routes to the
+    same user question; the model prompt explicitly forbids splitting one
+    multi-part question into independent answer obligations. Requirements are
     canonicalized independently to the original user question.
     """
 
+    if not use_sub_queries:
+        return (rewritten,)
     return sub_queries
 
 

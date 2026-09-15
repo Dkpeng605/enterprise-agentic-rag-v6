@@ -54,6 +54,7 @@ def query_plan() -> QueryPlan:
         QueryScope(),
         "zh",
         QueryMode.STANDARD,
+        True,
     )
 
 

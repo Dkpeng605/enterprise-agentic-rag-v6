@@ -22,7 +22,11 @@ def valid_payload() -> dict[str, object]:
     return {
         "rewritten_query": "比较甲和乙的成本与性能",
         "intent": "comparison",
-        "sub_queries": ["甲的成本与性能", "乙的成本与性能"],
+        "use_sub_queries": True,
+        "sub_queries": [
+            "比较甲和乙的成本与性能",
+            "甲乙方案成本与性能对比",
+        ],
         "requirements": ["成本", "性能"],
         "scope": {
             "collection_ids": [str(COLLECTION_A)],
@@ -109,6 +113,7 @@ async def test_simple_factual_plan_does_not_add_unasked_requirements() -> None:
         {
             "rewritten_query": "系统支持哪些文档格式？",
             "intent": "factual",
+            "use_sub_queries": False,
             "sub_queries": ["系统支持哪些文档格式？"],
             "requirements": ["如有区分，需说明支持导入与导出的格式"],
             "scope": {
@@ -133,16 +138,17 @@ async def test_simple_factual_plan_does_not_add_unasked_requirements() -> None:
 
 
 @pytest.mark.anyio
-async def test_llm_can_opt_in_to_multiple_routes_without_query_delimiters() -> None:
+async def test_llm_can_explicitly_opt_in_to_alternative_routes() -> None:
     payload = valid_payload()
     payload.update(
         {
             "rewritten_query": "系统支持哪些文档格式？",
             "intent": "factual",
+            "use_sub_queries": True,
             "sub_queries": [
                 "系统支持哪些文档格式？",
-                "系统可以导入哪些格式？",
-                "系统可以导出哪些格式？",
+                "哪些文件格式被系统支持？",
+                "系统支持的文档格式有哪些？",
             ],
             "requirements": ["系统支持哪些文档格式？"],
             "scope": {
@@ -163,10 +169,42 @@ async def test_llm_can_opt_in_to_multiple_routes_without_query_delimiters() -> N
     assert outcome.degraded is False
     assert outcome.plan.sub_queries == (
         "系统支持哪些文档格式？",
-        "系统可以导入哪些格式？",
-        "系统可以导出哪些格式？",
+        "哪些文件格式被系统支持？",
+        "系统支持的文档格式有哪些？",
     )
     assert outcome.plan.requirements == (request.query,)
+    assert outcome.plan.use_sub_queries is True
+
+
+@pytest.mark.anyio
+async def test_explicit_opt_out_never_activates_model_extra_routes() -> None:
+    payload = valid_payload()
+    payload.update(
+        {
+            "rewritten_query": "系统支持哪些文档格式？",
+            "intent": "factual",
+            "use_sub_queries": False,
+            # Treat this as malformed provider content but keep the safe opt-out.
+            "sub_queries": ["导入格式", "导出格式", "兼容格式"],
+            "requirements": ["系统支持哪些文档格式？"],
+            "scope": {
+                "collection_ids": [],
+                "document_ids": [],
+                "titles": [],
+                "organizations": [],
+                "doc_types": [],
+                "versions": [],
+                "sections": [],
+            },
+        }
+    )
+    request = PlannerRequest("系统支持哪些文档格式？", (), QueryScope(), QueryMode.STANDARD)
+
+    outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
+
+    assert outcome.degraded is False
+    assert outcome.plan.use_sub_queries is False
+    assert outcome.plan.sub_queries == (outcome.plan.rewritten_query,)
 
 
 @pytest.mark.anyio
@@ -176,11 +214,8 @@ async def test_simple_factual_plan_overrides_model_misclassified_intent() -> Non
         {
             "rewritten_query": "当前知识库中的访问控制要求是什么？包括认证和授权。",
             "intent": "summary",
-            "sub_queries": [
-                "当前知识库的访问控制要求包括哪些内容",
-                "知识库的认证和授权机制是什么",
-                "知识库的数据隔离要求是什么",
-            ],
+            "use_sub_queries": False,
+            "sub_queries": ["当前知识库中的访问控制要求是什么？包括认证和授权。"],
             "requirements": [],
             "scope": {
                 "collection_ids": [],
@@ -200,11 +235,8 @@ async def test_simple_factual_plan_overrides_model_misclassified_intent() -> Non
     outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
 
     assert outcome.degraded is False
-    assert outcome.plan.sub_queries == (
-        "当前知识库的访问控制要求包括哪些内容",
-        "知识库的认证和授权机制是什么",
-        "知识库的数据隔离要求是什么",
-    )
+    assert outcome.plan.sub_queries == (outcome.plan.rewritten_query,)
+    assert outcome.plan.use_sub_queries is False
     assert outcome.plan.requirements == (request.query,)
 
 
@@ -215,7 +247,8 @@ async def test_empty_provider_requirements_still_use_the_original_question() -> 
         {
             "rewritten_query": "如何部署；同时如何回滚",
             "intent": "procedural",
-            "sub_queries": ["如何部署", "如何回滚"],
+            "use_sub_queries": False,
+            "sub_queries": ["如何部署；同时如何回滚"],
             "requirements": [],
             "scope": {
                 "collection_ids": [],
@@ -237,13 +270,14 @@ async def test_empty_provider_requirements_still_use_the_original_question() -> 
 
 
 @pytest.mark.anyio
-async def test_explicit_multi_part_factual_plan_keeps_sub_queries() -> None:
+async def test_multi_part_question_is_not_split_without_explicit_opt_in() -> None:
     payload = valid_payload()
     payload.update(
         {
             "rewritten_query": "系统支持哪些文档格式；并且哪些格式可导出？",
             "intent": "factual",
-            "sub_queries": ["支持哪些文档格式", "哪些格式可导出"],
+            "use_sub_queries": False,
+            "sub_queries": ["系统支持哪些文档格式；并且哪些格式可导出？"],
             "requirements": ["支持哪些文档格式", "哪些格式可导出"],
             "scope": {
                 "collection_ids": [],
@@ -263,12 +297,28 @@ async def test_explicit_multi_part_factual_plan_keeps_sub_queries() -> None:
     outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
 
     assert outcome.degraded is False
-    assert outcome.plan.sub_queries == ("支持哪些文档格式", "哪些格式可导出")
+    assert outcome.plan.sub_queries == (outcome.plan.rewritten_query,)
+    assert outcome.plan.use_sub_queries is False
     assert outcome.plan.requirements == (request.query,)
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("invalid", ["expanded_scope", "bad_uuid", "unknown_field", "duplicate"])
+async def test_missing_opt_in_field_falls_back_to_one_route() -> None:
+    payload = valid_payload()
+    del payload["use_sub_queries"]
+    request = PlannerRequest("比较甲和乙", (), QueryScope(), QueryMode.STANDARD)
+
+    outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
+
+    assert outcome.degraded is True
+    assert outcome.plan.use_sub_queries is False
+    assert outcome.plan.sub_queries == (request.query,)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "invalid", ["expanded_scope", "bad_uuid", "unknown_field", "duplicate", "bad_switch"]
+)
 async def test_invalid_structured_output_falls_back_without_scope_expansion(invalid: str) -> None:
     payload = valid_payload()
     scope = payload["scope"]
@@ -279,6 +329,8 @@ async def test_invalid_structured_output_falls_back_without_scope_expansion(inva
         scope["collection_ids"] = ["invented"]
     elif invalid == "unknown_field":
         payload["extra"] = "unsafe"
+    elif invalid == "bad_switch":
+        payload["use_sub_queries"] = "true"
     else:
         payload["sub_queries"] = ["same", "same"]
     request = PlannerRequest(

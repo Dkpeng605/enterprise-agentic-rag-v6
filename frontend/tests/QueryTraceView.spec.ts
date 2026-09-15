@@ -34,7 +34,7 @@ const standardDetail: QueryTraceView = {
     provider: 'deterministic', degraded: false,
     original_query: '如何部署；同时如何回滚', rewritten_query: '如何部署；同时如何回滚',
     intent: 'procedural', language: 'zh', sub_queries: ['如何部署', '如何回滚'],
-    requirements: ['如何部署', '如何回滚'],
+    requirements: ['如何部署；同时如何回滚'], use_sub_queries: true,
   },
   retrieval_branches: [{
     branch_index: 0, query: '如何部署', dense_requested: 40, dense_returned: 8,
@@ -67,12 +67,30 @@ describe('query trace workspace', () => {
     expect(wrapper.get('[data-testid="rank-table"]').text()).toContain('leaf_01')
     expect(wrapper.get('[data-testid="rank-table"]').text()).toContain('#4')
     expect(wrapper.get('[data-testid="rank-table"]').text()).toContain('0.970')
-    expect(wrapper.get('[data-testid="query-plan"]').text()).toContain('共 2 条并行检索分支')
+    expect(wrapper.get('[data-testid="query-plan"]').text()).toContain('LLM 已明确启用，共 2 条替代检索路径')
     expect(wrapper.get('[data-testid="query-plan"]').text()).toContain('1 个 Leaf 命中')
-    expect(wrapper.get('[data-testid="query-plan"]').text()).toContain('最终必须覆盖的需求')
+    expect(wrapper.get('[data-testid="query-plan"]').text()).toContain('仅原始问题需要覆盖')
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('8 / 40')
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('BM25（Milvus 原生）')
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('不等同于 Recall@K')
+  })
+
+  it('shows that the LLM kept a single rewritten route when sub-queries are off', async () => {
+    vi.mocked(traceApi.getQuery).mockResolvedValue({
+      ...standardDetail,
+      plan: {
+        ...standardDetail.plan!,
+        use_sub_queries: false,
+        sub_queries: [standardDetail.plan!.rewritten_query],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const queryPlan = wrapper.get('[data-testid="query-plan"]').text()
+    expect(queryPlan).toContain('PRIMARY ROUTE')
+    expect(queryPlan).toContain('LLM 未启用子查询，仅执行一条改写路径')
   })
 
   it('distinguishes Deep recovery rounds and provenance counts', async () => {

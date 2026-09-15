@@ -184,9 +184,11 @@ JSON/schema 错误最多原证据重生成一次；结构有效但核验失败�
 不会把模型返回的 Markdown 或异常文本当成结构化事实。
 
 Mac QueryRunner 会先调用同一个受 timeout/retry 保护的 OpenAI-compatible LLM 生成严格 JSON
-QueryPlan：把依赖会话的问题改写为独立检索问题。子查询不是默认步骤：正常情况下只有一条改写后的检索路径，
-只有 Planner LLM 明确返回确有必要的 2～4 条互补路径时才并行执行，不能为了展示而无意义扩增。后端继续严格
-校验字段、数量、UUID 与 Scope；坏 JSON、越权 Scope 或 Provider 故障会整体降级为单一确定性检索路径。
+QueryPlan：把依赖会话的问题改写为独立检索问题。子查询不是默认步骤：Planner 必须显式返回
+`use_sub_queries=true`，且给出 2～4 条都服务于同一个原始问题的替代检索路径，系统才会并行执行；比较双方、
+多条件或多跳问题的各个方面不是替代路径，不能仅为了展示而拆分。`use_sub_queries=false` 时无论模型是否误填
+多条路径，后端都只执行一条 rewritten query。后端继续严格校验字段、数量、UUID 与 Scope；坏 JSON、越权 Scope
+或 Provider 故障会整体降级为单一确定性检索路径。
 `requirements` 与检索路径完全解耦：无论是否拆成多条，QueryPlan 始终只保留一个来自原始用户问题的 requirement。
 子查询只是获取同一 requirement 证据的替代路线，不会创建新的回答义务；只要任一分支提供足够可靠的证据，回答
 作者和最终核验就可以完成同一个 requirement，不会因为其他分支没有命中而强制拒答。
@@ -885,7 +887,7 @@ query text，并并行调用两条独立检索路径。tenant 与授权 collecti
 前写入两路请求，Milvus 再强制追加 `status=ready`；任何 scope 都不能在召回后补过滤。两路原始分数保持
 独立并附带最小诊断，融合由 M4-02 负责；Query Trace 会显示每个分支实际使用的 Sparse 算法。
 
-RRF Fusion 按每个 query 的 Dense/Sparse 排名列表计算 `Σ 1/(k+rank)`，不直接混加不可比较的原始分数。同一 Leaf 跨分路去重，单查询同一 Root 默认最多保留 3 个 Leaf；多子查询时配额自适应为 `max(3, 子查询数)`，避免不同分支在融合阶段提前挤掉同一 Root 的互补 Leaf。全局默认保留 30 个，完全同分使用 Leaf ID 稳定排序，并报告实际 Root 配额与各类淘汰数量。该调整只扩大候选漏斗和保留替代检索证据，不把子查询变成 requirement，也不放宽租户权限、Root 回源或引用核验。
+RRF Fusion 按每个 query 的 Dense/Sparse 排名列表计算 `Σ 1/(k+rank)`，不直接混加不可比较的原始分数。同一 Leaf 跨分路去重，单查询同一 Root 默认最多保留 3 个 Leaf；仅在 LLM 显式启用替代路径时配额自适应为 `max(3, 子查询数)`，避免替代路径在融合阶段过早挤掉同一 Root 的证据。全局默认保留 30 个，完全同分使用 Leaf ID 稳定排序，并报告实际 Root 配额与各类淘汰数量。该调整只扩大候选漏斗和保留替代检索证据，不把子查询变成 requirement，也不放宽租户权限、Root 回源或引用核验。
 
 Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种实现。默认 `local_cross_encoder` 使用约 0.08GB 的 `Xenova/ms-marco-MiniLM-L-6-v2`，该默认模型只按英文能力声明；中文或多语场景必须显式选择对应模型，2GB 生产服务器可选择 SiliconFlow `BAAI/bge-reranker-v2-m3`，通过官方 `/v1/rerank` 请求 `model/query/documents/top_n`。服务默认重排前 20 个 RRF 候选并选择 8 个，严格按候选 ID 对齐；选择阶段只按 Reranker 分数与稳定 RRF 顺序取 Top-K，不为每条 sub-query 预留名额。`matched_queries` 仅记录候选来源，不是覆盖要求；超时、坏响应、重复/未知 ID 和非有限分数都会净化诊断并降级为稳定的 RRF 选择。真实本地模型可单独验证：
 
@@ -896,7 +898,7 @@ Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种�
 
 Scope/Root 服务把服务端授权边界与用户的 metadata 条件解析为 PostgreSQL 中当前明确的 ready document ID 集合。匿名用户仍拥有 demo tenant 全部业务权限，但不能通过请求覆盖 tenant；受限身份按获准 Collection/Document 取并集。title、organization、media type、active version UUID 和 section 均在事实源中校验，显式矛盾返回不泄露资源存在性的 `QUERY_SCOPE_CONFLICT`。召回 Leaf 在进入 Reranker 前、selected Root 在进入上下文前都会再次联表检查 tenant、active collection、ready document 和 indexed active version，因此旧向量、删除中或未授权内容会被丢弃。Root 恢复的 18,000 字符上限用于上下文预算计量并记录确定性截断；`RootContext` 仍保留完整 clean text 用于 citation quote 核验，Answer/Assessor 只接收本轮授权且被选中的 Leaf 原文片段，避免把合法的后半段 quote 误判为不存在。
 
-Query Planning Service 将结构化 Planner 输出视为不可信输入，严格校验字段、intent、子查询/需求数量、UUID 和 Scope 收窄关系；服务端硬上限为 4 条 sub-query，配置不能扩大这个上限。模型不能改变 Standard/Deep mode，不能凭空加入 Collection/Document ID，也不能覆盖调用方显式 metadata。Mac 组合通过当前 OpenAI-compatible LLM 执行查询改写；默认只执行一条路径，只有 LLM 明确返回 2～4 条有意义且互补的 sub-query 才并行分解。多路开关只由这次 Planner 的结构化结果决定，服务不会再根据 factual、标点或连接词自行推断，也不会反向压制 LLM 已明确选择的多路。Planner token/call 独立记录。无论 factual、comparison、多条件、流程还是总结问题，requirements 都确定性收敛为原始用户问题；领域 `QueryPlan` 也拒绝空列表、多个 requirement 或非原始问题文本。sub-query 不会产生新的 requirement，也不要求每条分支分别覆盖。任一分支证据足以支撑该唯一 requirement 时即可进入回答核验。任何坏响应或 Provider 故障都会整体降级为确定性单路径计划：保留原 Scope，并使用最近一条 user 历史补足指代。Planner 的供应商异常不会进入 QueryPlan。
+Query Planning Service 将结构化 Planner 输出视为不可信输入，严格校验字段、intent、`use_sub_queries` 与子查询/需求数量、UUID 和 Scope 收窄关系；服务端硬上限为 4 条 sub-query，配置不能扩大这个上限。模型不能改变 Standard/Deep mode，不能凭空加入 Collection/Document ID，也不能覆盖调用方显式 metadata。Mac 组合通过当前 OpenAI-compatible LLM 执行查询改写；默认只执行一条路径，只有 Planner 明确将 `use_sub_queries` 设为 true 且返回 2～4 条替代路径时才并行执行。`false` 时服务强制使用唯一 rewritten query，不根据 factual、标点或连接词自行推断，也不把模型误填的多路变成运行开关。Planner token/call 独立记录。无论 factual、comparison、多条件、流程还是总结问题，requirements 都确定性收敛为原始用户问题；领域 `QueryPlan` 也拒绝空列表、多个 requirement 或非原始问题文本。sub-query 不会产生新的 requirement，也不要求每条分支分别覆盖。任一分支证据足以支撑该唯一 requirement 时即可进入回答核验。任何坏响应或 Provider 故障都会整体降级为确定性单路径计划：保留原 Scope，并使用最近一条 user 历史补足指代。Planner 的供应商异常不会进入 QueryPlan。
 
 Standard Query Graph 使用显式状态机串联 Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer。每次运行返回真实状态转移；RRF、授权 Leaf 或二次校验 Root 为空都会进入 NoResults 并跳过答案模型。Standard 固定把 Planner 尝试计为第 1 次 LLM 调用、最终答案计为第 2 次并执行硬上限；Planner 降级不触发额外调用。未分类故障进入带净化错误码的 Failed 状态，不把异常文本交给客户端。
 

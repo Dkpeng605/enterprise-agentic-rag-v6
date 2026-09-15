@@ -171,6 +171,7 @@ class SemanticQueryRunner:
             span.set_attribute("rag.plan.rewritten", plan.rewritten_query)
             span.set_attribute("rag.plan.intent", plan.intent.value)
             span.set_attribute("rag.plan.language", plan.language)
+            span.set_attribute("rag.plan.use_sub_queries", plan.use_sub_queries)
             span.set_attribute("rag.plan.sub_queries", plan.sub_queries)
             span.set_attribute("rag.plan.sub_query_count", len(plan.sub_queries))
             span.set_attribute("rag.plan.requirements", plan.requirements)
@@ -183,7 +184,11 @@ class SemanticQueryRunner:
         await self._progress(
             emit,
             QueryProgressStage.RETRIEVING,
-            f"执行 {len(plan.sub_queries)} 条子查询的 Dense / Sparse 检索",
+            (
+                f"执行 {len(plan.sub_queries)} 条替代检索路径的 Dense / Sparse 检索"
+                if plan.use_sub_queries
+                else "执行单条 rewritten query 的 Dense / Sparse 检索"
+            ),
         )
         await self._vector_store.ensure_revision(
             IndexSchema(self._index_revision, self._embedding.dimension, self._sparse.mode)
