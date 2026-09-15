@@ -745,7 +745,7 @@ query text，并并行调用两条独立检索路径。tenant 与授权 collecti
 
 RRF Fusion 按每个 query 的 Dense/Sparse 排名列表计算 `Σ 1/(k+rank)`，不直接混加不可比较的原始分数。同一 Leaf 跨分路去重，单查询同一 Root 默认最多保留 3 个 Leaf；多子查询时配额自适应为 `max(3, 子查询数)`，避免不同分支在融合阶段提前挤掉同一 Root 的互补 Leaf。全局默认保留 30 个，完全同分使用 Leaf ID 稳定排序，并报告实际 Root 配额与各类淘汰数量。该调整只扩大候选漏斗和保留替代检索证据，不把子查询变成 requirement，也不放宽租户权限、Root 回源或引用核验。
 
-Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种实现。默认 `local_cross_encoder` 使用约 0.08GB 的 `Xenova/ms-marco-MiniLM-L-6-v2`，该默认模型只按英文能力声明；中文或多语场景必须显式选择对应模型，2GB 生产服务器可选择 SiliconFlow `BAAI/bge-reranker-v2-m3`，通过官方 `/v1/rerank` 请求 `model/query/documents/top_n`。服务默认重排前 20 个 RRF 候选并选择 8 个，严格按候选 ID 对齐；超时、坏响应、重复/未知 ID 和非有限分数都会净化诊断并降级为稳定的 RRF 选择。真实本地模型可单独验证：
+Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种实现。默认 `local_cross_encoder` 使用约 0.08GB 的 `Xenova/ms-marco-MiniLM-L-6-v2`，该默认模型只按英文能力声明；中文或多语场景必须显式选择对应模型，2GB 生产服务器可选择 SiliconFlow `BAAI/bge-reranker-v2-m3`，通过官方 `/v1/rerank` 请求 `model/query/documents/top_n`。服务默认重排前 20 个 RRF 候选并选择 8 个，严格按候选 ID 对齐；选择阶段只按 Reranker 分数与稳定 RRF 顺序取 Top-K，不为每条 sub-query 预留名额。`matched_queries` 仅记录候选来源，不是覆盖要求；超时、坏响应、重复/未知 ID 和非有限分数都会净化诊断并降级为稳定的 RRF 选择。真实本地模型可单独验证：
 
 ```bash
 (cd backend && RUN_MODEL_TESTS=1 uv run pytest -q \

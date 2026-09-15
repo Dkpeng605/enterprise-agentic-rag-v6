@@ -1933,6 +1933,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 #### M4-07 Deep
 
 - Evidence：每项以稳定 Leaf/Root ID、0～1 归一化 confidence、原始问题这一项 requirement 的覆盖、round number 和 Recovery route 记录；首轮 route 必须为空，Recovery 轮必须带与 action 一致的 provenance。多 sub-query 的 matched-query provenance 仅用于解释候选来源，不产生新的 requirement，也不构成逐分支覆盖义务；
+- 候选选择：Rerank 与 Root context 选择只按实际分数和稳定顺序执行，不为每条 sub-query 保留名额；matched-query provenance 不得驱动 coverage 配额。子查询仍可并行扩大证据来源，但任一分支的可靠证据都可以支撑唯一原始 requirement，其他分支无证据不能单独导致拒答；
 - Ledger：按 Leaf ID 跨首轮和所有 Recovery 轮去重，重复候选不覆盖首轮来源且计入 duplicate count；最终 Top-K 可配置为 Recovery 候选预留默认 2 个名额，避免首轮高分完全挤掉新增证据；
 - 评分：确定性分数为 `0.7 * requirement coverage + 0.3 * max evidence confidence`，其中 requirement 只有原始用户问题一项；`score >= 0.80` 直接 Answer，`score < 0.45` 直接 Recover，中间区间才调用 Evidence Assessor；Assessor 的 score、covered/missing requirement 必须与当前输入一致且不得引入未知 requirement；Assessor 评估所有分支的合并证据，不要求每个 sub-query 都独立覆盖；
 - 路由：普通同义/召回不足走 Query Rewrite Hybrid；描述性概念走 HyDE Dense-only；型号、编号、精确术语走 Sparse-only 并保留原关键词；已证明 Scope 错误时走 Scope repair，只移除 `repairable_scope_fields` 明确列出的第一个条件；

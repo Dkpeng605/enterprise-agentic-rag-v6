@@ -767,47 +767,19 @@ def _select_answer_roots(
     *,
     max_roots: int,
 ) -> tuple[RootContext, ...]:
-    """Select a bounded Root set, preserving route evidence without gating answer coverage.
+    """Select the highest-ranked bounded Root set.
 
-    ``matched_queries`` is retrieval provenance only.  For a decomposed plan, keep
-    the highest-ranked Root carrying each available route before filling remaining
-    slots by retrieval order.  This prevents a low-ranked but useful alternative
-    route from disappearing, while never creating a requirement or asserting that
-    every route must be covered.  Final citation and requirement verification remain
+    ``matched_queries`` is retrieval provenance only.  A decomposed plan has
+    alternative routes to one original requirement, so Root selection must not
+    reserve a slot for every route or treat an unselected route as a missing
+    requirement.  Final citation and requirement verification remain
     authoritative.
     """
 
     if max_roots <= 0:
         raise ValueError("max_roots must be positive")
-    candidates = tuple(roots)
-    if len(candidates) <= max_roots or len(plan.sub_queries) <= 1:
-        return candidates[:max_roots]
-
-    selected: set[int] = set()
-    for query in plan.sub_queries:
-        index = next(
-            (
-                candidate
-                for candidate, root in enumerate(candidates)
-                if candidate not in selected
-                and any(
-                    query in root.leaf_matched_queries.get(leaf_id, ())
-                    for leaf_id in root.leaf_ids
-                )
-            ),
-            None,
-        )
-        if index is None:
-            continue
-        selected.add(index)
-        if len(selected) >= max_roots:
-            break
-    for index in range(len(candidates)):
-        if len(selected) >= max_roots:
-            break
-        if index not in selected:
-            selected.add(index)
-    return tuple(root for index, root in enumerate(candidates) if index in selected)
+    del plan
+    return tuple(roots)[:max_roots]
 
 
 def _repairable_scope_fields(

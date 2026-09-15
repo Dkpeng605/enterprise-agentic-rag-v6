@@ -96,7 +96,7 @@ async def test_maps_ids_orders_scores_and_bounds_candidate_funnel() -> None:
 
 
 @pytest.mark.anyio
-async def test_selection_preserves_coverage_for_low_scoring_subquery() -> None:
+async def test_selection_does_not_reserve_slots_for_subquery_coverage() -> None:
     q1 = item("a", 0.9)
     q1_second = item("b", 0.8)
     q2 = RerankItem(
@@ -144,7 +144,7 @@ async def test_selection_preserves_coverage_for_low_scoring_subquery() -> None:
 
     assert [result.leaf_id for result in outcome.hits] == [
         items[0].hit.leaf_id,
-        items[2].hit.leaf_id,
+        items[1].hit.leaf_id,
     ]
     assert provider.calls[0][2] == 3
 

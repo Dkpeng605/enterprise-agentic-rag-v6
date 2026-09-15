@@ -109,13 +109,13 @@ class RerankingService:
         candidates: Sequence[RerankItem],
         scores: Mapping[str, float] | None,
     ) -> list[RerankItem]:
-        """Select high-scoring Leaves without losing sub-query coverage.
+        """Select the highest-scoring Leaves from the bounded candidate funnel.
 
-        ``matched_queries`` is provenance produced by RRF.  It is deliberately
-        treated as a coverage hint, not as proof that a Leaf answers a
-        requirement.  Evidence assessment still decides whether the answer is
-        grounded.  This step only prevents the funnel from dropping the sole
-        candidate for an otherwise represented sub-query.
+        ``matched_queries`` is retrieval provenance produced by RRF.  It is not
+        an answer-coverage signal, so it must not reserve a selection slot for
+        every sub-query.  Sub-queries are alternative routes to the same
+        original requirement; evidence assessment and answer verification are
+        the only layers allowed to decide whether that requirement is covered.
         """
 
         original_order = {item.hit.leaf_id: index for index, item in enumerate(candidates)}
@@ -132,49 +132,7 @@ class RerankingService:
             key=lambda item: (-score(item), original_order[item.hit.leaf_id]),
         )
         selected_count = min(self._selected_leaf_k, len(candidates))
-        required_queries = tuple(
-            dict.fromkeys(
-                query
-                for item in candidates
-                for query in item.hit.matched_queries
-            )
-        )
-        if not required_queries:
-            return ranked[:selected_count]
-
-        uncovered = set(required_queries)
-        selected: list[RerankItem] = []
-        selected_ids: set[str] = set()
-        while uncovered and len(selected) < selected_count:
-            eligible = [
-                item
-                for item in ranked
-                if item.hit.leaf_id not in selected_ids
-                and uncovered.intersection(item.hit.matched_queries)
-            ]
-            if not eligible:
-                break
-            chosen = max(
-                eligible,
-                key=lambda item: (
-                    len(uncovered.intersection(item.hit.matched_queries)),
-                    score(item),
-                    -original_order[item.hit.leaf_id],
-                ),
-            )
-            selected.append(chosen)
-            selected_ids.add(chosen.hit.leaf_id)
-            uncovered.difference_update(chosen.hit.matched_queries)
-
-        selected.extend(
-            item for item in ranked
-            if item.hit.leaf_id not in selected_ids
-        )
-        selected = selected[:selected_count]
-        selected.sort(
-            key=lambda item: (-score(item), original_order[item.hit.leaf_id])
-        )
-        return selected
+        return ranked[:selected_count]
 
     @staticmethod
     def _validate_items(items: Sequence[RerankItem]) -> None:
