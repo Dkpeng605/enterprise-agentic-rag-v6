@@ -2527,8 +2527,11 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   替代 sub-query 时最多使用 5 个 Root，Deep 最多使用 5 个 Root。这里保留的是
   检索路径的证据机会，不是为每条 sub-query 创建 requirement，也不要求每条路径分别有证据；任一分支的
   可靠证据都可以支撑同一个原始 requirement；子查询数量不会变成 requirement 数量，也不会把未命中的替代路径算作缺口；
-- Deep 限制：此增强入口的 Deep 只扩大综合证据窗口，尚未装配 M4-07 多轮 Recovery Controller，
-  README 与 UI/验收不得宣称已经执行多轮 Recovery。该差距应在后续独立 Slice 接入，而不是隐式补齐；
+- Deep 实现：此增强入口已装配 M4-07 多轮 Recovery Controller，并由当前 OpenAI-compatible LLM
+  执行 Evidence Assessor；每次 Deep 查询最多执行两轮有界 Recovery，真实记录 route、retrieval mode、
+  evidence ledger、重复项和 assessor usage。没有证据、Assessor 降级或仍无法验证时，系统按既有边界返回
+  `abstained`，不得把安全拒答伪装成 Recovery 成功；README、UI 和验收可以展示实际发生的 Recovery，
+  但不能展示 Prompt 或隐藏推理；
 - 本地安全：`.env.mac.example` 只能包含占位 token；真实 `.env` 必须被 Git 忽略。文档和 query 在
   Embedding/Rerank 阶段不离开 Mac，只有授权后的有限 Root 证据发送给远程 LLM。由于 token 曾在聊天
   渠道出现，完成本机验收后应轮换；公网发布不得复用开发 token 或 session secret；
@@ -2781,7 +2784,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   单路检索 API 和 Trace 新字段保持向后兼容，可独立保留；
 - PR：`feat/m7-r4-real-deep-recovery`。
 
-##### M7-R5 Provider 切换后的索引状态与安全重建（实现中）
+##### M7-R5 Provider 切换后的索引状态与安全重建（已完成）
 
 - 缺陷事实：Provider 选择文件是 restart-bound 的，Embedding 模型、维度、tokenizer 和 Milvus collection
   属于同一索引契约。旧实现只在前端提示“重新摄取”，但不会判断已有文档是否仍使用旧 revision；更严重的是
@@ -2819,17 +2822,18 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 ##### M7-R6 MCP 能力目录与传输状态可视化（已完成）
 
 - 缺口事实：M5 已有官方 SDK 的 stdio/Streamable HTTP Adapter、六个只读 Tool、四类 Resource 和
-  scope/collection allowlist 约束，但 Vue 工作区没有 MCP 入口；Mac API 组合也没有挂载 `/mcp`。仅凭
-  README 或测试 fixture 无法证明用户当前看到的是哪组能力，更不能把“代码支持 HTTP MCP”误报为
-  “当前进程已经运行 HTTP MCP”；
+  scope/collection allowlist 约束；在 M7-R6 之前 Vue 工作区没有 MCP 入口，早期 Mac API 组合也没有挂载
+  `/mcp`。仅凭 README 或测试 fixture 无法证明用户当前看到的是哪组能力，更不能把“代码支持 HTTP MCP”
+  误报为“当前进程已经运行 HTTP MCP”；
 - 单一事实源：新增脱敏 `McpCapabilityCatalog`，集中定义 Server 名称/版本、Tool 名称、用途、只读标记、
   required scopes，以及固定 Resource/URI template。SDK Server 显式复用同一 Server 常量和 Tool 名称，
   契约测试锁定 SDK 实际 list_tools/list_resources 结果，避免前端目录与协议注册静默漂移；
 - 传输语义：stdio 只根据当前进程环境是否声明 `ENTERPRISE_RAG_MCP_STDIO_FACTORY` 显示
   `factory_declared`，该状态不等同于可连接；真正可用性仍由官方 MCP Client 契约/连接验证；
-  Streamable HTTP 只有组合根显式提供 endpoint 时才能标为 `mounted`。Mac runtime 未挂载时返回
-  `external_composition_required`，页面显示“需要外部组合”；不得根据模块存在、测试通过或 README 文案
-  推断端点健康，也不得伪造 client count、请求量或连接状态；
+  Streamable HTTP 只有组合根显式提供 endpoint 时才能标为 `mounted`。未注入 HTTP factory 的组合返回
+  `external_composition_required`，页面显示“需要外部组合”；当前 `mac_runtime` 已注入共享
+  `KnowledgeApplication` 的 HTTP factory，实际 `/mcp` 挂载后才显示 `mounted`。不得根据模块存在、测试
+  通过或 README 文案推断端点健康，也不得伪造 client count、请求量或连接状态；
 - API/权限：`GET /api/v1/workspace/mcp` 是 session 保护的 tenant 工作区只读接口。匿名 demo 用户可以查看
   能力目录，但不能签发、查看、撤销 MCP Token，也不能读取 token prefix/hash、pepper、Prompt、
   Authorization、文档正文或跨租户统计；未注入 catalog 的组合返回稳定 `SERVICE_UNAVAILABLE`；
@@ -3204,7 +3208,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 
 #### M8-00 独立摄取 Worker 前置 Slice（已完成）
 
-- 状态：`DONE`；独立 Worker 已作为真实 console script 和生产组合根提交，M8-03～M8-06 仍未完成；
+- 状态：`DONE`；独立 Worker 已作为真实 console script 和生产组合根提交，M8-04～M8-06 仍未完成；
 - 范围边界：本 Slice 交付真实 Worker 进程和 server-backed Milvus 前置能力，但不把 Worker 单独交付误报为生产镜像、Compose 或公网多副本发布完成；
 - 目标：把 M3 的真实摄取 Pipeline 从 API 组合根中抽出为可独立启动、可优雅停止、可恢复的进程入口，
   为后续镜像、Compose 和部署提供明确的 Job Worker 边界；不得用静态成功状态或空处理器替代真实 Loader、

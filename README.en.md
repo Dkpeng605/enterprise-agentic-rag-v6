@@ -310,7 +310,7 @@ For local development with `milvus_lite`, the API and standalone Worker must not
 run the standalone Worker only while the API is stopped. Production must set `providers.vector_store=milvus_remote` and
 provide `VECTOR_STORE_URI`, `VECTOR_STORE_TOKEN` (and optionally `VECTOR_STORE_DATABASE`) so the API and multiple Workers
 share a server-backed Milvus. This completes the production Worker prerequisite; the M8-01 images and M8-02 Compose are
-documented below, while backups and public release remain later M8 slices.
+documented below, while backups, deployment drills, and public release remain later M8 slices.
 
 ### M8-01 production images
 
@@ -327,7 +327,7 @@ context is sent.
 Reproducible local `linux/amd64` records from `docker image inspect` (2026-09-16): backend `278238911` bytes (about
 265.3 MiB), frontend `22704397` bytes (about 21.7 MiB). These are build records for the current base images and dependency
 lock, not a promise of runtime capacity; M8-02 now includes the production Compose, private network, and outer Caddy
-configuration, while public release remains a later image/deployment slice.
+configuration, while public release remains a later deployment, restore-drill, and public-acceptance slice.
 
 ```bash
 docker build --platform=linux/amd64 -f infra/production/backend.Dockerfile -t enterprise-rag-backend:local .
@@ -347,7 +347,7 @@ requires database, session, admin bootstrap, LLM/Embedding/Reranker, remote Milv
 Model identity is bound to production environment variables; the local Provider selection file cannot override a production
 model request.
 
-After migrations, the API can be started as one Uvicorn worker (public domain and server deployment remain M8-03 through M8-06):
+After migrations, the API can be started as one Uvicorn worker (public domain and server deployment remain M8-04 through M8-06):
 
 ```bash
 APP_ENVIRONMENT=production \
@@ -374,9 +374,9 @@ docker compose --env-file infra/production/.env.production \
   -f infra/production/compose.yml ps
 ```
 
-This completes the container topology and locally reviewable configuration, not a public release. GHCR immutable images,
-SSH deployment, backup/restore, domain setup, and 24-hour public acceptance remain M8-03 through M8-06. To stop services
-while retaining volumes, use `down` without `--volumes`:
+This completes the container topology and locally reviewable configuration, not a public release. SSH deployment, backup/restore,
+domain setup, and 24-hour public acceptance remain M8-04 through M8-06; GHCR immutable images were delivered by M8-03.
+To stop services while retaining volumes, use `down` without `--volumes`:
 
 ```bash
 docker compose --env-file infra/production/.env.production \
