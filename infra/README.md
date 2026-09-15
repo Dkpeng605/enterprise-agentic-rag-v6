@@ -6,4 +6,5 @@ runtime images are now in `production/backend.Dockerfile` and `production/fronte
 FastAPI or Worker command as non-root `app` and contains the `/health/live` probe; the frontend image serves the built SPA
 on internal port 8080 with Caddy. Production Compose, outer reverse-proxy routing, immutable registry tags, deployment,
 backup, and restore assets will be added by their acceptance PRs. Production design must remain compatible with the 2GB VPS
-limits in `DEV_SPEC.md`.
+limits in `DEV_SPEC.md`. With `APP_ENVIRONMENT=production`, `enterprise_rag.main:app` selects the remote API composition;
+it does not start an ingestion Worker, which remains a separate service using the same remote Milvus revision.

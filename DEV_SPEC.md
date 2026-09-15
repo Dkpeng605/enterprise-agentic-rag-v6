@@ -3229,7 +3229,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   OpenAPI drift、quality gate 和 Browser E2E 仍是合并前 required checks；
 - 回滚：移除 console script、Worker composition 和新增配置即可恢复 API 内嵌 Worker；不删除 PostgreSQL Job、
   ObjectStore、Root/Leaf、Trace 或 Milvus 文件；若独立 Worker 已停止，未完成 lease 由现有过期恢复流程处理；
-- PR：待提交，建议分支 `feat/m8-production-worker`；完成后必须先创建 PR，required checks 全绿，再 squash merge。
+- PR：`feat/m8-production-worker`，已创建并在 required checks 全绿后 squash merge（PR #91）。
 
 #### M8-01 Images（已完成）
 
@@ -3249,15 +3249,32 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - EDD 验收：先以缺少 Dockerfile 的 3 个红灯测试固定镜像契约，再补齐 Dockerfile；真实 `docker build
   --platform=linux/amd64` 两张镜像均成功，`docker image inspect` 证明架构、非 root、healthcheck，容器黑盒验证
   backend `/health/live` 返回 200、frontend `/` 返回 SPA HTML 且二者 health 状态为 healthy；同时通过 backend
-  441 passed/4 skipped、Ruff、strict Mypy、frontend 58 passed/typecheck/build、OpenAPI drift 和 quality gate；
+  444 passed/4 skipped、Ruff、strict Mypy、frontend 58 passed/typecheck/build、OpenAPI drift 和 quality gate；
 - 回滚：删除两张生产 Dockerfile、Caddyfile 和 `.dockerignore` 约束即可回到 M8-00 的进程入口，不删除任何数据库、
   对象或 Milvus 数据；
 - PR：`feat/m8-production-images`，后续先创建 PR、等待 required checks 全绿，再 squash merge。
 
 #### M8-02 Production Compose/Caddy
 
-- 网络、volume、TLS、资源、日志；
-- 验收：只有 80/443 暴露。
+- 前置组合根（已完成）：`backend/src/enterprise_rag/production_api.py` 装配生产 HTTP API 所需的远程 Embedding、
+  远程 Reranker、OpenAI-compatible LLM、Milvus 原生 BM25 和 `MilvusRemoteVectorStore`；`main.py` 仅在
+  `APP_ENVIRONMENT=production` 时选择该组合，开发和离线组合保持原有行为。生产 API 只拥有查询、工作区、管理端、
+  Trace、评测和 MCP，不启动内嵌摄取 Worker；Worker 继续由 M8-00 的独立进程消费 PostgreSQL Job，API 与 Worker
+  使用同一个 `index_revision`；
+- 拓扑约束：生产组合拒绝本地 Embedding/Reranker/LLM、Milvus Lite、Hashing Sparse 和明文 MCP URL；启动前必须有
+  数据库、Session、管理员 bootstrap、LLM/Embedding/Reranker、远程 Milvus、MCP pepper、metrics token。生产模型
+  身份只来自环境变量，不使用本机 Provider selection 文件覆盖，防止本地 UI 选择污染远程请求；
+- 网络、volume、TLS、资源、日志（待本 Slice）：API、Worker、PostgreSQL、Frontend 只能加入内部网络；只有外层
+  Caddy 发布 80/443，API/Worker/PostgreSQL/Milvus 不暴露公网端口；为 ObjectStore、备份和运行配置声明持久化卷，
+  为 API/Worker 配置 CPU/内存边界、结构化日志和轮转；Caddy 必须保留 SSE/MCP 长连接、SPA history fallback 和
+  安全 Header；
+- EDD 前置验收：新增生产组合契约测试先验证错误拓扑和缺失 Provider，再验证远程 Milvus 构造参数、注册表 Provider
+  kind、真实 API 路由、index revision 和“无 background Worker”；后端全量测试、Ruff、strict Mypy、前端测试、
+  OpenAPI drift、quality gate 和 Browser E2E 必须保持全绿。Compose Slice 还必须用黑盒检查证明只有宿主 80/443
+  监听，并验证 API/Worker 共享远程 Milvus；
+- 回滚：将 `APP_ENVIRONMENT` 切回 development 或恢复原有本地组合即可回滚 API 组合选择；不删除 PostgreSQL、
+  ObjectStore、Root/Leaf、Trace 或 Milvus revision；Compose 回滚只切换 immutable image tag，不在主机上删除持久卷；
+- PR：前置组合根待以独立 PR 提交；Compose/Caddy 仍需另一个 Slice，必须先创建 PR、required checks 全绿后再 squash merge。
 
 #### M8-03 GHCR
 
