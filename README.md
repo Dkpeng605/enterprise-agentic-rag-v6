@@ -624,7 +624,9 @@ uv build --project backend
 
 `--no-env-file` 很重要：`uv run` 默认会自动读取仓库根目录的 `.env`；质量门禁必须避免本地 LLM
 密钥和开发数据库配置改变“未配置应用”测试的语义。PostgreSQL 集成测试只通过显式
-`TEST_DATABASE_URL` 获取测试连接。
+`TEST_DATABASE_URL` 获取测试连接；当迁移环境同时看到 `DATABASE_URL` 与
+`TEST_DATABASE_URL` 时，迁移脚本也始终优先使用后者，避免 baseline downgrade 误操作开发库。
+仓库相对 YAML 路径从仓库根目录或 `backend/` 目录启动都能解析。
 
 前端：
 

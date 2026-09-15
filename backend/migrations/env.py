@@ -15,7 +15,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
+# TEST_DATABASE_URL must win whenever it is present.  This prevents a sourced
+# local .env from sending destructive baseline migrations to the development
+# database while running the integration suite.
+database_url = os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
 if database_url:
     config.set_main_option(
         "sqlalchemy.url",

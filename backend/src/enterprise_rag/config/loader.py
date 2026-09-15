@@ -113,6 +113,23 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return content
 
 
+def _resolve_config_path(selected_path: str | Path) -> Path:
+    """Resolve config paths consistently from the repository or current directory.
+
+    The documented local command is often run from ``backend/`` while the
+    checked-in config paths are rooted at the repository. Prefer an explicitly
+    addressable current-working-directory path, then fall back to the
+    repository root so a sourced ``.env`` cannot make startup depend on the
+    caller's working directory.
+    """
+
+    path = Path(selected_path).expanduser()
+    if path.is_absolute() or path.exists():
+        return path
+    repository_root = Path(__file__).resolve().parents[4]
+    return repository_root / path
+
+
 def _parse_nested_env(value: str) -> Any:
     parsed = yaml.safe_load(value)
     return value if parsed is None else parsed
@@ -222,7 +239,7 @@ def load_settings(
     selected_path = config_path or source_env.get(CONFIG_FILE_ENV)
     data: dict[str, Any] = {}
     if selected_path:
-        data = _read_yaml(Path(selected_path))
+        data = _read_yaml(_resolve_config_path(selected_path))
     data = _deep_merge(data, _environment_data(source_env))
     if overrides:
         data = _deep_merge(data, overrides)
