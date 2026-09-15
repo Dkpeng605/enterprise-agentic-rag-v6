@@ -201,11 +201,7 @@ class SemanticQueryRunner:
             planned.input_tokens,
             planned.output_tokens,
         )
-        effective_plan = (
-            plan
-            if plan.requirements
-            else replace(plan, requirements=(plan.rewritten_query,))
-        )
+        effective_plan = _effective_plan(plan)
         answer_root_limit = _answer_root_limit(command.mode, effective_plan)
         roots = _select_answer_roots(
             effective_plan,
@@ -721,6 +717,19 @@ def _requirements_for_queries(
     if not matched_queries:
         return ()
     return requirements
+
+
+def _effective_plan(plan: QueryPlan) -> QueryPlan:
+    """Restore the runtime invariant for an injected planner with no requirements.
+
+    The normal planning service already fills this field. The runner still protects
+    the boundary for custom or test planners: the fallback is the original user
+    question, never rewritten retrieval text.
+    """
+
+    if plan.requirements:
+        return plan
+    return replace(plan, requirements=(plan.original_query,))
 
 
 def _answer_root_limit(mode: QueryMode, plan: QueryPlan) -> int:

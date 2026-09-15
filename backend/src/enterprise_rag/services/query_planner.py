@@ -20,6 +20,7 @@ _PRONOUN = re.compile(r"(?:它|这(?:个|些)?|该|前者|后者|\b(?:it|this|th
 _COMPARISON = re.compile(r"(?:比较|对比|区别|差异|\bvs\.?\b|\bversus\b)", re.I)
 _PROCEDURAL = re.compile(r"(?:如何|怎么|步骤|流程|\bhow\b)", re.I)
 _SUMMARY = re.compile(r"(?:总结|概括|摘要|\bsummar(?:y|ize)\b)", re.I)
+_MAX_SUB_QUERIES = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,8 +38,8 @@ class QueryPlanningService:
     def __init__(
         self, provider: QueryPlannerProvider | None = None, *, max_sub_queries: int = 4
     ) -> None:
-        if not 1 <= max_sub_queries <= 8:
-            raise ValueError("max_sub_queries must be between 1 and 8")
+        if not 1 <= max_sub_queries <= _MAX_SUB_QUERIES:
+            raise ValueError(f"max_sub_queries must be between 1 and {_MAX_SUB_QUERIES}")
         self._provider = provider
         self._max_sub_queries = max_sub_queries
 

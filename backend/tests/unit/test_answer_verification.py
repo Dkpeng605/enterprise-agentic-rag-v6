@@ -14,6 +14,7 @@ from enterprise_rag.services import (
     RootContext,
     VerificationIssue,
 )
+from enterprise_rag.services.semantic_query import _effective_plan
 
 DOCUMENT_ID = UUID("01900000-0000-7000-8000-000000001801")
 VERSION_ID = UUID("01900000-0000-7000-8000-000000001802")
@@ -49,6 +50,23 @@ def root() -> RootContext:
         0.9,
         False,
     )
+
+
+def test_runtime_fallback_uses_original_question_not_rewritten_query() -> None:
+    empty_requirement_plan = QueryPlan(
+        "原始用户问题",
+        "改写后的检索路径",
+        QueryIntent.FACTUAL,
+        ("改写后的检索路径",),
+        (),
+        QueryScope(),
+        "zh",
+        QueryMode.STANDARD,
+    )
+
+    effective = _effective_plan(empty_requirement_plan)
+
+    assert effective.requirements == ("原始用户问题",)
 
 
 def valid_draft() -> AnswerDraft:
@@ -92,6 +110,27 @@ async def test_four_retrieval_routes_still_have_one_original_requirement() -> No
     multi_route_plan = replace(
         plan(),
         sub_queries=("政策定义", "政策期限", "政策适用范围", "政策例外情况"),
+        requirements=("政策是什么？",),
+    )
+    draft = AnswerDraft(
+        (DraftParagraph("政策定义明确。[1]", (1,)),),
+        (DraftCitation(1, ROOT_ID, (LEAF_ID,), "政策定义明确"),),
+        ("政策是什么？",),
+    )
+
+    outcome = await AnswerVerificationService(
+        FakeRepairer(RuntimeError("must not run"))
+    ).finalize(plan=multi_route_plan, roots=(root(),), draft=draft)
+
+    assert outcome.status is AnswerStatus.ANSWERED
+    assert outcome.missing_requirements == ()
+
+
+@pytest.mark.anyio
+async def test_answer_verification_does_not_require_empty_alternative_routes() -> None:
+    multi_route_plan = replace(
+        plan(),
+        sub_queries=("路线一", "路线二", "路线三", "路线四"),
         requirements=("政策是什么？",),
     )
     draft = AnswerDraft(
