@@ -3237,7 +3237,8 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   拓扑，不把单独构建镜像当作已部署；
 - Backend：`infra/production/backend.Dockerfile` 使用锁定的 `uv.lock` 安装 `--no-dev` 依赖，最终层基于
   `python:3.12-slim-bookworm`，只复制虚拟环境、源码、迁移、配置和评测 manifest；安装 PDF/OCR 所需系统库，
-  以固定 UID 10001 的非 root `app` 用户运行，并通过入口固定 `uvicorn --workers 1`。同一镜像可由后续 Compose
+  以固定 UID 10001 的非 root `app` 用户运行，并以 `uvicorn --workers 1` 作为默认 `CMD`。使用 `CMD` 而不是固定
+  `ENTRYPOINT`，使生产 Compose 能安全覆盖为 Alembic migration 或独立 Worker 命令；同一镜像可由后续 Compose
   覆盖命令启动 FastAPI API 或 `enterprise-rag-worker`；
 - Frontend：`infra/production/frontend.Dockerfile` 在 Node 22 构建 Vue3/TypeScript，再以 Caddy Alpine runtime
   和非 root UID 10001 的 `app` 用户提供 `/srv` SPA 静态文件，内部监听 8080，`Caddyfile` 提供 history fallback；
@@ -3275,7 +3276,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   E2E 均保持全绿；真实远程 Milvus/域名验收不在本机 CI 内完成，属于后续部署 Slice；
 - 回滚：将 `APP_ENVIRONMENT` 切回 development 或恢复原有本地组合即可回滚 API 组合选择；不删除 PostgreSQL、
   ObjectStore、Root/Leaf、Trace 或 Milvus revision；Compose 回滚只切换 immutable image tag，不在主机上删除持久卷；
-- PR：组合根已在 PR #93 中完成并 squash merge；Compose/Caddy 本 Slice 待独立 PR，必须先创建 PR、required checks 全绿后再 squash merge。
+- PR：组合根已在 PR #93 中完成并 squash merge；Compose/Caddy 已在 PR #94 中完成并 squash merge。
 
 #### M8-03 GHCR（已完成）
 
@@ -3291,12 +3292,48 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   后由 Actions 完成；
 - 回滚：删除或停用 workflow 不影响已有镜像；部署只切换 `BACKEND_IMAGE`/`FRONTEND_IMAGE` 到上一个已验证 SHA，不删除
   PostgreSQL、ObjectStore、Root/Leaf、Trace、Milvus 或 registry 历史镜像；
-- PR：本 Slice 待独立 PR，必须先创建 PR、required checks 全绿后再 squash merge。
+- PR：已在 PR #95 中完成并 squash merge；required checks 为 backend-quality、frontend-quality、browser-e2e。
 
 #### M8-04 Deploy/Rollback
 
-- Environment approval、SSH、migration、smoke、rollback；
-- 验收：预生产主机演练成功。
+- 状态：`IN PROGRESS`；本 Slice 交付可审计的部署自动化和回滚入口，但在没有真实预生产主机演练证据前，不能标记
+  `DONE`，也不能宣称公网已发布；
+- 入口：`.github/workflows/deploy.yml` 只允许从 `main` 手动 `workflow_dispatch`。Job 必须绑定 GitHub Environment
+  `production`，由 Environment required reviewers 做人工审批；`production-deploy` concurrency 不允许并发运行被取消。
+  `action=deploy` 接受当前 main 或显式指定的 40 位小写 commit SHA，要求该 SHA 是 `origin/main` 祖先，且两张 M8-03
+  GHCR 镜像都能被 runner 读取；`action=rollback` 从服务器上的非敏感状态文件读取上一组镜像。部署凭据只允许来自
+  `DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_SSH_PRIVATE_KEY`、`DEPLOY_KNOWN_HOSTS`、`DEPLOY_REGISTRY_USERNAME` 和
+  `DEPLOY_REGISTRY_TOKEN` Environment Secrets；`DEPLOY_KNOWN_HOSTS` 必须存在，SSH 强制
+  `StrictHostKeyChecking=yes`，禁止 password、host-key 自动接受和明文 secret；`DEPLOY_PORT`/`DEPLOY_PATH` 使用
+  Environment Variables 并通过绝对路径与字符集校验；
+- 文件边界：Workflow 只上传 `infra/production/compose.yml`、`gateway.Caddyfile` 和
+  `scripts/production-deploy.sh`，绝不上传或覆盖服务器上的 `infra/production/.env.production`。脚本仅原子更新
+  `APP_COMMIT_SHA`、`BACKEND_IMAGE` 和 `FRONTEND_IMAGE`，并在 `.deploy-state` 记录当前/上一组 SHA 镜像引用；状态文件
+  不包含密钥；
+- Deploy 顺序：确认 Docker/Compose、生产 env 和 Compose 配置有效；先启动 PostgreSQL，再以 custom format 执行
+  `pg_dump --format=custom --no-owner --no-acl` 到 `backups/deploy/pre-deploy-<sha>-<timestamp>.dump` 并校验非空；
+  原子更新 immutable image refs；`docker compose pull api worker frontend`；执行一次性
+  `docker compose run --rm migrate`；启动 API、独立 Worker、frontend 和 gateway。所有服务保持 M8-02 的内部网络、
+  资源边界与远程 Milvus 约束；镜像拉取在 VPS 完成，不在 VPS build；
+- Smoke：通过 Caddy 的本地 HTTPS/SNI 检查 `/health/live`，用 Cookie 访问 `/api/v1/auth/me` 和
+  `/api/v1/workspace/overview` 证明匿名用户得到单租户工作区，再在 API 容器内用服务器 bootstrap 凭据登录并断言
+  `actor_type=user`、`role=super_admin`。Smoke 不输出 query、文档正文、Cookie、Provider 返回或凭据；
+- 失败和回滚：部署失败时恢复部署前 `.env.production` 并尝试恢复上一组合法 SHA 镜像；显式 `rollback` 原子切换
+  `.deploy-state` 中的上一组 backend/frontend/commit refs 后重复 Compose pull、启动和 smoke，成功后交换 current/
+  previous 记录。回滚不得删除 PostgreSQL、ObjectStore、Root/Leaf、Trace、Milvus、volume 或 registry 镜像，不执行
+  migration downgrade；已执行的不可逆 migration 不自动回滚，因此所有生产 migration 必须向后兼容。没有已记录合法
+  previous release 时，rollback 必须 fail closed；
+- 资源与证据：Workflow timeout 为 30 分钟；预生产演练至少保存 workflow run URL、部署 SHA、migration 结果、smoke
+  结果和 rollback run URL，不保存 dump 内容或任何 secret。不得把 GitHub Environment Secret 放入 artifact、state、
+  image label 或日志；
+- EDD 验收：先以缺少 deploy workflow/script/文档的红灯契约测试固定上述边界，再通过 Bash 语法、workflow YAML、后端
+  全量 Pytest、Ruff、strict Mypy、前端测试/typecheck/build、OpenAPI drift、quality gate 和 Browser E2E。真实验收
+  必须在预生产 Docker 主机完成一次 deploy 与一次 rollback，证明 migration 不降级、匿名工作区和 super_admin smoke
+  均成功；本机静态/契约测试不能替代该主机证据；
+- 回滚：撤销本 PR 或停用 workflow/script 可恢复手工 SSH/Compose 发布方式；应用数据、migration、对象和向量事实
+  均保留。主机回滚只切换已验证 SHA 镜像，禁止 `docker compose down --volumes` 和删除整个 Milvus 文件；
+- PR：本 Slice 必须在独立 `feat/m8-deploy-rollback` 分支创建 PR，required checks 全绿后 squash merge；若预生产主机
+  尚未提供演练证据，合并后状态仍为 `IN PROGRESS`。
 
 #### M8-05 Backup/Restore
 

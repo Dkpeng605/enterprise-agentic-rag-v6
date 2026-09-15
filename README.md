@@ -339,6 +339,52 @@ docker image inspect ghcr.io/<owner>/enterprise-agentic-rag-backend:<commit-sha>
 Compose 的 `BACKEND_IMAGE`/`FRONTEND_IMAGE` 应填写同一 commit 的完整引用；GHCR 发布本身不代表已 SSH 部署或已
 通过公网验收。
 
+### M8-04 SSH 部署与回滚
+
+`.github/workflows/deploy.yml` 是一个只允许从 `main` 手动触发的部署入口。Job 绑定 GitHub Environment
+`production`，因此必须先通过该 Environment 配置的 required reviewers 审批；并发部署不会互相取消。部署只接受已经由
+M8-03 发布到 GHCR 的 40 位 commit SHA，先在 runner 验证它是 `origin/main` 的祖先并检查两张镜像都存在，再通过 SSH
+上传 Compose/Caddy 配置和 `scripts/production-deploy.sh`。服务器上的 `infra/production/.env.production` 永远不从仓库覆盖。
+
+在 GitHub Repository/Environment `production` 中配置以下 Secrets（不要写入仓库）：
+
+```text
+DEPLOY_HOST                 VPS 主机名或 IP
+DEPLOY_USER                 具备 Docker 权限的专用部署用户
+DEPLOY_SSH_PRIVATE_KEY      部署私钥
+DEPLOY_KNOWN_HOSTS          通过受信渠道核验后的完整 SSH host key 行
+DEPLOY_REGISTRY_USERNAME    GHCR 只读账号
+DEPLOY_REGISTRY_TOKEN       GHCR packages:read token
+```
+
+可选 Environment Variables：`DEPLOY_PORT`（默认 `22`）、`DEPLOY_PATH`（默认
+`/opt/enterprise-agentic-rag-v6`）和 `PUBLIC_BASE_URL`（仅用于 GitHub Environment 链接）。服务器必须预先安装
+Docker Engine/Compose plugin、准备好 `${DEPLOY_PATH}/infra/production/.env.production`，并填入与本次发布匹配的
+公网域名、远程 Provider、Milvus、管理员 bootstrap 和所有生产密钥。`.env.production` 中的
+`APP_COMMIT_SHA`、`BACKEND_IMAGE`、`FRONTEND_IMAGE` 由脚本原子更新，其余配置保持服务器现状。
+
+部署和回滚命令如下；`release_sha` 留空时部署当前 `main` commit，部署前必须确认该 commit 的 M8-03 镜像 workflow
+已经成功：
+
+```bash
+gh workflow run deploy.yml --ref main \
+  -f action=deploy -f confirmation=DEPLOY \
+  [-f release_sha=<40-character-commit-sha>]
+gh run watch
+
+gh workflow run deploy.yml --ref main \
+  -f action=rollback -f confirmation=ROLLBACK
+gh run watch
+```
+
+每次部署先用 PostgreSQL service 执行 custom-format `pg_dump` 到服务器的
+`backups/deploy/pre-deploy-<sha>-<timestamp>.dump`，然后执行 `docker compose run --rm migrate`，再启动 API、独立
+Worker、前端和 gateway。Smoke 会检查 Caddy HTTPS 下的 `/health/live`、匿名 `/auth/me` 与单租户
+`/workspace/overview`，并在 API 容器内验证管理员登录返回 `super_admin`；不会输出正文、Cookie 或任何凭据。
+部署失败时会恢复部署前的环境文件并尝试启动上一组合法 SHA 镜像。显式 rollback 只切换已记录的上一组 immutable
+镜像，不删除 PostgreSQL、ObjectStore、Root/Leaf、Trace、Milvus 或 volume，也不执行 migration downgrade；因此
+生产 migration 必须保持向后兼容。预生产主机未完成一次成功的 deploy 和 rollback 演练前，不得称为公网发布。
+
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
 
 ```bash
@@ -656,7 +702,8 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - 生产 API 组合根（M8-02 前置）：已完成
 - M8-02 Production Compose/Caddy：已完成（尚未公网发布）
 - M8-03 GHCR immutable images：已完成
-- 下一项：M8-04 Deploy/Rollback
+- M8-04 Deploy/Rollback：已实现，待预生产主机演练
+- 下一项：M8-05 Backup/Restore
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
