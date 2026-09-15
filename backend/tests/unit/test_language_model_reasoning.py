@@ -15,6 +15,7 @@ from enterprise_rag.services import (
     LanguageModelEvidenceAssessor,
     RootContext,
 )
+from enterprise_rag.services.language_model_reasoning import _bounded_evidence
 
 DOCUMENT_ID = UUID("01900000-0000-7000-8000-000000001801")
 VERSION_ID = UUID("01900000-0000-7000-8000-000000001802")
@@ -109,6 +110,36 @@ async def test_llm_evidence_assessor_reads_bounded_evidence_and_reports_usage() 
     assert "政策定义与期限证据" in model.requests[0].user_prompt
     assert model.requests[0].json_mode is True
     assert model.requests[0].max_output_tokens == 2_000
+
+
+def test_bounded_assessor_evidence_prioritizes_the_best_alternative_route() -> None:
+    items = tuple(
+        EvidenceItem(
+            f"leaf_{letter * 64}",
+            f"root_{letter * 64}",
+            confidence,
+            (),
+            0,
+            None,
+            text,
+        )
+        for letter, confidence, text in (
+            ("a", 0.10, "低置信度噪声证据"),
+            ("b", 0.20, "另一条低置信度噪声证据"),
+            ("c", 0.95, "唯一可靠替代路径证据"),
+        )
+    )
+
+    bounded = _bounded_evidence(items, limit=len("唯一可靠替代路径证据"))
+
+    assert bounded == [
+        {
+            "leaf_id": "leaf_" + "c" * 64,
+            "root_id": "root_" + "c" * 64,
+            "confidence": 0.95,
+            "text": "唯一可靠替代路径证据",
+        }
+    ]
 
 
 @pytest.mark.anyio

@@ -940,6 +940,7 @@ Query Planning Service 将结构化 Planner 输出视为不可信输入，严格
 Standard Query Graph 使用显式状态机串联 Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer。每次运行返回真实状态转移；RRF、授权 Leaf 或二次校验 Root 为空都会进入 NoResults 并跳过答案模型。Standard 固定把 Planner 尝试计为第 1 次 LLM 调用、最终答案计为第 2 次并执行硬上限；Planner 降级不触发额外调用。未分类故障进入带净化错误码的 Failed 状态，不把异常文本交给客户端。
 
 Deep Recovery 使用按 Leaf ID 跨轮去重的 Evidence Ledger，并给 Recovery 新证据预留最终名额。通用 Controller 默认以 0.45/0.80 双阈值决定直接恢复、调用 Assessor 或直接回答；Mac 真实组合采用更严格的 `always_assess` 策略，对每次有证据的 Deep 决策调用当前 LLM，模型只判断原始问题这一条 requirement 的覆盖、冲突和决策，最终分数仍由覆盖率与检索置信度计算。多个 sub-query 只是同一问题的替代证据来源，不要求每个分支都独立命中；只要一个分支的证据足够，Assessor 即可判定该 requirement 已覆盖。Assessor 返回未知 requirement、覆盖/缺口不闭合或声称缺口仍 `answer` 时，结果会被视为不可信并回退到原始 requirement 的确定性覆盖判断，不会把子查询升级为新的回答义务，也不会因坏响应使查询崩溃。默认最多两轮，仍有缺口则 Abstain。四条恢复路径为 Rewrite Hybrid、HyDE Dense-only、Exact-term Sparse-only 和仅放宽 Planner 新增且调用方未指定字段的 Scope repair；每条路径都重新执行检索、RRF、权限校验、Rerank 与 Root 恢复。Mac 完整组合的精确术语路径使用真实 Milvus BM25 Provider；离线公开评测仍使用 Hashing Lexical 获得零成本确定性分数，两种模式均不会互相冒充。
+送入 Assessor 的有界证据窗口按置信度优先、原始顺序稳定打破平局；这只是避免可靠替代路径被上下文截断，不为每条 sub-query 预留覆盖名额。
 
 Answer Verification 要求每个事实段落绑定引用；引用 Root 必须来自本轮授权上下文、Leaf 必须属于该 Root，quote 必须是 Root clean text 中真实存在的连续片段，同时覆盖 QueryPlan 唯一的原始问题 requirement。结构或覆盖错误最多 Repair 一次，并使用完全相同的证据集合再次校验；Evidence conflict 不会通过改写掩盖，而是直接 Abstain。完整覆盖且验证通过时生成带 document/root/Leaf、page/section、quote 和 score 的领域 Citation；若最终仍缺 requirement，状态保持 `abstained`，但可返回已独立通过确定性校验的部分段落与引用，并展示 missing requirements，不泄露供应商错误。
 
