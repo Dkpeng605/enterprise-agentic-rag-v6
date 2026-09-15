@@ -122,7 +122,7 @@ async function selectProvider(kind: ProviderKind, key: string): Promise<void> {
   actionError.value = ''
   try {
     catalog.value = await providerApi.select(kind, key)
-    actionMessage.value = '选择已保存。重启 Mac backend 后生效。Embedding 变更后还需要重新摄取文档。'
+    actionMessage.value = '选择已保存。重启 Mac backend 后生效；Embedding 变更后请在下方执行安全索引重建。'
   } catch (caught) {
     actionError.value = caught instanceof ApiError ? caught.message : 'Provider 选择失败，请稍后重试。'
   } finally {

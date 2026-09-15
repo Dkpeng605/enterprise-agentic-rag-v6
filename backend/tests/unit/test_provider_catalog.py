@@ -11,6 +11,7 @@ from enterprise_rag.services.provider_catalog import (
     SILICONFLOW_RERANKER_MODEL,
     RuntimeProviderCatalog,
     load_provider_selection,
+    resolve_runtime_provider,
 )
 
 
@@ -71,6 +72,7 @@ def test_provider_catalog_lists_live_registry_and_persists_restart_bound_selecti
     assert updated_selection["pending_embedding_model"] == BGE_SMALL_ZH_MODEL
     assert load_provider_selection(tmp_path / "provider-selection.json") == {
         "embedding_dimension": "512",
+        "embedding_provider": "local_multilingual_minilm",
         "embedding_model": BGE_SMALL_ZH_MODEL,
     }
 
@@ -126,7 +128,9 @@ def test_siliconflow_profiles_are_selectable_with_kind_credentials(tmp_path: Pat
     assert load_provider_selection(tmp_path / "provider-selection.json") == {
         "embedding_dimension": "1024",
         "embedding_model": SILICONFLOW_EMBEDDING_MODEL,
+        "embedding_provider": "openai_compatible",
         "reranker_model": SILICONFLOW_RERANKER_MODEL,
+        "reranker_provider": "openai_compatible",
     }
 
 
@@ -214,3 +218,85 @@ def test_applied_restart_selection_is_current_and_no_longer_reported_as_pending(
     assert runtime["embedding_input_token_limit"] == "8192"
     assert runtime["pending_restart"] is False
     assert "pending_embedding_model" not in runtime
+
+
+def test_runtime_provider_supports_direct_api_mode_and_ignores_stale_model_only_selection() -> None:
+    embedding_provider, embedding_model = resolve_runtime_provider(
+        {"embedding_model": "old-local-model", "embedding_dimension": "384"},
+        kind="embedding",
+        configured_provider="openai_compatible",
+        configured_model="BAAI/bge-m3",
+        default_model="unused",
+    )
+    reranker_provider, reranker_model = resolve_runtime_provider(
+        {"reranker_model": "old-local-reranker"},
+        kind="reranker",
+        configured_provider="openai_compatible",
+        configured_model="BAAI/bge-reranker-v2-m3",
+        default_model="unused",
+    )
+
+    assert (embedding_provider, embedding_model) == (
+        "openai_compatible",
+        "BAAI/bge-m3",
+    )
+    assert (reranker_provider, reranker_model) == (
+        "openai_compatible",
+        "BAAI/bge-reranker-v2-m3",
+    )
+
+
+def test_runtime_provider_keeps_legacy_remote_model_selection_compatible() -> None:
+    assert resolve_runtime_provider(
+        {"embedding_model": SILICONFLOW_EMBEDDING_MODEL},
+        kind="embedding",
+        configured_provider="local_multilingual_minilm",
+        configured_model=None,
+        default_model="local-model",
+    ) == ("openai_compatible", SILICONFLOW_EMBEDDING_MODEL)
+    assert resolve_runtime_provider(
+        {"reranker_model": SILICONFLOW_RERANKER_MODEL},
+        kind="reranker",
+        configured_provider="local_cross_encoder",
+        configured_model=None,
+        default_model="local-reranker",
+    ) == ("openai_compatible", SILICONFLOW_RERANKER_MODEL)
+
+
+def test_provider_identity_is_part_of_current_and_pending_state(tmp_path: Path) -> None:
+    selection_path = tmp_path / "provider-selection.json"
+    catalog = RuntimeProviderCatalog(
+        registry=ProviderRegistry(),
+        selection_path=selection_path,
+        current_models={
+            "embedding": "same-model",
+            "embedding_provider": "local_multilingual_minilm",
+            "reranker": "same-reranker",
+            "reranker_provider": "local_cross_encoder",
+        },
+        remote_credentials=frozenset({"embedding", "reranker"}),
+    )
+    catalog._write_selection(
+        {
+            "embedding_model": "same-model",
+            "embedding_provider": "openai_compatible",
+            "reranker_model": "same-reranker",
+            "reranker_provider": "openai_compatible",
+        }
+    )
+    catalog = RuntimeProviderCatalog(
+        registry=ProviderRegistry(),
+        selection_path=selection_path,
+        current_models={
+            "embedding": "same-model",
+            "embedding_provider": "local_multilingual_minilm",
+            "reranker": "same-reranker",
+            "reranker_provider": "local_cross_encoder",
+        },
+    )
+
+    selection = cast(dict[str, object], catalog.to_dict()["selection"])
+
+    assert selection["pending_restart"] is True
+    assert selection["pending_embedding_provider"] == "openai_compatible"
+    assert selection["pending_reranker_provider"] == "openai_compatible"
