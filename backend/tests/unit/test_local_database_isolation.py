@@ -5,11 +5,16 @@ REPOSITORY_ROOT = Path(__file__).parents[3]
 
 def test_mac_runtime_and_integration_tests_use_different_databases() -> None:
     compose = (REPOSITORY_ROOT / "infra/compose/compose.dev.yml").read_text(encoding="utf-8")
+    e2e_compose = (REPOSITORY_ROOT / "infra/compose/compose.e2e.yml").read_text(
+        encoding="utf-8"
+    )
     mac_environment = (REPOSITORY_ROOT / ".env.mac.example").read_text(encoding="utf-8")
     generic_environment = (REPOSITORY_ROOT / ".env.example").read_text(encoding="utf-8")
     backend_script = (REPOSITORY_ROOT / "scripts/mac-backend.sh").read_text(encoding="utf-8")
 
     assert "POSTGRES_DB: enterprise_rag_dev" in compose
+    assert "name: enterprise-agentic-rag-v6-dev" in compose
+    assert "name: enterprise-agentic-rag-v6-e2e" in e2e_compose
     assert "enterprise_rag_dev" in mac_environment
     assert "enterprise_rag_dev" in generic_environment
     assert "scripts/ensure-local-databases.sh" in backend_script

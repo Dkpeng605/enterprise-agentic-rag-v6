@@ -449,6 +449,10 @@ docker compose -f infra/compose/compose.e2e.yml up postgres backend frontend
 
 本仓库已验证上述兼容命令可以从当前中文路径完成镜像构建和浏览器全旅程。
 
+开发 Compose 和 E2E Compose 在文件内使用固定且不同的项目名（`enterprise-agentic-rag-v6-dev` 与
+`enterprise-agentic-rag-v6-e2e`）。因此 E2E 的重建、停止和 `--volumes` 清理只作用于 E2E 的 PostgreSQL
+和运行时卷，不会误操作本机开发数据库；不要再用不带 `-f` 文件或手工复用 `compose` 项目名的命令覆盖这一隔离。
+
 浏览器打开 `http://127.0.0.1:4173`。这个组合使用确定性 Hashing Dense/Sparse 检索和摘录式回答，
 用于本地演示与验收，不代表生产语义模型质量。匿名会话拥有 Demo Tenant 的全部业务权限；如需测试
 隔离的管理端，请使用仅供该 Compose 验收环境使用的 `admin` / `admin`。
