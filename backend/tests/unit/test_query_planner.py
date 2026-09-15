@@ -133,7 +133,7 @@ async def test_simple_factual_plan_does_not_add_unasked_requirements() -> None:
 
 
 @pytest.mark.anyio
-async def test_simple_factual_plan_collapses_model_over_split_sub_queries() -> None:
+async def test_llm_can_opt_in_to_multiple_routes_without_query_delimiters() -> None:
     payload = valid_payload()
     payload.update(
         {
@@ -161,7 +161,11 @@ async def test_simple_factual_plan_collapses_model_over_split_sub_queries() -> N
     outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
 
     assert outcome.degraded is False
-    assert outcome.plan.sub_queries == ("系统支持哪些文档格式？",)
+    assert outcome.plan.sub_queries == (
+        "系统支持哪些文档格式？",
+        "系统可以导入哪些格式？",
+        "系统可以导出哪些格式？",
+    )
     assert outcome.plan.requirements == (request.query,)
 
 
@@ -196,7 +200,11 @@ async def test_simple_factual_plan_overrides_model_misclassified_intent() -> Non
     outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
 
     assert outcome.degraded is False
-    assert outcome.plan.sub_queries == (payload["rewritten_query"],)
+    assert outcome.plan.sub_queries == (
+        "当前知识库的访问控制要求包括哪些内容",
+        "知识库的认证和授权机制是什么",
+        "知识库的数据隔离要求是什么",
+    )
     assert outcome.plan.requirements == (request.query,)
 
 

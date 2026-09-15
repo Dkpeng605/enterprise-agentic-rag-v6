@@ -20,7 +20,6 @@ _PRONOUN = re.compile(r"(?:它|这(?:个|些)?|该|前者|后者|\b(?:it|this|th
 _COMPARISON = re.compile(r"(?:比较|对比|区别|差异|\bvs\.?\b|\bversus\b)", re.I)
 _PROCEDURAL = re.compile(r"(?:如何|怎么|步骤|流程|\bhow\b)", re.I)
 _SUMMARY = re.compile(r"(?:总结|概括|摘要|\bsummar(?:y|ize)\b)", re.I)
-_MULTI_SPLIT = re.compile(r"(?:；|;|并且|同时|以及|\band\b)", re.I)
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,11 +108,7 @@ class QueryPlanningService:
         rewritten = _required_text(payload["rewritten_query"])
         intent = QueryIntent(_required_text(payload["intent"]))
         sub_queries = _text_tuple(payload["sub_queries"], 1, self._max_sub_queries)
-        sub_queries = _normalize_sub_queries(
-            request,
-            rewritten=rewritten,
-            sub_queries=sub_queries,
-        )
+        sub_queries = _normalize_sub_queries(sub_queries=sub_queries)
         requirements = _text_tuple(payload["requirements"], 0, 8)
         requirements = _normalize_requirements(
             request,
@@ -265,27 +260,19 @@ def _normalize_requirements(
 
 
 def _normalize_sub_queries(
-    request: PlannerRequest,
     *,
-    rewritten: str,
     sub_queries: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Keep decomposition opt-in while tolerating a model's explicit decision.
+    """Keep the LLM's explicit retrieval-route decision separate from coverage.
 
-    The model's list is the only source allowed to activate multiple retrieval
-    routes.  A plain factual question is still protected from accidental model
-    over-splitting because it has no signal that decomposition is useful.  For
-    explicit multi-part wording, the model's distinct routes are retained.  This
-    affects retrieval only; requirements are canonicalized independently to the
-    original user question.
+    The prompt makes one route the default. If the model deliberately returns
+    multiple validated, distinct routes, the service must preserve them even when
+    the original wording has no deterministic punctuation or intent signal. Such
+    signals are not reliable substitutes for the model's decision and would
+    suppress valid multi-hop or multi-perspective retrieval. Requirements are
+    canonicalized independently to the original user question.
     """
 
-    query = request.query.strip()
-    if (
-        _intent(query) is QueryIntent.FACTUAL
-        and not _MULTI_SPLIT.search(query)
-    ):
-        return (rewritten,)
     return sub_queries
 
 

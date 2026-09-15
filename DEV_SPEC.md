@@ -885,7 +885,7 @@ verifying 98-100%
 Planner 输入问题、模式、授权集合目录和有限历史，输出严格 JSON。规则：
 
 - 原始问题不得丢失；
-- 最多 4 个 sub-query；默认只使用 1 条原始/改写检索路径，只有 LLM 明确判断需要且返回有意义的互补路径时才启用多路检索；
+- 最多 4 个 sub-query；默认只使用 1 条原始/改写检索路径，只有 LLM 明确判断需要且返回 2～4 条有意义的互补路径时才启用多路检索。Service 不根据 factual 意图、标点或连接词自行推断是否拆分，也不压制 LLM 已明确返回的多路；
 - requirements 与 sub-query 解耦：无论问题类型和检索路径数量，QueryPlan 只保留 1 个 requirement，且必须来自原始用户问题；
 - sub-query 只是获取同一 requirement 的替代检索路径，不是新的回答义务；任一分支提供足够可靠的证据即可覆盖该 requirement，不要求所有分支分别有证据；
 - Scope 只能引用目录中存在且调用方有权访问的值；
@@ -2681,7 +2681,8 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - Planner Adapter：复用 Mac 组合已有 `BoundedLanguageModel`，发送当前 query、最多 12 条调用方历史、
   服务端 Scope 和 mode；system contract 要求仅返回一个 JSON object，包含 rewritten_query、领域 intent、
   1～4 条唯一 sub_queries 与 Provider requirements 字段、原样 Scope 与 language。默认执行一条路径，只有
-  LLM 明确判断需要时才保留多路；Service 会把 requirements 统一规范化为原始 query 这一项。Prompt 不发送
+  LLM 明确判断需要且返回 2～4 条有意义的互补路径时才保留多路；Service 不根据 factual 意图、标点或连接词
+  自行压制合法的 LLM 多路结果，并把 requirements 统一规范化为原始 query 这一项。Prompt 不发送
   Root 文本；回答 Provider 仍只接收授权后 Root。Adapter 不拥有共享 LLM 生命周期，不能重复关闭底层连接；
 - 信任边界：Provider JSON 先解析为 mapping，再由 `QueryPlanningService` 执行 exact-field、枚举、数量、
   重复、UUID 和 Scope 只收窄校验；模型不能改变 Standard/Deep mode。非 JSON、数组、尾随文本、未知字段、
@@ -3122,7 +3123,8 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   测试证明上下文预算按本轮选中 Leaf 的实际 evidence 计算，同时保留完整 Root clean text 供 Citation Verify；
   最后用 Trace 测试证明计划、分支 provenance、回答生成降级与 Assessor 降级可独立筛选、持久化并展示。
 - Planner 归一化：`sub_queries` 默认只有 `(rewritten_query,)`；只有 LLM 明确判断需要且返回 2～4 条有意义的互补
-  路径时才保留多路。无论 factual、comparison、多条件、流程、总结还是多跳请求，`requirements` 始终收敛为用户
+  路径时才保留多路。Service 不依据 factual 意图、标点或连接词额外压制合法的 LLM 多路结果。无论 factual、
+  comparison、多条件、流程、总结还是多跳请求，`requirements` 始终收敛为用户
   原问题这一项。多路分支共享该 requirement，不要求每个分支分别覆盖；该规则只约束执行计划，不伪造 LLM 成功，也不放宽 Scope。
 - Root evidence budget：`max_parent_chars` 只对发送给 Answer/Assessor 的已授权、已重排 Leaf 原文片段
   计量；一个 Root 的多个选中 Leaf 按稳定顺序连接，超限时只截断模型上下文。`RootContext.text` 始终
