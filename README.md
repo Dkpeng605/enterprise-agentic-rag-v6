@@ -269,7 +269,7 @@ uv run --project backend --env-file .env enterprise-rag-worker
 
 本机以 `linux/amd64` 构建的可复核记录（Docker image inspect，2026-09-16）：backend `278238911` bytes（约
 265.3 MiB），frontend `22704397` bytes（约 21.7 MiB）。这只是当前基础镜像与依赖版本的构建记录，不是公网
-运行时容量承诺；M8-02 仍需补齐生产 Compose、网络与外层 Caddy 反向代理。
+运行时容量承诺；M8-02 的生产 Compose、内部网络和外层 Caddy 配置已加入，公网发布仍需后续镜像与部署 Slice。
 
 ```bash
 docker build --platform=linux/amd64 -f infra/production/backend.Dockerfile -t enterprise-rag-backend:local .
@@ -288,11 +288,38 @@ Worker，摄取由独立的 `enterprise-rag-worker` 通过 PostgreSQL lease 领�
 管理员 bootstrap、LLM/Embedding/Reranker、远程 Milvus、MCP pepper 与 metrics token。模型身份绑定生产环境变量；
 本机 Provider 选择文件不会覆盖生产模型，避免管理员在本地 UI 的选择误改变远程生产请求。
 
-迁移后可直接以单个 Uvicorn worker 启动 API（公网网络拓扑仍等待 M8-02 Compose）：
+迁移后可直接以单个 Uvicorn worker 启动 API（公网域名与服务器部署仍需后续 M8-03～M8-06）：
 
 ```bash
 APP_ENVIRONMENT=production \
   uv run --project backend uvicorn enterprise_rag.main:app --host 0.0.0.0 --port 8000 --workers 1
+```
+
+### M8-02 生产 Compose/Caddy
+
+`infra/production/compose.yml` 编排 PostgreSQL、一次性 migration、API、独立 Worker、前端和外层 Caddy。API、Worker、
+PostgreSQL 与前端只加入 `private` 网络且没有宿主端口；只有 gateway 映射宿主 80/443。API 与 Worker 共享
+`runtime-data` ObjectStore volume 和远程 Milvus，migration 成功后 API/Worker 才会启动；每个长期服务都有健康检查、
+CPU/内存边界、restart 策略和 JSON 日志轮转。`gateway.Caddyfile` 把 API/MCP/SSE 转发到 backend、SPA 转发到 frontend，
+并保留 HTTPS、安全 Header、SPA history fallback 与长连接 flush。
+
+准备生产环境文件（示例只含占位符，不要把真实文件提交）：
+
+```bash
+cp infra/production/env.production.example infra/production/.env.production
+# 编辑 infra/production/.env.production，填写 immutable image tag、域名、数据库、Provider 与所有密钥
+docker compose --env-file infra/production/.env.production \
+  -f infra/production/compose.yml up -d
+docker compose --env-file infra/production/.env.production \
+  -f infra/production/compose.yml ps
+```
+
+这一步只完成容器拓扑与本机可复核配置，不等于已经发布公网；GHCR immutable image、SSH 部署、备份恢复、域名和
+24 小时公网验收仍由 M8-03～M8-06 完成。停止服务但保留数据卷使用 `down`，不要加 `--volumes`：
+
+```bash
+docker compose --env-file infra/production/.env.production \
+  -f infra/production/compose.yml down
 ```
 
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
@@ -610,7 +637,8 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M8-00 独立摄取 Worker 前置 Slice：已完成
 - M8-01 生产镜像：已完成
 - 生产 API 组合根（M8-02 前置）：已完成
-- 下一项：M8-02 Production Compose/Caddy
+- M8-02 Production Compose/Caddy：已完成（尚未公网发布）
+- 下一项：M8-03 GHCR immutable images
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 

@@ -297,8 +297,8 @@ uv run --project backend --env-file .env enterprise-rag-worker
 For local development with `milvus_lite`, the API and standalone Worker must not open the same `vectors.db` concurrently;
 run the standalone Worker only while the API is stopped. Production must set `providers.vector_store=milvus_remote` and
 provide `VECTOR_STORE_URI`, `VECTOR_STORE_TOKEN` (and optionally `VECTOR_STORE_DATABASE`) so the API and multiple Workers
-share a server-backed Milvus. This completes the production Worker prerequisite, while production images, Compose, backups,
-and public release remain later M8 slices; the production images themselves are delivered by M8-01 below.
+share a server-backed Milvus. This completes the production Worker prerequisite; the M8-01 images and M8-02 Compose are
+documented below, while backups and public release remain later M8 slices.
 
 ### M8-01 production images
 
@@ -314,7 +314,8 @@ context is sent.
 
 Reproducible local `linux/amd64` records from `docker image inspect` (2026-09-16): backend `278238911` bytes (about
 265.3 MiB), frontend `22704397` bytes (about 21.7 MiB). These are build records for the current base images and dependency
-lock, not a promise of runtime capacity; M8-02 still adds production Compose, network isolation, and the outer Caddy proxy.
+lock, not a promise of runtime capacity; M8-02 now includes the production Compose, private network, and outer Caddy
+configuration, while public release remains a later image/deployment slice.
 
 ```bash
 docker build --platform=linux/amd64 -f infra/production/backend.Dockerfile -t enterprise-rag-backend:local .
@@ -334,11 +335,40 @@ requires database, session, admin bootstrap, LLM/Embedding/Reranker, remote Milv
 Model identity is bound to production environment variables; the local Provider selection file cannot override a production
 model request.
 
-After migrations, the API can be started as one Uvicorn worker (public network topology is still supplied by M8-02 Compose):
+After migrations, the API can be started as one Uvicorn worker (public domain and server deployment remain M8-03 through M8-06):
 
 ```bash
 APP_ENVIRONMENT=production \
   uv run --project backend uvicorn enterprise_rag.main:app --host 0.0.0.0 --port 8000 --workers 1
+```
+
+### M8-02 production Compose/Caddy
+
+`infra/production/compose.yml` orchestrates PostgreSQL, a one-shot migration, the API, the standalone Worker, the frontend,
+and the outer Caddy gateway. API, Worker, PostgreSQL, and frontend join only the `private` network and have no host ports;
+only the gateway maps host ports 80/443. API and Worker share the `runtime-data` ObjectStore volume and remote Milvus;
+API/Worker start only after migrations succeed. Each long-running service has health checks, CPU/memory bounds, restart policy,
+and JSON log rotation. `gateway.Caddyfile` routes API/MCP/SSE to the backend and the SPA to the frontend, preserving HTTPS,
+security headers, SPA history fallback, and streaming flush behavior.
+
+Prepare the production environment file (the example contains placeholders only and must not be committed with real values):
+
+```bash
+cp infra/production/env.production.example infra/production/.env.production
+# Edit infra/production/.env.production with immutable image tags, domain, database, Providers, and every secret
+docker compose --env-file infra/production/.env.production \
+  -f infra/production/compose.yml up -d
+docker compose --env-file infra/production/.env.production \
+  -f infra/production/compose.yml ps
+```
+
+This completes the container topology and locally reviewable configuration, not a public release. GHCR immutable images,
+SSH deployment, backup/restore, domain setup, and 24-hour public acceptance remain M8-03 through M8-06. To stop services
+while retaining volumes, use `down` without `--volumes`:
+
+```bash
+docker compose --env-file infra/production/.env.production \
+  -f infra/production/compose.yml down
 ```
 
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
@@ -642,7 +672,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M8-00 standalone ingestion Worker prerequisite: complete
 - M8-01 production images: complete
 - Production API composition root (M8-02 prerequisite): complete
-- Next: M8-02 production Compose/Caddy
+- M8-02 production Compose/Caddy: complete (not publicly released)
+- Next: M8-03 GHCR immutable images
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
