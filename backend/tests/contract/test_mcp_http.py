@@ -13,6 +13,7 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from starlette.applications import Starlette
 
+from enterprise_rag.api import create_app
 from enterprise_rag.mcp import build_http_mcp_app
 from enterprise_rag.mcp.access import (
     ANSWER_VERIFY_SCOPE,
@@ -323,6 +324,45 @@ def test_public_http_mcp_refuses_plain_http(
             token_pepper=PEPPER,
             public_base_url="http://public.example",
         )
+
+
+@pytest.mark.anyio
+async def test_composed_fastapi_mounts_mcp_and_manages_its_lifespan() -> None:
+    store = FixtureTokenStore()
+    runner = SlowRecordingRunner()
+    catalog = ScopedCatalog()
+
+    application = create_app(
+        query_runner=runner,
+        mcp_http_factory=lambda knowledge: build_http_mcp_app(
+            McpApplicationService(knowledge),
+            catalog,
+            store,
+            token_pepper=PEPPER,
+            public_base_url="http://testserver",
+            allow_insecure_http=True,
+            clock=lambda: NOW,
+        ),
+    )
+
+    async with application.router.lifespan_context(application):
+        http = httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=application),
+            base_url="http://testserver",
+            headers={"authorization": f"Bearer {FULL_TOKEN}"},
+        )
+        async with http, Client(
+            streamable_http_client(
+                "http://testserver/mcp", http_client=http, terminate_on_close=False
+            )
+        ) as client:
+            completed = await client.call_tool(
+                "query_knowledge_base", {"question": "Use the shared application"}
+            )
+
+    assert completed.is_error is False
+    assert completed.structured_content["answer"] == "Long HTTP request completed."
+    assert len(runner.commands) == 1
 
 
 def _digest(token: str) -> str:

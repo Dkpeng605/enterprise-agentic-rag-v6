@@ -13,6 +13,7 @@ from enterprise_rag.ports.embedding import EmbeddingProvider
 from enterprise_rag.ports.sparse import SparseEncoder
 from enterprise_rag.ports.vector_store import (
     DenseSearchRequest,
+    IndexSchema,
     SparseSearchRequest,
     VectorHit,
     VectorStore,
@@ -78,6 +79,9 @@ class DualSearchService:
         require_non_empty(index_revision, "index_revision")
         require_uuid7(tenant_id, "tenant_id")
         active_scope = scope or QueryScope()
+        await self._vector_store.ensure_revision(
+            IndexSchema(index_revision, self._embedding.dimension)
+        )
         query_hash = hashlib.sha256(query.encode()).hexdigest()
         dense_vector, sparse_vector = await asyncio.gather(
             trace_async(
@@ -137,6 +141,9 @@ class DualSearchService:
         query_hash, active_scope = self._validate_request(
             query, tenant_id, index_revision, scope
         )
+        await self._vector_store.ensure_revision(
+            IndexSchema(index_revision, self._embedding.dimension)
+        )
         vector = await trace_async(
             "rag.query_embedding",
             self._embedding.embed_query(query),
@@ -166,6 +173,9 @@ class DualSearchService:
         """Execute only the sparse path for an exact-term recovery action."""
         query_hash, active_scope = self._validate_request(
             query, tenant_id, index_revision, scope
+        )
+        await self._vector_store.ensure_revision(
+            IndexSchema(index_revision, self._embedding.dimension)
         )
         vector = await trace_async(
             "rag.sparse_encoding",

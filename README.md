@@ -61,6 +61,11 @@ cp .env.mac.example .env
 `enterprise_rag_test` 给集成测试。测试夹具只允许清理 test 库，不会再级联删除 Mac 工作区数据；两者
 继续共用一个持久化 PostgreSQL 容器，但不共用 database。
 
+Mac 组合同时在 `http://127.0.0.1:8000/mcp` 挂载官方 SDK v2 Streamable HTTP MCP。开发环境未显式
+配置 `MCP_TOKEN_PEPPER` 时，会在已忽略的 `data/runtime/mac/mcp-token-pepper` 原子生成独立的
+0600 secret；它不复用 Session、LLM 或 Provider 密钥，也不会输出到日志。生产环境禁止自动生成，必须
+分别配置 HTTPS `MCP_PUBLIC_BASE_URL` 与至少 32 bytes 的 `MCP_TOKEN_PEPPER`。
+
 首次上传或查询会把以下 ONNX 模型下载到已忽略的 `data/runtime/mac/model-cache/`，之后复用缓存：
 
 - Embedding：`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`（384 维）；
@@ -94,6 +99,34 @@ Dense/Sparse 检索、RRF、CrossEncoder 重排、Root 恢复、LLM 回答与引
 会打开 `/admin/providers`：页面读取当前注册表，展示可用 Embedding/Reranker profile、维度、有效 token
 上限、语言说明和本地/远程属性，并可保存下一次启动配置。选择不是热切换；重启 backend 后生效，Embedding
 变更还必须重新摄取文档。
+
+首次打开页面并创建 Demo Tenant 后，可从受信任的本机终端签发一个绑定当前全部 active collection 的
+MCP Token。raw token 只写 stdout 一次，元数据写 stderr；不要把 token 复制进 Git、Issue 或终端日志：
+
+```bash
+umask 077
+uv run --project backend --env-file .env enterprise-rag-mcp-token issue \
+  > /tmp/enterprise-rag-mcp-token
+```
+
+把 `/tmp/enterprise-rag-mcp-token` 的单行值配置到 MCP Client，endpoint 使用
+`http://127.0.0.1:8000/mcp`，Authorization 使用 Bearer。默认 Token 具有四个 MCP scope，并且只能访问
+签发时 Demo Tenant 已存在的集合；Tool 输入不能扩大 allowlist。查看不含 secret 的元数据或撤销 Token：
+
+```bash
+uv run --project backend --env-file .env enterprise-rag-mcp-token list
+uv run --project backend --env-file .env enterprise-rag-mcp-token revoke <TOKEN_UUID>
+rm -f /tmp/enterprise-rag-mcp-token
+```
+
+可在撤销前用官方 SDK Client 做不输出正文/密钥的 live smoke；加 `--run-query` 才会额外调用当前 LLM：
+
+```bash
+uv run --project backend --env-file .env python scripts/mac-mcp-smoke.py \
+  --token-file /tmp/enterprise-rag-mcp-token
+```
+
+该 CLI 是本机 operator 边界，不是匿名 HTTP API。匿名用户仍不能从前端签发、读取或撤销 Token。
 
 租户总览的“加载演示数据”按钮会调用受 CSRF 保护的 `/api/v1/demo/seed`，将仓库内两份非敏感 Markdown
 样例通过同一个上传注册、PostgreSQL 任务、解析、清洗、Root/Leaf 切分和向量投影流水线提交。它不是前端
@@ -251,15 +284,21 @@ ENTERPRISE_RAG_MCP_STDIO_FACTORY=your_package.bootstrap:build_mcp_server \
 
 factory 必须是无参数函数并返回 `MCPServer`。当前仓库尚未提供默认生产 Provider 组合，因此不会使用测试数据伪装可用服务；`backend/tests/fixtures/mcp_stdio_server.py` 仅用于真实 SDK 子进程契约测试。stdio 的 stdout 专供 JSON-RPC，业务日志必须写 stderr。
 
-Streamable HTTP MCP 由生产组合调用 `build_http_mcp_app(...)` 创建，固定服务路径为 `/mcp`：
+Streamable HTTP MCP 由组合根调用 `build_http_mcp_app(...)` 创建，固定服务路径为 `/mcp`。Mac runtime
+已经复用 REST 查询的同一个 `KnowledgeApplication`，并连接真实 PostgreSQL Catalog、当前 Dense/Sparse
+Provider 和 Milvus revision；不会用 fixture 冒充服务：
 
 ```bash
+export MCP_PUBLIC_BASE_URL='https://rag.example.com'
 export MCP_TOKEN_PEPPER='replace-with-at-least-32-random-bytes'
 uv run --project backend alembic -c backend/alembic.ini upgrade head
-uv run --project backend uvicorn your_package.bootstrap:mcp_app
+uv run --project backend uvicorn enterprise_rag.mac_runtime:app
 ```
 
-公网 `public_base_url` 必须使用 HTTPS；只有本地测试组合可以显式设置 `allow_insecure_http=True`。客户端必须发送 `Authorization: Bearer <token>`。Token 只以 pepper-HMAC 保存，绑定 tenant、actor、Tool scopes 和 collection allowlist；匿名 demo 用户不能签发或管理 Token。M9-03 才会提供系统管理员签发/撤销界面，因此当前需由受信任的部署/bootstrap 流程写入 `api_tokens`，仓库不会提供默认 Token。
+公网 `MCP_PUBLIC_BASE_URL` 必须使用 HTTPS；只有 development/test 组合允许明文 loopback HTTP。客户端必须
+发送 `Authorization: Bearer <token>`。Token 只以 pepper-HMAC 保存，绑定 active tenant、active actor、
+Tool scopes 和非空 collection allowlist；数据库从不保存 raw token。当前由上述可信 CLI 完成签发、列表和
+撤销，匿名 demo 用户不能调用该 operator 边界；M9-03 才会增加系统管理员界面。
 
 默认后端入口把应用日志写成单行 JSON，包含环境、request/trace/span/tenant correlation 和稳定事件字段。HTTP 接受 W3C `traceparent`；Query、Standard RAG 阶段和 Ingestion 阶段已接入 OpenTelemetry。配置 PostgreSQL 时，FastAPI 默认组合有界内存 Exporter 和 PostgreSQL Trace Store；自定义部署仍可向 `create_app`、`KnowledgeApplication` 和 `IngestionPipeline` 注入 SDK `TracerProvider`/`TraceService`。日志和 Trace 不记录 query string、请求体、原始问题、Root 正文、Prompt、Authorization、Cookie 或密钥。Trace 写入失败不会改变业务结果。
 
@@ -288,8 +327,9 @@ Root/Leaf 后才删除旧 revision；投影或数据库交换失败时保留旧�
 前端只显示当前运行实例，不再把已生效的同一模型继续标成 pending。
 对应接口为 `GET /api/v1/admin/providers/index-status` 与 `POST /api/v1/admin/providers/reindex`。
 `/workspace/mcp` 使用后端共享的 SDK 注册定义展示 Tool 名称、只读标记、所需 Scope、Resource URI/template
-和当前传输状态。Mac API 进程未挂载 Streamable HTTP 时会明确显示“需要外部组合”，不会把协议支持误报为
-正在运行的公网端点；该页面不返回 Token、Prompt、Authorization 或文档正文。
+和当前传输状态。Mac API 现在会显示 Streamable HTTP 为 `mounted` 并给出
+`http://127.0.0.1:8000/mcp`；其他未注入 HTTP factory 的组合仍如实显示“需要外部组合”。该页面不返回
+Token、Prompt、Authorization 或文档正文。
 若需要重新生成锁定的 OpenAPI 类型：
 
 ```bash

@@ -2010,7 +2010,8 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   连接 scope 返回 403 和协议兼容的 `WWW-Authenticate`，不把内部异常写入响应；
 - 凭证存储：新增 `api_tokens`，保存 token UUIDv7、tenant、actor、名称、可公开前缀、scopes、collection
   UUID 非空 allowlist、过期和撤销时间；数据库只索引 HMAC-SHA256(`MCP_TOKEN_PEPPER`, raw token)，绝不保存或回传
-  raw token。Token 管理/签发仍属于 M9-03 系统管理员能力，匿名用户不能签发；
+  raw token。M7-R8 增加仅供受信任本机终端使用的一次性签发/列表/撤销 CLI；匿名用户仍不能从 HTTP/UI
+  签发，M9-03 继续负责系统管理员 Token 管理界面与审计能力；
 - 请求身份：Verifier 返回的 `AccessToken.token` 是 token ID 而非原始凭证，claims 只包含 token/tenant/actor/
   collection IDs；`ContextVar` 请求解析器为每个 Tool/Resource 构造 `Principal(actor_type=mcp_token)`，长请求和
   并发请求不能共享可变全局 Principal；
@@ -2844,6 +2845,55 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 启动与回滚：本切片不改变 Mac 启动命令、数据库 schema 或 OpenAPI。回滚代码前不得删除 Milvus 文件；
   已失败的目标 revision 可安全定向清理，旧 revision 保持查询能力；
 - PR：`fix/m7-r7-provider-reindex-consistency`。
+
+##### M7-R8 Mac Streamable HTTP MCP 真实组合（已完成）
+
+- 缺口事实：M5-03 只证明 `build_http_mcp_app` 独立 Adapter 可通过官方 Client 契约，M7-R6 也如实显示
+  Mac API 为 `external_composition_required`；两者都不能证明当前 Mac 进程存在 `/mcp`，测试
+  `ScopedCatalog` 更不能冒充 PostgreSQL 知识数据。该缺口必须由真实 composition、Token row、向量检索和
+  官方 Client 的同一条 E2E 链路关闭；
+- 共享应用边界：`create_app` 只构造一个带 CostGuard、Trace、Metrics 和持久化 usage 的
+  `KnowledgeApplication`。可选 `mcp_http_factory` 接收这个同一实例，REST Router 与
+  `McpApplicationService` 不得分别构造 Query use case。MCP 子 Starlette 应用最后挂载到 `/`，由自身固定
+  `/mcp` 路由接收请求，既避免 `/mcp/mcp`，也不抢占 FastAPI 已声明路由；
+- Lifespan：父 FastAPI 使用 `AsyncExitStack` 显式进入/退出 MCP 子应用的 session-manager lifespan。启动
+  子应用后再接受流量；退出时先停止后台任务、退出 MCP 子应用 lifespan，再关闭其依赖的数据库/Provider，
+  不能依赖 Starlette mount 隐式管理，也不能遗留 MCP session 或异步资源；
+- 真实 Catalog：`McpKnowledgeCatalog` 复用 `WorkspaceService`、`PostgreSQLContextRepository`、当前
+  `DualSearchService`、`ReciprocalRankFusion` 与 active index revision。`dense`、`sparse`、`hybrid`
+  三种搜索先解析 Token allowlist 与请求 filters，再把已授权 document IDs pushdown 到 Milvus；向量返回的
+  metadata 永不作为授权事实，所有 Leaf/Root/document/source 元数据必须从 PostgreSQL 当前 active version
+  回源，stale、删除中、跨集合或伪造命中全部丢弃；
+- 内容上限：搜索最多返回 20 条、Leaf snippet 默认最多 1,200 字符；Collection/Document Resource 只返回
+  有界元数据；sections 目录只返回 Root ordinal/kind/locator/字符数/Leaf 数，不返回正文；Section Resource
+  只返回当前授权 Root 的 clean text，默认最多 8,000 字符并声明 `truncated`，绝不返回 raw text、对象文件、
+  Cleaner metadata 或无界文档；
+- 引用核验：`verify_answer` 不调用 LLM，不保存或回显 answer/question。它重新解析 Token collection Scope，
+  从 PostgreSQL 核对 citation ID、document/root/leaf 归属和连续 quote，只返回 citation/verified count 与
+  有界 issue code/index；未知 Root、错误 Leaf、document mismatch、quote 不存在与重复 citation 必须稳定失败；
+- Endpoint 配置：浏览器 `PUBLIC_BASE_URL` 与 MCP resource URL 不得混用。新增独立
+  `MCP_PUBLIC_BASE_URL`；Mac 示例为 `http://127.0.0.1:8000`，开发/test 才允许明文 loopback，production
+  缺少显式值或不是 HTTPS 时启动失败。`/api/v1/workspace/mcp` 在 Mac 组合中只在 factory 实际注入后显示
+  `mounted` 和 `/mcp` endpoint，其他组合继续显示 `external_composition_required`；
+- Pepper 与 Token operator：显式 `MCP_TOKEN_PEPPER` 必须至少 32 bytes。development 未配置时，在忽略的
+  `data/runtime/mac/mcp-token-pepper` 通过 `O_EXCL` 原子生成独立 secret，权限强制 0600；production 禁止
+  自动生成，且不得复用 Session/LLM/Provider key。`enterprise-rag-mcp-token` 只能由可信终端执行：issue
+  校验 active tenant、该 tenant membership actor、active collection 非空 allowlist 和四类合法 scope，数据库
+  只保存 HMAC-SHA256；raw token 只向 stdout 返回一次且 dataclass repr 隐藏。list 不返回 raw/hash，revoke
+  按 tenant+UUID 锁行且幂等报告；匿名 REST/UI 无对应写接口；
+- EDD：先证明 `create_app` 不接受 factory、真实 Catalog 模块不存在和 Token operator 不存在三组红灯；再以
+  官方 `Client(streamable_http_client)` 驱动父 FastAPI ASGI，覆盖无 Token 401、真实 PostgreSQL token、
+  list/search/summary/sections/dynamic Resource/verify/query、越权 collection 拒绝和共享 QueryRunner。搜索使用
+  隔离 Milvus Lite + 实际 Hashing Dense/Sparse Provider 投影，不以 mock hit 代替完整 endpoint 验收；另有
+  PostgreSQL Catalog 测试故意返回跨 allowlist hit，证明回源会 fail closed；
+- 真实重启缺陷：隔离测试首次通过后，Mac live smoke 发现 Milvus Lite 新进程尚未恢复内存中的 revision→dimension
+  映射，Catalog 直接检索返回内部错误。修复后 `DualSearchService` 的 dense/sparse/hybrid 三个入口都先以当前
+  Embedding dimension 执行幂等 `ensure_revision`，不能要求某次普通问答先替 MCP 预热；单元测试锁定该调用，
+  Mac 进程重启后的 official-client smoke 必须直接得到真实命中；
+- 文档与回滚：README 中英文同步 Mac endpoint、secret 位置、一次性签发/列表/撤销命令和生产 HTTPS 边界。
+  回滚先撤销本切片签发的 Token，再移除 root mount/factory；`api_tokens` schema、原 stdio/HTTP Adapter、
+  PostgreSQL 文档和 Milvus 数据无需删除，本地 pepper 文件可由 operator 手工安全移除；
+- PR：`feat/m7-r8-mac-http-mcp`。
 
 ### M8：首次公网发布
 

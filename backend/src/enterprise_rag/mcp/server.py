@@ -1,6 +1,8 @@
 """Official MCP SDK v2 server exposing read-only knowledge tools and resources."""
 
 import json
+import logging
+import traceback
 from collections.abc import Mapping, Sequence
 from typing import Annotated, Literal, Protocol
 from uuid import UUID
@@ -38,6 +40,7 @@ from enterprise_rag.services.auth import Principal
 from enterprise_rag.services.knowledge import KnowledgeQuery, McpApplicationService
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
+LOGGER = logging.getLogger(__name__)
 
 
 class McpCatalog(Protocol):
@@ -359,6 +362,21 @@ def _result(message: str, payload: Mapping[str, object]) -> CallToolResult:
 
 def _error(error: Exception) -> CallToolResult:
     code = error.code if isinstance(error, AppError) else ErrorCode.INTERNAL_ERROR
+    traceback_frames = traceback.extract_tb(error.__traceback__)
+    failure_site = None
+    if traceback_frames:
+        frame = traceback_frames[-1]
+        failure_site = f"{frame.name}:{frame.lineno}"
+    LOGGER.warning(
+        "rag.mcp.request_failed exception_type=%s failure_site=%s",
+        type(error).__name__,
+        failure_site,
+        extra={
+            "event_code": "MCP_REQUEST_FAILED",
+            "outcome": "error",
+            "error_code": code.value,
+        },
+    )
     payload: dict[str, object] = {
         "error": {"code": code.value, "message": "The knowledge request failed."}
     }

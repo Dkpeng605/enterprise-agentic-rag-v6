@@ -66,6 +66,18 @@ def test_siliconflow_shared_credentials_are_loaded_and_masked() -> None:
     assert secret not in repr(settings)
 
 
+def test_mcp_public_base_url_is_independent_from_browser_public_url() -> None:
+    settings = load_settings(
+        environ={
+            "PUBLIC_BASE_URL": "http://127.0.0.1:5173",
+            "MCP_PUBLIC_BASE_URL": "http://127.0.0.1:8000",
+        }
+    )
+
+    assert str(settings.app.public_base_url) == "http://127.0.0.1:5173/"
+    assert str(settings.app.mcp_public_base_url) == "http://127.0.0.1:8000/"
+
+
 def test_production_missing_secrets_has_stable_sanitized_error() -> None:
     with pytest.raises(SettingsError) as raised:
         load_settings(
