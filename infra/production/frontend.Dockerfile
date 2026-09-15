@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
+ARG VCS_REF=unknown
+ARG IMAGE_VERSION=0.1.0
+
 FROM node:22-bookworm-slim AS build
 
 RUN corepack enable
@@ -11,6 +14,13 @@ COPY frontend /app/frontend
 RUN pnpm --dir /app/frontend build
 
 FROM caddy:2.10-alpine
+
+ARG VCS_REF
+ARG IMAGE_VERSION
+LABEL org.opencontainers.image.title="enterprise-agentic-rag-frontend" \
+      org.opencontainers.image.version="$IMAGE_VERSION" \
+      org.opencontainers.image.revision="$VCS_REF" \
+      org.opencontainers.image.source="https://github.com/Dkpeng605/enterprise-agentic-rag-v6"
 
 COPY --from=build /app/frontend/dist /srv
 COPY infra/production/Caddyfile /etc/caddy/Caddyfile

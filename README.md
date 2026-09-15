@@ -322,6 +322,23 @@ docker compose --env-file infra/production/.env.production \
   -f infra/production/compose.yml down
 ```
 
+### M8-03 GHCR immutable images
+
+`.github/workflows/images.yml` 只响应合并到 `main` 的 push，使用 `GITHUB_TOKEN` 推送两张 `linux/amd64` 镜像到
+GHCR，并且只生成 `${commit_sha}` tag，不生成可漂移的 `latest`。Dockerfile 同时写入
+`org.opencontainers.image.revision`、`org.opencontainers.image.version`、`org.opencontainers.image.source` 标签，
+因此部署清单可以按 commit 精确回滚和审计：
+
+```bash
+docker pull ghcr.io/<owner>/enterprise-agentic-rag-backend:<commit-sha>
+docker pull ghcr.io/<owner>/enterprise-agentic-rag-frontend:<commit-sha>
+docker image inspect ghcr.io/<owner>/enterprise-agentic-rag-backend:<commit-sha> \
+  --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
+```
+
+Compose 的 `BACKEND_IMAGE`/`FRONTEND_IMAGE` 应填写同一 commit 的完整引用；GHCR 发布本身不代表已 SSH 部署或已
+通过公网验收。
+
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
 
 ```bash
@@ -638,7 +655,8 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M8-01 生产镜像：已完成
 - 生产 API 组合根（M8-02 前置）：已完成
 - M8-02 Production Compose/Caddy：已完成（尚未公网发布）
-- 下一项：M8-03 GHCR immutable images
+- M8-03 GHCR immutable images：已完成
+- 下一项：M8-04 Deploy/Rollback
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 
