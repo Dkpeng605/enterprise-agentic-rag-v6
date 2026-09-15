@@ -15,6 +15,8 @@ from enterprise_rag.adapters.database.models import (
     AnonymousSessionModel,
     AuthenticatedSessionModel,
     CollectionModel,
+    DocumentModel,
+    DocumentVersionModel,
     LeafModel,
     RootModel,
     TenantModel,
@@ -284,6 +286,88 @@ async def test_workspace_overview_is_tenant_scoped_and_aggregates_operational_me
         "ingestion",
         "evaluation",
     }
+
+
+@pytest.mark.anyio
+async def test_image_preview_stream_requires_active_tenant_owned_version(
+    api: httpx2.AsyncClient,
+) -> None:
+    csrf, tenant_id = await start_session(api)
+    collection = await api.post(
+        "/api/v1/collections",
+        json={"name": "Images"},
+        headers=csrf_headers(csrf),
+    )
+    upload = await api.post(
+        "/api/v1/documents",
+        data={
+            "collection_id": collection.json()["id"],
+            "title": "Image source",
+            "visibility": "tenant",
+        },
+        files={"file": ("image-source.txt", b"image bytes", "text/plain")},
+        headers=csrf_headers(csrf),
+    )
+    assert upload.status_code == 202
+    document_id = UUID(upload.json()["document_id"])
+    version_id = UUID(upload.json()["version_id"])
+    image_sha256 = ""
+
+    database = Database(DATABASE_URL)
+    try:
+        async with database.session() as session:
+            document = await session.scalar(
+                select(DocumentModel).where(DocumentModel.id == document_id)
+            )
+            version = await session.scalar(
+                select(DocumentVersionModel).where(DocumentVersionModel.id == version_id)
+            )
+            assert document is not None and version is not None
+            image_sha256 = version.sha256
+            document.status = "ready"
+            document.active_version_id = version.id
+            version.status = "indexed"
+            session.add(
+                RootModel(
+                    id="root_" + "8" * 64,
+                    tenant_id=UUID(tenant_id),
+                    document_id=document_id,
+                    version_id=version_id,
+                    index_revision="image-preview-v1",
+                    ordinal=0,
+                    kind="page",
+                    source_locator={"page": 1},
+                    raw_text="image bytes",
+                    clean_text="image bytes",
+                    metadata_json={
+                        "images": [
+                            {
+                                "sha256": version.sha256,
+                                "object_key": version.object_key,
+                                "media_type": "image/png",
+                            }
+                        ]
+                    },
+                    content_hash="9" * 64,
+                )
+            )
+    finally:
+        await database.dispose()
+
+    image = await api.get(
+        f"/api/v1/documents/{document_id}/images/{image_sha256}"
+    )
+    assert image.status_code == 200
+    assert image.content == b"image bytes"
+    assert image.headers["content-type"] == "image/png"
+    assert image.headers["x-content-sha256"] == image_sha256
+    assert image.headers["etag"] == f'"{image_sha256}"'
+    assert image.headers["x-content-type-options"] == "nosniff"
+
+    missing = await api.get(
+        f"/api/v1/documents/{document_id}/images/{'a' * 64}"
+    )
+    assert missing.status_code == 404
 
 
 @pytest.mark.anyio

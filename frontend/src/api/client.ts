@@ -65,8 +65,10 @@ const sessionMiddleware: Middleware = {
   },
 }
 
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? globalThis.location?.origin ?? ''
+
 export const apiClient = createClient<paths>({
-  baseUrl: import.meta.env.VITE_API_BASE_URL ?? globalThis.location?.origin ?? '',
+  baseUrl: apiBaseUrl,
   credentials: 'include',
 })
 apiClient.use(sessionMiddleware)

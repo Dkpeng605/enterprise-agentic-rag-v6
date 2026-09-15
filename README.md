@@ -560,6 +560,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R12 revision-aware Milvus reconcile：已完成
 - M7-R13 拒答率诊断与证据预算修复：已完成
 - M7-R14 部分答案状态与拒答率口径修复：已完成
+- M7-R15 Pipeline Inspector 图片受保护预览：已完成
 - 下一项：M8 公网发布
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
@@ -708,7 +709,7 @@ PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr
 
 图片增强服务先把 Loader 提取的原始图片写入内容寻址 ObjectStore，再调用可插拔 Vision 端口。默认 `vision: none` 会保留图片并跳过 caption；`openai_compatible` 通过 `/chat/completions` 发送 text + `data:image/*;base64,...` 多模态请求，严格要求一个非空字符串 caption，并对 429/5xx/传输错误执行最多配置次数的退避重试。Vision 异常只将 caption 标记为降级，不会丢弃已存图片或泄露供应商错误；Root metadata 记录图片尺寸、MIME、hash、对象键、caption 状态和错误码，供 Pipeline Inspector 核对实际结果。ObjectStore 写入失败仍会中止摄取，因为图片持久化不是可选数据。
 
-Pipeline Inspector 的 `IMAGE ENRICHMENT` 面板直接读取当前 Root 的持久化事实，展示图片数量、页码/序号/名称、MIME、尺寸、SHA-256、ObjectStore key、Caption、`created/skipped/degraded` 状态、实际 Vision Provider/Model 及状态计数。它还逐一用已保存 Leaf 的 `retrieval_text` 核对 Caption 是否真的进入检索，并明确标出没有进入的情况；页面不预览原始图片，也不根据当前配置补造历史结果。
+Pipeline Inspector 的 `IMAGE ENRICHMENT` 面板直接读取当前 Root 的持久化事实，展示图片数量、页码/序号/名称、MIME、尺寸、SHA-256、ObjectStore key、Caption、`created/skipped/degraded` 状态、实际 Vision Provider/Model 及状态计数。它还逐一用已保存 Leaf 的 `retrieval_text` 核对 Caption 是否真的进入检索，并明确标出没有进入的情况。图片现在可以通过 `GET /api/v1/documents/{document_id}/images/{sha256}` 在面板中真实预览：服务端只允许当前租户的 `ready` 文档、active 且 indexed version，以及 Root metadata 中匹配的 SHA-256；对象键由摘要派生并再次校验，响应带 `ETag`、摘要和 `nosniff`。这不是公开静态路径，预览失败不会影响 metadata/Caption 展示，也不根据当前配置补造历史结果。
 
 Embedding 端口提供本地多语和 OpenAI-compatible 两种实现，并通过 `EMBEDDING_MODEL` 选择 FastEmbed profile。本地默认使用 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling、registry 描述为 512 input tokens），首次调用会下载约 0.22GB 模型；运行时不会盲信 registry：优先读取实际 truncation limit；如果 FastEmbed ONNX wrapper 不暴露该字段，则用超出 registry 上限的探测文本调用 `token_count`，识别被 tokenizer 截断后的真实上限（当前缓存模型实际报告 128）。可选 `BAAI/bge-small-zh-v1.5` profile 实测为 512 维、512 input tokens，适合中文本地部署；切换时同时设置 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`，并通过新 index revision 隔离旧向量。Provider 暴露真实 tokenizer 的 `count_tokens` 与输入上限，拒绝达到模型上限的单项输入，Splitter 与 Embedding 使用同一个计数器。远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试；SiliconFlow `BAAI/bge-m3` profile 固定校验 1024 维并采用官方 8192 token 上限，但因为 HTTP API 不暴露 tokenizer，本地计数明确标记为 deterministic estimate。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
 

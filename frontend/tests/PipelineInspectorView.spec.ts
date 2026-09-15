@@ -16,6 +16,7 @@ vi.mock('../src/api/workspace', async (importOriginal) => {
     workspaceApi: {
       getDocumentPipeline: vi.fn(),
       getPipelineRoot: vi.fn(),
+      getDocumentImageUrl: vi.fn((documentId: string, sha256: string) => `/api/v1/documents/${documentId}/images/${sha256}`),
       getLlmCleaningPreflight: vi.fn(),
       runLlmCleaning: vi.fn(),
     },
@@ -245,6 +246,8 @@ describe('document pipeline inspector', () => {
     expect(panel.text()).toContain('degraded · 已降级')
     expect(panel.text()).toContain('VISION_CAPTION_FAILED')
     expect(panel.text()).toContain('created 1 · skipped 0 · degraded 1')
+    expect(panel.findAll('img')).toHaveLength(2)
+    expect(panel.find('img')?.attributes('src')).toContain(`/images/${'c'.repeat(64)}`)
   })
 
   it('states when a persisted Root contains no extracted images', async () => {

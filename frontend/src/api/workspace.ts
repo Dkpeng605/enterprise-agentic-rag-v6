@@ -1,6 +1,6 @@
 import type { components } from './schema'
 
-import { apiClient, apiErrorFromResponse } from './client'
+import { apiBaseUrl, apiClient, apiErrorFromResponse } from './client'
 
 export type Collection = components['schemas']['CollectionResponse']
 export type CollectionInput = components['schemas']['CollectionCreate']
@@ -45,6 +45,7 @@ export interface WorkspaceApi {
   getDocument(id: string): Promise<DocumentDetail>
   getDocumentPipeline(id: string, cursor?: number): Promise<DocumentPipeline>
   getPipelineRoot(documentId: string, rootId: string): Promise<PipelineRoot>
+  getDocumentImageUrl(documentId: string, sha256: string): string
   getLlmCleaningPreflight(documentId: string): Promise<LlmCleaningPreflight>
   runLlmCleaning(documentId: string, expectedVersionId: string): Promise<LlmCleaningResult>
   uploadDocument(input: UploadInput): Promise<UploadResult>
@@ -116,6 +117,9 @@ export const workspaceApi: WorkspaceApi = {
     )
     if (result.error) throw apiErrorFromResponse(result.error, result.response)
     return result.data
+  },
+  getDocumentImageUrl(documentId, sha256) {
+    return `${apiBaseUrl}/api/v1/documents/${encodeURIComponent(documentId)}/images/${encodeURIComponent(sha256)}`
   },
   async getLlmCleaningPreflight(documentId) {
     const result = await apiClient.GET(

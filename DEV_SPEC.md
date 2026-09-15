@@ -3031,8 +3031,12 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   不能读写系统 Provider 目录。切换 Vision 不得误导用户需要 Embedding 重建。Pipeline Inspector 的
   `IMAGE ENRICHMENT` 面板必须从当前 Root metadata 展示图片数量、page/ordinal/name、MIME、宽高、SHA-256、
   object key、caption、caption status/error code、实际 Vision provider/model 与计数，并以持久化 Leaf
-  `retrieval_text` 的实际包含关系展示 Caption 是否进入检索；无图片时也要显示明确的“无提取图片”，不能
-  预览未授权原始图片或依据当前配置补造历史。
+  `retrieval_text` 的实际包含关系展示 Caption 是否进入检索；无图片时也要显示明确的“无提取图片”。图片
+  预览通过受保护的 `GET /api/v1/documents/{document_id}/images/{sha256}` 实现：服务端必须校验当前租户、
+  `ready` 文档、active 且 `indexed` version，以及 SHA-256 是否存在于该版本 Root metadata；不得信任客户端
+  传入 object key，必须由 digest 派生 canonical key、验证对象存在后再流式返回，并设置 `ETag`、摘要响应头
+  和 `X-Content-Type-Options: nosniff`。它不是公开静态资源或无签名对象路径，越权、未授权版本、未知摘要和
+  缺失对象统一返回受净化的 404；预览失败不影响 metadata/Caption 事实展示，也不能依据当前配置补造历史。
 - Ingestion 证据：ImageEnricher 先以内容寻址 key 写入 ObjectStore，再调用 caption；成功/跳过/降级分别为
   `created`/`skipped`/`degraded`，失败固定记录 `VISION_CAPTION_FAILED` 并继续保留图片。Root metadata 至少
   保存图片 ordinal/page/name/MIME/width/height/SHA-256/object key/caption/caption status/error code、实际
@@ -3040,8 +3044,10 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   与检索增强文本。ObjectStore 写失败仍中止摄取，不能以 caption 降级掩盖持久化失败。
 - 可观测性与隐私：通用日志/Trace 只保存实际 Provider 名、模型版本、图片数量、成功/跳过/降级计数和稳定
   错误码；不保存 base64、图片正文、caption 原文、Prompt、Authorization、对象绝对路径或供应商响应正文。
-  Pipeline Inspector 只从 PostgreSQL Root metadata 展示事实，不能根据当前运行配置补造历史；图片预览若后续
-  增加，必须先做 tenant/document/version 校验后按 object key 读取，禁止暴露任意对象键或无签名公共路径。
+  Pipeline Inspector 只从 PostgreSQL Root metadata 展示事实，不能根据当前运行配置补造历史；图片预览只能
+  通过上述 tenant/document/version/SHA-256 校验后的受保护接口按 canonical object key 读取，禁止暴露任意对象键
+  或无签名公共路径。浏览器加载失败必须显示稳定的预览失败状态，并保留 metadata、Caption 和 retrieval
+  inclusion 结果。
 - EDD 红灯顺序：先添加并确认失败的 Vision contract，覆盖准确 endpoint、请求字段顺序、data URI/base64、
   成功 caption、429/5xx/transport bounded retry、4xx no retry、空/坏/数组 content、输入限制、错误净化和
   close 幂等；再实现 Adapter。随后以配置测试证明 env 加载、SecretStr masking、production 三字段必填和
@@ -3052,7 +3058,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 运行验收：在 Mac 配置 `VISION_*` 后，上传包含内嵌图片的 PDF/DOCX；必须能在 Pipeline Inspector 看到真实
   图片 MIME/尺寸/hash/object key、caption 状态和 caption 进入 retrieval text 的证据。远程服务返回 429/坏 JSON
   时，图片仍存在、Root/Job 状态符合既有降级语义、前端只显示稳定错误；重启后 Provider doctor/catalog 与
-  `/admin/providers` 反映实际 current。默认 none 的离线 Compose 不得访问公网且原有 Browser E2E 保持通过。
+  `/admin/providers` 反映实际 current。浏览器必须能通过受保护图片接口预览实际提取的图片，并验证错误摘要、
+  越权文档、非 active version 和缺失对象不能读取。默认 none 的离线 Compose 不得访问公网且原有 Browser E2E
+  保持通过。
 - 回滚：停止正在运行的摄取任务或等待当前 Root 结束，选择/恢复 `vision=none` 并重启 Mac runtime；已有图片、
   Root/Leaf、向量 revision 和 metadata 不删除，caption 降级不会影响旧索引。回滚代码不需要 migration，不得
   删除整个 ObjectStore 或 Milvus 文件；远程 key 只从本机 `.env` 移除或轮换。
@@ -3156,6 +3164,35 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 统计：运行报表必须至少分开统计完整回答率、部分回答率、硬拒答率和无结果率；`partial` 不计入完整回答成功率，也不计入硬拒答率。没有 gold 的历史 Trace 只能说明运行分布，不能替代带 `must_abstain`、expected facts 和 Dataset revision 的质量评测。
 - 验收：Answer Verification 覆盖“合法部分引用 + 缺 requirement → partial”、“无合法引用 + 缺 requirement → abstained”、“结构错误/冲突 → abstained”；QueryExecution 序列化、SSE completed、FastAPI OpenAPI、Chat 和 Query Trace 的 partial 展示/筛选均通过；运行 `pytest`、Vitest、strict typecheck、build 和 OpenAPI drift。
 - 回滚：移除 `partial` 映射即可恢复旧 API 语义，不改动 Root/Leaf 身份、向量、权限或历史 Trace；旧 Trace 缺少 `partial` 时前端按服务端实际 status 展示，不由浏览器推断。
+
+##### M7-R15 Pipeline Inspector 图片受保护预览（已完成）
+
+- 目标：关闭 M7-R11 只展示图片 metadata/Caption、但无法核对原始图片是否真实保存的可视化缺口。预览必须
+  复用已经持久化的 Loader 图片和 ObjectStore，不在前端使用 base64、临时上传地址或静态演示素材；该 Slice
+  不改变 caption、检索文本、Root/Leaf 或向量的语义。
+- 服务契约：新增 `GET /api/v1/documents/{document_id}/images/{sha256}`，要求登录/匿名 demo 会话通过现有
+  reader 权限依赖。服务层先验证 lowercase 64 位 SHA-256，再以 `(tenant_id, document_id)` 查找 `ready` 文档
+  的 active version，并要求该 version 为 `indexed`；只扫描该 version 的 Root metadata `images` 数组，必须
+  同时匹配 sha256 和 canonical `sha256/{first2}/{second2}/{digest}` object key。客户端不能提交或影响 object
+  key，避免任意对象读取。
+- 存储与响应：确认 metadata 归属后才调用 ObjectStore `exists/read`；对象缺失、摘要未登记、文档不存在、
+  inactive/non-indexed version、跨租户请求和非法摘要都不得泄露存在性细节，统一使用受净化的 404/validation
+  响应。成功响应为异步流，媒体类型只接受 `image/*`（异常 metadata 降级为 `application/octet-stream`），
+  并返回私有缓存、`ETag=\"<sha256>\"`、`X-Content-SHA256` 和 `X-Content-Type-Options: nosniff`。对象键、
+  绝对路径、图片字节和 base64 不进入日志、Trace 或 JSON。
+- 前端：Pipeline Inspector 的每张图片卡片在 SHA-256 已保存时加载受保护 URL，展示实际原图并保留页码、
+  尺寸、MIME、对象键、Caption、状态和 retrieval inclusion；图片加载失败显示稳定的失败提示，不隐藏事实
+  metadata，也不因失败重新请求或伪造预览。Root 没有图片时仍显示“无提取图片”。浏览器只通过同源 cookie
+  与现有匿名/登录会话访问，不能把 ObjectStore 暴露为公开静态目录。
+- EDD 顺序：先增加 endpoint 集成红灯，证明 active/indexed/tenant/Root metadata/SHA-256/object existence
+  的全部边界，再实现 Workspace Service 和流式路由；随后以 Vitest 证明图片卡片绑定真实 API URL、渲染多张
+  图片、保留 Caption/inclusion、处理 `<img>` error 和空图片状态。必须运行后端集成测试、Ruff、strict Mypy、
+  frontend Vitest/typecheck/build、OpenAPI drift、quality gate 和 Browser E2E；另需保持已存在的 PDF/DOCX
+  Loader→ImageEnricher→ObjectStore 契约测试通过。
+- 回滚：移除图片 endpoint 和 Inspector `<img>` 预览即可回到 metadata-only 展示；不得删除 ObjectStore
+  图片、Root/Leaf、向量、历史 Caption 或 Milvus 文件，不需要数据库 migration。已存在的图片事实继续由
+  metadata 展示。
+- PR：待提交，建议分支 `feat/m7-r15-protected-image-preview`。
 
 ### M8：首次公网发布
 
