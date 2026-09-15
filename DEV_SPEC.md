@@ -885,9 +885,9 @@ verifying 98-100%
 Planner 输入问题、模式、授权集合目录和有限历史，输出严格 JSON。规则：
 
 - 原始问题不得丢失；
-- 最多 6 个 sub-query；
-- comparison/multi-condition 必须拆 requirements；
-- 简单、单段 factual 问题的最终 requirement 必须确定性使用原始问题本身；Planner 不得追加用户未提问的条件，否则会把可回答问题误判为证据缺失；
+- 最多 4 个 sub-query；默认只使用 1 条原始/改写检索路径，只有 LLM 明确判断需要且返回有意义的互补路径时才启用多路检索；
+- requirements 与 sub-query 解耦：无论问题类型和检索路径数量，QueryPlan 只保留 1 个 requirement，且必须来自原始用户问题；
+- sub-query 只是获取同一 requirement 的替代检索路径，不是新的回答义务；任一分支提供足够可靠的证据即可覆盖该 requirement，不要求所有分支分别有证据；
 - Scope 只能引用目录中存在且调用方有权访问的值；
 - LLM 返回非法 Scope 时丢弃非法值并记录诊断；
 - Planner 故障时使用原问题、空 Scope、单 sub-query 的确定性计划。
@@ -1884,7 +1884,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - 输入：按每个 sub-query 的 Dense、Sparse 分路分别计分，空分路仍保留诊断；同一 Leaf 跨方法/跨 query 聚合为一个候选，并记录每种方法出现过的最小 rank；
 - 完整性：单分路重复 Leaf 和同一 Leaf 映射不同 Root 均拒绝，防止重复计分或错误引用；
 - 排序：先按 fused score 降序，完全同分时按 Leaf ID 升序，结果不依赖输入分路顺序；
-- 配额：融合全局排序后先执行每 Root 最多 3 个 Leaf，再截取默认 Top 30；诊断分别记录输入数、唯一 Leaf 数、Root 配额丢弃数和 Top-K 丢弃数；
+- 配额：单查询融合全局排序后先执行每 Root 最多 3 个 Leaf，再截取默认 Top 30；多子查询融合将每 Root 配额提升为 `max(3, sub_query_count)`，避免互补分支在同一 Root 内过早互相淘汰，但仍受全局 Top 30 限制。诊断必须记录实际 Root 配额、输入数、唯一 Leaf 数、Root 配额丢弃数和 Top-K 丢弃数；该配额调整不得改变租户/Scope 校验、Root 回源或引用核验边界；
 - 验收：手算两 query/四分路 fixture 精确匹配公式，覆盖原始分数不参与、跨路去重、稳定 tie-break、Root 配额、全局 Top-K、空输入和冲突身份。
 
 #### M4-03 Reranker
@@ -1912,18 +1912,18 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 #### M4-05 QueryPlan
 
 - 输入：`PlannerRequest` 包含非空原问题、最多 20 轮带 user/assistant role 的历史、调用方显式 `QueryScope` 和不可由模型覆盖的 Standard/Deep mode；不把 tenant 或授权声明交给 Planner；
-- Provider：可插拔 `QueryPlannerProvider` 返回不可信结构化 mapping，必须精确包含 rewritten_query、intent、sub_queries、requirements、scope、language，禁止未知字段；intent 只接受领域枚举，sub-query 为 1～4 个、requirements 为 0～8 个非空且不重复字符串；
+- Provider：可插拔 `QueryPlannerProvider` 返回不可信结构化 mapping，必须精确包含 rewritten_query、intent、sub_queries、requirements、scope、language，禁止未知字段；intent 只接受领域枚举，sub-query 为 1～4 个、Provider requirements 字段为 0～8 个非空且不重复字符串并仅作为不可信输入解析；服务最终始终将 requirements 规范化为原始用户问题这一项；
 - Scope：collection/document 必须是 UUID。Planner 只能在调用方已提供的 ID 集合内继续收窄，调用方未提供 ID 时禁止模型凭空加入；调用方显式 metadata 不能被替换，未显式设置的 title、organization、media type、active version UUID 与 section 可由 Planner 提取，最终仍由 M4-04 PostgreSQL 事实源校验；
 - 输出：生成不可变 `QueryPlan`，original query 保持原样、mode 固定沿用请求；Provider 名、是否降级及稳定错误码单独保存在 `PlannerOutcome`，不把供应商异常文本放入计划；
-- Requirement 安全边界：当原问题由确定性意图识别为单段 factual 且只生成一个 sub-query 时，忽略 Provider 追加的 requirement，使用原始问题作为唯一 requirement；comparison、multi-condition、procedural、summary 或多 sub-query 请求保留 Provider requirements，并继续执行数量与非空校验；
-- 降级：Provider 不可用、未知/缺失字段、坏枚举、重复/超量列表、非法 UUID 或 Scope 扩大均整体丢弃模型结果，使用确定性 fallback；fallback 保留调用方 Scope，根据中英文模式识别 factual/comparison/procedural/summary，根据分隔条件生成最多 4 个子查询，并用最近 user 历史为中英文指代补充上下文；
+- Requirement 安全边界：无条件忽略 Provider requirements 的语义内容，使用原始用户问题作为唯一 requirement；多 sub-query 不会复制或拆分 requirement。证据评估、Answer Author 与最终 Verify 只对这一项执行覆盖判断；任一分支证据可支撑它，其他分支缺证据不得单独造成拒答；
+- 降级：Provider 不可用、未知/缺失字段、坏枚举、重复/超量列表、非法 UUID 或 Scope 扩大均整体丢弃模型结果，使用确定性 fallback；fallback 保留调用方 Scope、最近 user 历史补足指代，并始终使用单一检索路径和单一原始问题 requirement，不在故障路径默认拆分；
 - 验收：覆盖合法比较计划、Deep mode 不可覆盖、Collection 越权扩张、非法 UUID、未知字段、重复子查询、Provider 安全降级，以及比较 + 多条件 + 指代的确定性结果。
 
 #### M4-06 Standard
 
 - 图模型：采用无额外运行时依赖的等价显式状态图，固定状态为 Plan → Search → Fuse → Authorize → Rerank → Recover → Answer → Complete，并以 `StageTransition` 保存实际执行顺序；终止分支为 NoResults 或 Failed，禁止隐藏式递归和隐式 Agent 循环；
 - 请求：`StandardQueryRequest` 只接收 query、有限历史、调用方 Scope、服务端 `ScopeAuthorization` 和 index revision；图固定创建 `mode=standard` 的 PlannerRequest，模型不能把请求升级为 Deep；
-- 执行：对 QueryPlan 的最多 4 个 sub-query 并发执行 M4-01 双路检索，随后依次使用 M4-02 RRF、M4-04 PostgreSQL Scope/Leaf 校验、M4-03 Reranker 和 M4-04 Root 恢复；仅把恢复后 Root 的 title、source name 和 clean text 放入答案 prompt；
+- 执行：对 QueryPlan 的 1～4 个 sub-query（默认 1 个，仅 LLM 明确启用时多路）并发执行 M4-01 双路检索，随后依次使用 M4-02 RRF、M4-04 PostgreSQL Scope/Leaf 校验、M4-03 Reranker 和 M4-04 Root 恢复；仅把恢复后 Root 的 title、source name 和 clean text 放入答案 prompt；
 - 空结果：RRF 为空仍解析显式 Scope 以保留冲突语义；获准 Leaf 为空或 Root 二次校验后为空均走 NoResults，不调用答案模型；
 - LLM 上限：Standard 将 Planner 尝试计为第 1 次、答案生成计为第 2 次，运行时硬校验不得超过 2；Embedding、Sparse 与 Reranker 不计为 LLM call；Planner 降级不会重试或增加调用；
 - 结果：返回 status、answer、QueryPlan、Root context、完整 transitions、LLM call 数、Planner/Reranker degraded 标记和净化 error code；任何未分类异常进入 Failed，不回显异常文本；
@@ -1932,9 +1932,9 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 
 #### M4-07 Deep
 
-- Evidence：每项以稳定 Leaf/Root ID、0～1 归一化 confidence、覆盖 requirements、round number 和 Recovery route 记录；首轮 route 必须为空，Recovery 轮必须带与 action 一致的 provenance；
+- Evidence：每项以稳定 Leaf/Root ID、0～1 归一化 confidence、原始问题这一项 requirement 的覆盖、round number 和 Recovery route 记录；首轮 route 必须为空，Recovery 轮必须带与 action 一致的 provenance。多 sub-query 的 matched-query provenance 仅用于解释候选来源，不产生新的 requirement，也不构成逐分支覆盖义务；
 - Ledger：按 Leaf ID 跨首轮和所有 Recovery 轮去重，重复候选不覆盖首轮来源且计入 duplicate count；最终 Top-K 可配置为 Recovery 候选预留默认 2 个名额，避免首轮高分完全挤掉新增证据；
-- 评分：确定性分数为 `0.7 * requirement coverage + 0.3 * max evidence confidence`；`score >= 0.80` 直接 Answer，`score < 0.45` 直接 Recover，中间区间才调用 Evidence Assessor；Assessor 的 score、covered/missing requirement 必须与当前输入一致且不得引入未知 requirement；
+- 评分：确定性分数为 `0.7 * requirement coverage + 0.3 * max evidence confidence`，其中 requirement 只有原始用户问题一项；`score >= 0.80` 直接 Answer，`score < 0.45` 直接 Recover，中间区间才调用 Evidence Assessor；Assessor 的 score、covered/missing requirement 必须与当前输入一致且不得引入未知 requirement；Assessor 评估所有分支的合并证据，不要求每个 sub-query 都独立覆盖；
 - 路由：普通同义/召回不足走 Query Rewrite Hybrid；描述性概念走 HyDE Dense-only；型号、编号、精确术语走 Sparse-only 并保留原关键词；已证明 Scope 错误时走 Scope repair，只移除 `repairable_scope_fields` 明确列出的第一个条件；
 - 诚实边界：当前 Sparse Provider 是 hashing lexical，不是 BM25，因此本实现不使用 `BM25-only` 名称；`RetrievalMode.SPARSE_ONLY` 可在未来由真正 BM25 Provider 实现，不影响 Recovery 控制器；
 - 轮次：默认最多 2 轮；每轮 action 必须指向 missing requirement，执行结果的 round/route 必须匹配；达到上限仍为 Recover 时强制转为 Abstain，并给出简短边界原因，不继续隐式循环；
@@ -1949,7 +1949,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - 冲突：M4-07 Evidence Assessment 已发现 conflict 时直接 Abstain，不调用 Repair，因为改写答案不能修复证据事实冲突；
 - Repair：结构或覆盖问题最多调用一次 `AnswerRepairer`，请求只包含原 QueryPlan、同一批 Root、被拒草稿、issue 和 missing requirements；修复结果再次执行全部确定性校验，不能引入新 Root/Leaf/quote；Repair 异常被净化；
 - Answer：验证通过后才转换为领域 Citation，携带 document/root/Leaf IDs、source name、title、真实 page/section、原文 quote 和 Root score；输出段落按原顺序组合；
-- Abstain：无 Root、禁止 Repair、Evidence conflict、Repair 故障或一次 Repair 后仍失败均返回中文有边界拒答、空 citations、missing requirements、稳定 issues 和 repair count，不输出隐藏推理或供应商异常；
+- Partial/Abstain：唯一原始问题 requirement 覆盖后返回 `answered`；若一次 Repair 后仍缺该 requirement，且至少保留一条通过 Root/Leaf/quote 确定性校验的 Citation，则返回 `partial`，保留独立核验段落、citations、missing requirement 和稳定 issues；无 Root、Evidence conflict、结构错误、Repair 故障或没有可保留事实时返回 `abstained`。不会因为某个替代 sub-query 没有证据而额外生成 missing requirement。两者均不输出隐藏推理或供应商异常，未核验的自由文本不得返回；
 - 验收：覆盖合法 page/section Citation、quote 错误后一次成功修复、missing requirement 一次后仍失败、Evidence conflict 直接拒答、Repair 引入新 Root 被拒，以及 Repair 异常不泄漏。
 
 #### M4-09 Query REST/SSE
@@ -1957,7 +1957,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - 端点：提供 `POST /api/v1/queries` 同步响应与 `POST /api/v1/queries/stream` SSE 流；两者复用同一 `QueryRunner` 应用端口，不复制检索或回答逻辑；
 - 身份边界：匿名 `reader` 可执行查询；`tenant_id`、`actor_id` 与 UUIDv7 `query_id` 只由服务端会话和服务端生成器绑定，请求体不能覆盖租户或调用者；查询端点只读，因此不要求 CSRF；
 - 请求：`query` 去空白后非空且不超过 2,000 字符，mode 仅允许 `standard/deep`，Scope 七类字段各不超过 100 项并继续执行领域去重校验，history 仅允许 user/assistant、最多 12 轮且合计不超过 12,000 字符；所有 Schema 禁止未知字段；
-- 同步响应：固定返回 query ID、`answered/abstained/no_results` 状态、答案、结构化 Citation、可 JSON 序列化 diagnostics 与 usage；
+- 同步响应：固定返回 query ID、`answered/partial/abstained/no_results` 状态、答案、结构化 Citation、可 JSON 序列化 diagnostics 与 usage；
 - SSE 契约：事件使用递增正整数 `id`，顺序固定为 `accepted` → 单调且不重复的 `progress` → `completed`；空闲每 15 秒发送 `heartbeat`，终止事件只能是 `completed` 或净化后的 `error`；响应声明 `text/event-stream`、`Cache-Control: no-cache` 与 `X-Accel-Buffering: no`；
 - 生命周期：客户端断开后取消正在执行的 Runner，且不再发送 completed/error；Runner 异常只暴露稳定错误码和通用消息，不泄漏供应商原文；未配置 Runner 时在创建流之前稳定返回 503；
 - 验收：单元测试覆盖同步、事件次序、heartbeat、异常净化与断线取消；真实 PostgreSQL 匿名会话集成测试覆盖服务端租户绑定、输入边界、SSE header/payload、OpenAPI 和未配置依赖的 503。
@@ -2064,7 +2064,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   保存父子 ID、阶段名、耗时、状态、allow-list attributes 和 events；
 - 采集边界：`BufferedSpanExporter` 按 Trace 和单 Trace Span 数量双重有界，根 span 结束后由
   `TraceService` 一次 drain 并幂等 upsert；非法 span、非有限浮点和缓冲区溢出不得反向中断业务；
-- Query：同步和 SSE 共用 `KnowledgeApplication` 记录 answered/abstained/no_results/error/cancelled、
+- Query：同步和 SSE 共用 `KnowledgeApplication` 记录 answered/partial/abstained/no_results/error/cancelled、
   数值 usage 与稳定 degraded/provider 字段；SSE 断开时保存已完成 spans 并标记 cancelled；
 - Ingestion：`IngestionPipeline` 在 job 终态后记录 attempts、progress、completed 和稳定
   error code，不保存文档正文或原始异常消息；
@@ -2293,7 +2293,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   completed 才发布经过服务端验证的答案与 trace ID；用户可用 AbortController 主动停止，
   中断后保留已接收内容和 query ID，不自动重连，重试始终创建新 run；
 - 答案与引用：answered 展示核验状态与可展开引用（标题、页码/章节、quote、source、Root
-  前缀）；abstained/no_results 显示有边界拒答且不生成引用；公共页不显示 diagnostics 或隐藏
+  前缀）；partial 展示已核验部分、缺口和可展开引用；abstained/no_results 显示有边界拒答且不生成可保留引用；公共页不显示 diagnostics 或隐藏
   推理；
 - 错误：HTTP 429 显示 `Retry-After` 秒数，SSE `RATE_LIMITED` 显示全局额度边界；网络/5xx
   展示已净化 request ID，其他 stream error 显示 query ID，均不无限重试；Collection 加载
@@ -2520,7 +2520,8 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - Query 链路：每次查询严格执行服务端 Scope 校验、Dense/Sparse、RRF、PostgreSQL 二次授权、
   CrossEncoder、Root 恢复、grounded LLM answer 和领域 Citation；无 Root 时跳过 LLM 并返回
   `no_results`。LLM Prompt 明确只能使用编号证据并要求 `[n]` 引用；UI Citation 的 quote 仍直接截取
-  已授权 Root，不能信任模型伪造引用。Standard 最多使用 3 个 Root，Deep 最多使用 5 个 Root；
+  已授权 Root，不能信任模型伪造引用。简单单 requirement 的 Standard 最多使用 3 个 Root；拆分后的多
+  requirement Standard 使用覆盖感知选择，最多使用 5 个 Root，Deep 最多使用 5 个 Root；
 - Deep 限制：此增强入口的 Deep 只扩大综合证据窗口，尚未装配 M4-07 多轮 Recovery Controller，
   README 与 UI/验收不得宣称已经执行多轮 Recovery。该差距应在后续独立 Slice 接入，而不是隐式补齐；
 - 本地安全：`.env.mac.example` 只能包含占位 token；真实 `.env` 必须被 Git 忽略。文档和 query 在
@@ -2593,10 +2594,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   或异常消息。隐藏思维链、供应商 `<think>` 内容、完整 Prompt 和 Authorization 永不返回；
 - 验收：Standard 单查询、比较型多子查询、Planner 降级、Dense/Sparse 某路为空、授权过滤、Reranker
   降级、Deep recovery 和旧 Trace 缺字段均有后端投影及 Vue 测试；真实 Mac QueryRunner 必须装配计划。
-- 实现边界：Mac 组合装配共享 bounded OpenAI-compatible LLM 的结构化 Planner Adapter；简单事实请求
-  允许保持一条精确子查询，比较、多条件与多跳请求生成 2～4 条互补分支，禁止为增加数量制造重复。
-  Provider 失败或输出不合格时整体回退；fallback 按分号、`并且`、`同时`、`以及`、`and` 确定性拆分，
-  最多 4 条，并只读取最近 user turn 补足指代；
+- 实现边界：Mac 组合装配共享 bounded OpenAI-compatible LLM 的结构化 Planner Adapter；默认保持一条精确子查询，
+  只有 LLM 明确判断需要时才生成 2～4 条互补分支，禁止为增加数量制造重复。所有分支共享唯一的原始问题
+  requirement。Provider 失败或输出不合格时整体回退为单一路径，并只读取最近 user turn 补足指代；
 - 持久化投影：`rag.query_planning` 保存 original/rewritten/intent/language/sub-queries/provider/degraded；
   每个 `rag.retrieval.branch` 保存 branch index/query、Dense/Sparse requested/returned、交集与 unique；
   RRF、Scope Guard、Rerank、Root Restore 与 Answer spans 保存输入/输出/拒绝/截断/usage。专用 API 将其
@@ -2680,8 +2680,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   描述本机修复记录，不作为固定产品指标或 CI 断言；
 - Planner Adapter：复用 Mac 组合已有 `BoundedLanguageModel`，发送当前 query、最多 12 条调用方历史、
   服务端 Scope 和 mode；system contract 要求仅返回一个 JSON object，包含 rewritten_query、领域 intent、
-  1～4 条唯一 sub_queries、0～8 条 requirements、原样 Scope 与 language。Prompt 不发送 Root 文本；回答
-  Provider 仍只接收授权后 Root。Adapter 不拥有共享 LLM 生命周期，不能重复关闭底层连接；
+  1～4 条唯一 sub_queries 与 Provider requirements 字段、原样 Scope 与 language。默认执行一条路径，只有
+  LLM 明确判断需要时才保留多路；Service 会把 requirements 统一规范化为原始 query 这一项。Prompt 不发送
+  Root 文本；回答 Provider 仍只接收授权后 Root。Adapter 不拥有共享 LLM 生命周期，不能重复关闭底层连接；
 - 信任边界：Provider JSON 先解析为 mapping，再由 `QueryPlanningService` 执行 exact-field、枚举、数量、
   重复、UUID 和 Scope 只收窄校验；模型不能改变 Standard/Deep mode。非 JSON、数组、尾随文本、未知字段、
   越权 Scope、LLM 4xx/5xx/timeout 均净化为稳定 Planner 错误并使用确定性 fallback，供应商正文、Prompt、
@@ -2731,8 +2732,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   在空调用方字段上新增的可推断条件可以列入 `repairable_scope_fields`，每轮最多移除一个并记录字段数量；
   当前 Planner 的 UUID 规则不允许从空 Scope 新增 ID，因此模型不能借 Scope Recovery 扩大租户边界；
 - 证据终态：Deep 在每次评估后按 decision 继续、回答或拒答；超过两轮仍为 Recover 会转换成 Abstain。
-  最终答案只使用 Ledger 选出的、当前 executor 实际持有的授权 Root，最多 5 个；Standard 保持最多 3 个，
-  但与 Deep 共用下面的结构化答案与核验链路；
+  最终答案只使用 Ledger 选出的、当前 executor 实际持有的授权 Root，最多 5 个；简单单 requirement 的
+  Standard 最多 3 个，拆分后的多 requirement Standard 使用覆盖感知选择、最多 5 个；两种模式共用下面的
+  结构化答案与核验链路；
 - Answer Author Adapter：LLM 必须返回 `paragraphs`、`citations`、`covered_requirements`。每个事实段落显式
   列 citation IDs；每条 citation 列正整数 ID、当前 Root ID、该 Root 的 Leaf IDs，以及从 Root clean text
   连续复制的非空 quote。Root recovery 保留完整 clean text 给确定性 Verifier，但 Answer Author 与 Evidence
@@ -2746,7 +2748,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   quote 与 score 的领域 Citation；
 - Repair/Abstain：schema regeneration 与语义 Repair 分开计数；首次草稿结构有效但引用/覆盖校验失败时，使用完全相同的 QueryPlan 与 Root 集合调用
   LLM Repair 一次，Prompt 带稳定 issue code 与缺失 requirement；Repair 不允许新增证据，结果从头重新
-  核验。第二次失败、Repair 异常或 evidence conflict 都返回 `abstained`、空 citations 和有边界中文说明；
+  核验。第二次失败、Repair 异常或 evidence conflict 都返回 `abstained` 和有边界中文说明；其中通过确定性
+  Root/Leaf/quote 校验的独立事实段落可以保留对应 citations，missing requirements 与稳定 issues 必须显式返回，
+  未核验的自由文本不得返回；
 - Usage/Cost Guard：`QueryExecution.usage` 精确累加 Planner、每轮 Assessor（含 retry）、初次 Answer、
   一次 schema regeneration 和一次 Repair 的 call/input/output token；生成结构异常也从已净化 AppError
   detail 回收实际 usage。`cost_guard.answer_max_output_tokens` 控制 Answer Author、schema regeneration 与
@@ -3113,24 +3117,23 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   abstained。在 Standard 的 23 条有候选证据运行中仍有 13 条拒答，约 56.5%。这些数字是本机样本快照，
   不是产品质量指标；必须与带 gold 的评测结果分开解释。初步定位包括 LLM 把单一 factual 问题过度拆成
   同义子查询、Root 完整正文占用上下文预算，以及回答生成/证据评估降级后的安全终态。
-- EDD 顺序：先用 Planner 行为测试证明单一 factual 问题即使模型返回多个同义 `sub_queries` 也只保留
-  一条改写查询；再用 Root recovery 测试证明上下文预算按本轮选中 Leaf 的实际 evidence 计算，同时保留
-  完整 Root clean text 供 Citation Verify；最后用 Trace 测试证明回答生成降级与 Assessor 降级可独立筛选、
-  持久化并展示。显式多条件、比较和多跳问题仍必须保留有意义的多分支检索，不能用“减少拒答”掩盖真正缺证据。
-- Planner 归一化：当原始问题和结构化 intent 都是 factual，且原始问题没有 `；`、`;`、`并且`、`同时`、
-  `以及` 或英文 `and` 等多条件分隔符时，`sub_queries` 收敛为 `(rewritten_query,)`；同一类单意图的
-  `requirements` 收敛为用户原问题。比较、多条件、流程、总结和多跳请求保留 Provider 的 requirements
-  与互补子查询。该规则只约束执行计划，不伪造 LLM 成功，也不放宽 Scope。
+- EDD 顺序：用 Planner 行为测试证明普通问题默认只有一条改写查询、Provider 故障 fallback 也不拆分；再证明
+  LLM 明确返回多路时各分支仍共享唯一原始 requirement，且任一分支证据可通过最终覆盖核验。随后用 Root recovery
+  测试证明上下文预算按本轮选中 Leaf 的实际 evidence 计算，同时保留完整 Root clean text 供 Citation Verify；
+  最后用 Trace 测试证明计划、分支 provenance、回答生成降级与 Assessor 降级可独立筛选、持久化并展示。
+- Planner 归一化：`sub_queries` 默认只有 `(rewritten_query,)`；只有 LLM 明确判断需要且返回 2～4 条有意义的互补
+  路径时才保留多路。无论 factual、comparison、多条件、流程、总结还是多跳请求，`requirements` 始终收敛为用户
+  原问题这一项。多路分支共享该 requirement，不要求每个分支分别覆盖；该规则只约束执行计划，不伪造 LLM 成功，也不放宽 Scope。
 - Root evidence budget：`max_parent_chars` 只对发送给 Answer/Assessor 的已授权、已重排 Leaf 原文片段
   计量；一个 Root 的多个选中 Leaf 按稳定顺序连接，超限时只截断模型上下文。`RootContext.text` 始终
   保留完整 clean Root，供 quote 连续子串校验；因此长 Root 不会因为未发送的未选中正文挤掉后续有效 Root，
   也不会为了扩大回答上下文而放宽租户或 Root 权限边界。
-- Trace 语义：Query `status`（`answered`/`abstained`/`no_results`；底层 Trace 还可能记录 `error`/`cancelled`）
+- Trace 语义：Query `status`（`answered`/`partial`/`abstained`/`no_results`；底层 Trace 还可能记录 `error`/`cancelled`）
   与回答阶段 `answer_status` 分离；`generation_degraded` 表示答案结构调用
   失败并安全拒答，`assessor_degraded` 表示评估器失败后仍进入有界 Recovery，`not_generated` 表示没有进入
   答案生成（例如无结果或 Deep 最终拒答）。`degraded=true` 必须对 Planner、Reranker、Retrieval、
   Answer Generation 和 Assessor 的稳定 `*_degraded` 字段做 OR 筛选，不能只看旧的两个 Provider 标志。
-  不把安全拒答改记为 answered，也不把单次候选数当作 Recall/MRR。
+  不把安全拒答改记为 answered；`partial` 不计入完整回答成功率或硬拒答率；也不把单次候选数当作 Recall/MRR。
 - 隐私：Trace 只保存上述稳定状态和既有有界指标，不保存 Root 正文、Leaf evidence、Prompt、模型隐藏
   推理、供应商响应或密钥；完整 Root 只在当前请求进程内用于确定性引用核验。
 - 验收：Planner factual 过度拆分、显式多条件保留分支、Root evidence budget、answer/assessor degradation
@@ -3141,6 +3144,16 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 回滚：移除 Planner 归一化或恢复旧 Root budget 不需要 migration，但会恢复过度拆分和上下文挤占风险；Trace
   新字段保持 allow-list 向后兼容，旧记录缺失字段时页面显示 unavailable，不由浏览器补造。
 - PR：`fix/reduce-answer-abstentions`。
+
+##### M7-R14 部分答案状态与拒答率口径修复（已完成）
+
+- 缺陷事实：M7-R13 的安全净化已经保留了通过 Root/Leaf/quote 校验的事实段落，但 Query 仍把“有合法引用、仅缺少部分 requirement”的结果标记为 `abstained`，导致用户界面和运行统计把“部分回答”与“完全拒答”混为一谈；这会夸大拒答率，但不能证明应当放宽证据核验。
+- 领域状态：`AnswerStatus` 新增 `partial`；`QueryRunStatus`、同步 REST、SSE completed payload、Trace 终态筛选和前端 OpenAPI 类型同步支持 `partial`。`repaired` 仍映射为完整回答 `answered`，内部回答阶段 `answer_status` 保留 `partial` 以便诊断。
+- 严格分类：只有存在至少一条通过当前授权 Root、Leaf 归属和连续 quote 校验的 Citation，且最终 issue 集合恰好只有 `MISSING_REQUIREMENT` 时才返回 `partial`；只缺 requirement 但没有任何合法 Citation、存在 quote/Leaf/Root 结构错误、Evidence conflict、生成失败或没有 Root 时仍返回 `abstained`。未核验段落不能进入 `partial` answer。
+- API/UI：`partial` 返回已核验段落、合法 citations、`missing_requirements` 仍写入诊断，并在公共 Chat 展示“部分回答，仍有缺口”；Query Trace 列表与筛选展示 `Partial/部分回答`。`abstained` 继续展示有边界拒答，`no_results` 继续表示没有可用召回，不根据前端状态补造答案。
+- 统计：运行报表必须至少分开统计完整回答率、部分回答率、硬拒答率和无结果率；`partial` 不计入完整回答成功率，也不计入硬拒答率。没有 gold 的历史 Trace 只能说明运行分布，不能替代带 `must_abstain`、expected facts 和 Dataset revision 的质量评测。
+- 验收：Answer Verification 覆盖“合法部分引用 + 缺 requirement → partial”、“无合法引用 + 缺 requirement → abstained”、“结构错误/冲突 → abstained”；QueryExecution 序列化、SSE completed、FastAPI OpenAPI、Chat 和 Query Trace 的 partial 展示/筛选均通过；运行 `pytest`、Vitest、strict typecheck、build 和 OpenAPI drift。
+- 回滚：移除 `partial` 映射即可恢复旧 API 语义，不改动 Root/Leaf 身份、向量、权限或历史 Trace；旧 Trace 缺少 `partial` 时前端按服务端实际 status 展示，不由浏览器推断。
 
 ### M8：首次公网发布
 

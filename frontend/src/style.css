@@ -568,6 +568,10 @@ h1 em { color: var(--mint-600); font-weight: inherit; }
 .query-branches strong, .query-branches small { display: block; }
 .query-branches strong { margin-top: 7px; font-size: 9px; line-height: 1.5; }
 .query-branches small { margin-top: 6px; color: var(--muted); font-size: 6px; }
+.query-requirements { margin-top: 10px; padding: 11px 13px; background: #fff8e7; border: 1px solid #ead59d; border-radius: 7px; }
+.query-requirements > span { color: #8b631f; font-size: 6px; font-weight: 900; letter-spacing: .1em; }
+.query-requirements > div { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.query-requirements b { padding: 4px 6px; color: #77561f; font-size: 7px; font-weight: 600; background: #fffdf5; border: 1px solid #ead59d; border-radius: 4px; }
 .retrieval-branch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 9px; }
 .retrieval-branch-grid > article { overflow: hidden; border: 1px solid var(--line); border-radius: 7px; }
 .retrieval-branch-grid header { min-height: 64px; padding: 13px 15px; color: white; background: var(--ink-800); }
@@ -585,6 +589,11 @@ h1 em { color: var(--mint-600); font-weight: inherit; }
 .stage-metric-flow small { margin-top: 3px; color: var(--muted); font-size: 6px; }
 .stage-metric-flow ul { display: grid; gap: 3px; margin: 9px 0 0; padding: 8px 0 0; list-style: none; border-top: 1px solid var(--line); }
 .stage-metric-flow li { color: var(--muted); font-size: 6px; }
+.metric-requirements { display: grid; gap: 3px; margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--line); }
+.metric-requirements em { color: var(--muted); font-size: 6px; font-style: normal; font-weight: 800; }
+.metric-requirements b { color: var(--ink-800); font-size: 6px; font-weight: 600; line-height: 1.4; }
+.metric-requirements--covered b { color: #22684f; }
+.metric-requirements--missing b { color: #9a4e42; }
 .metric-disclaimer { margin: 10px 0 0; padding-left: 10px; color: var(--muted); font-size: 7px; line-height: 1.6; border-left: 2px solid var(--mint-400); }
 .waterfall { padding: 9px 13px 12px; background: #f4f2eb; border: 1px solid var(--line); border-radius: 7px; }
 .waterfall article { display: grid; grid-template-columns: 135px minmax(0, 1fr); gap: 12px; align-items: center; padding: 6px 0; }
@@ -605,6 +614,7 @@ h1 em { color: var(--mint-600); font-weight: inherit; }
 .rank-row strong, .rank-row small, .rank-row b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rank-row strong { font-family: ui-monospace, monospace; font-size: 7px; }
 .rank-row small { margin-top: 3px; color: var(--muted); font-size: 6px; }
+.rank-row .rank-provenance { color: var(--mint-600); }
 .rank-row b { color: var(--mint-600); font-size: 9px; }
 .rank-row--head { min-height: 30px; color: #78857f; font-size: 6px; font-weight: 900; letter-spacing: .1em; background: #f0eee7; }
 .trace-section:has(.rank-table) { overflow-x: auto; }

@@ -1,5 +1,6 @@
 """Deterministic answer/citation verification, one repair, and bounded abstention."""
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -24,6 +25,7 @@ class VerificationIssue(StrEnum):
 class AnswerStatus(StrEnum):
     ANSWERED = "answered"
     REPAIRED = "repaired"
+    PARTIAL = "partial"
     ABSTAINED = "abstained"
 
 
@@ -122,7 +124,7 @@ class AnswerVerificationService:
     ) -> AnswerOutcome:
         root_tuple = tuple(roots)
         if evidence_conflicts:
-            return self._abstain(
+            return self._incomplete(
                 plan,
                 (VerificationIssue.EVIDENCE_CONFLICT,),
                 plan.requirements,
@@ -132,7 +134,14 @@ class AnswerVerificationService:
         if verification.valid:
             return self._answer(AnswerStatus.ANSWERED, root_tuple, draft, 0)
         if not root_tuple or self._max_repairs == 0:
-            return self._abstain(plan, verification.issues, verification.missing_requirements, 0)
+            return self._incomplete(
+                plan,
+                verification.issues,
+                verification.missing_requirements,
+                0,
+                roots=root_tuple,
+                draft=draft,
+            )
         try:
             repaired = await self._repairer.repair(
                 RepairRequest(
@@ -145,14 +154,23 @@ class AnswerVerificationService:
             )
             repaired_verification = self._verify(plan, root_tuple, repaired)
         except Exception:
-            return self._abstain(plan, verification.issues, verification.missing_requirements, 1)
+            return self._incomplete(
+                plan,
+                verification.issues,
+                verification.missing_requirements,
+                1,
+                roots=root_tuple,
+                draft=draft,
+            )
         if repaired_verification.valid:
             return self._answer(AnswerStatus.REPAIRED, root_tuple, repaired, 1)
-        return self._abstain(
+        return self._incomplete(
             plan,
             repaired_verification.issues,
             repaired_verification.missing_requirements,
             1,
+            roots=root_tuple,
+            draft=repaired,
         )
 
     @staticmethod
@@ -173,7 +191,7 @@ class AnswerVerificationService:
             if not set(citation.leaf_ids).issubset(root.leaf_ids):
                 _add_issue(issues, VerificationIssue.INVALID_LEAF)
                 continue
-            if citation.quote not in root.text:
+            if _canonical_quote(root.text, citation.quote) is None:
                 _add_issue(issues, VerificationIssue.QUOTE_NOT_FOUND)
                 continue
             valid_citation_ids.add(citation.id)
@@ -212,18 +230,35 @@ class AnswerVerificationService:
         )
 
     @staticmethod
-    def _abstain(
+    def _incomplete(
         plan: QueryPlan,
         issues: tuple[VerificationIssue, ...],
         missing: tuple[str, ...],
         repair_count: int,
+        *,
+        roots: tuple[RootContext, ...] = (),
+        draft: AnswerDraft | None = None,
     ) -> AnswerOutcome:
         missing_values = missing or plan.requirements
         detail = "、".join(missing_values) if missing_values else "可验证证据"
+        answer, citations = _safe_partial_answer(roots, draft, detail)
+        if (
+            missing_values
+            and citations
+            and set(issues) == {VerificationIssue.MISSING_REQUIREMENT}
+        ):
+            return AnswerOutcome(
+                AnswerStatus.PARTIAL,
+                answer,
+                citations,
+                missing_values,
+                issues,
+                repair_count,
+            )
         return AnswerOutcome(
             AnswerStatus.ABSTAINED,
-            f"当前证据不足或存在冲突，无法可靠回答。缺少：{detail}。",
-            (),
+            answer,
+            citations,
             missing_values,
             issues,
             repair_count,
@@ -244,7 +279,7 @@ def _citation(draft: DraftCitation, root: RootContext) -> Citation:
         root.title,
         page,
         section,
-        draft.quote,
+        _canonical_quote(root.text, draft.quote) or draft.quote,
         root.score,
     )
 
@@ -252,3 +287,61 @@ def _citation(draft: DraftCitation, root: RootContext) -> Citation:
 def _add_issue(issues: list[VerificationIssue], issue: VerificationIssue) -> None:
     if issue not in issues:
         issues.append(issue)
+
+
+def _safe_partial_answer(
+    roots: tuple[RootContext, ...], draft: AnswerDraft | None, missing: str
+) -> tuple[str, tuple[Citation, ...]]:
+    """Keep only paragraphs whose citations pass the same deterministic checks.
+
+    An incomplete draft must remain ``abstained``.  Returning its independently
+    valid paragraphs is useful to the caller, while the status and explicit gap
+    make it impossible to mistake a partial result for a fully verified answer.
+    """
+
+    if draft is None:
+        return f"当前证据不足或存在冲突，无法可靠回答。缺少：{missing}。", ()
+    root_by_id = {root.root_id: root for root in roots}
+    valid: dict[int, Citation] = {}
+    for citation in draft.citations:
+        if citation.id in valid:
+            continue
+        root = root_by_id.get(citation.root_id)
+        if (
+            root is None
+            or not set(citation.leaf_ids).issubset(root.leaf_ids)
+            or _canonical_quote(root.text, citation.quote) is None
+        ):
+            continue
+        valid[citation.id] = _citation(citation, root)
+
+    paragraphs: list[str] = []
+    used_ids: set[int] = set()
+    for paragraph in draft.paragraphs:
+        if any(citation_id not in valid for citation_id in paragraph.citation_ids):
+            continue
+        if paragraph.factual and not paragraph.citation_ids:
+            continue
+        paragraphs.append(paragraph.text)
+        used_ids.update(paragraph.citation_ids)
+    citations = tuple(citation for identifier, citation in valid.items() if identifier in used_ids)
+    if not paragraphs:
+        return f"当前证据不足或存在冲突，无法可靠回答。缺少：{missing}。", citations
+    return (
+        "以下为已核验的部分信息，但尚未覆盖全部问题：\n\n"
+        + "\n\n".join(paragraphs)
+        + f"\n\n仍缺少：{missing}。",
+        citations,
+    )
+
+
+def _canonical_quote(source: str, quote: str) -> str | None:
+    """Return the source substring represented by a whitespace-normalized quote."""
+
+    if quote in source:
+        return quote
+    parts = re.findall(r"\S+", quote.strip())
+    if not parts:
+        return None
+    match = re.search(r"\s+".join(re.escape(part) for part in parts), source)
+    return match.group(0) if match is not None else None

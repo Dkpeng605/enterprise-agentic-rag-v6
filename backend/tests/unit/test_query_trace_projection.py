@@ -55,6 +55,7 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
                 "rag.plan.language": "zh",
                 "rag.plan.sub_queries": ["如何部署", "如何回滚"],
                 "rag.plan.sub_query_count": 2,
+                "rag.plan.requirements": ["如何部署；同时如何回滚"],
                 "rag.llm_calls": 1,
                 "rag.input_tokens": 120,
                 "rag.output_tokens": 80,
@@ -121,8 +122,21 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
                 "rag.fusion.unique_leaf_count": 18,
                 "rag.fusion.root_quota_dropped": 2,
                 "rag.fusion.top_k_dropped": 1,
+                "rag.fusion.max_leaves_per_root": 3,
                 "rag.candidate_count": 15,
             },
+            events=(
+                {
+                    "name": "rag.fusion.candidate",
+                    "attributes": {
+                        "rag.rank": 1,
+                        "rag.leaf_id": "leaf_01",
+                        "rag.root_id": "root_01",
+                        "rag.fused_score": 0.8,
+                        "rag.matched_queries": ["如何部署"],
+                    },
+                },
+            ),
         ),
         span(
             5,
@@ -133,6 +147,19 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
             6,
             "rag.rerank",
             {"rag.input_count": 12, "rag.candidate_count": 10, "rag.output_count": 5},
+            events=(
+                {
+                    "name": "rag.rerank.candidate",
+                    "attributes": {
+                        "rag.rank": 1,
+                        "rag.leaf_id": "leaf_01",
+                        "rag.root_id": "root_01",
+                        "rag.fused_score": 0.8,
+                        "rag.rerank_score": 0.9,
+                        "rag.matched_queries": ["如何部署"],
+                    },
+                },
+            ),
         ),
         span(
             7,
@@ -176,9 +203,11 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
     assert projected.plan is not None
     assert projected.plan.provider == "deterministic"
     assert projected.plan.sub_queries == ("如何部署", "如何回滚")
+    assert projected.plan.requirements == ("如何部署；同时如何回滚",)
     assert projected.retrieval_branches[0].overlap_count == 3
     assert projected.rankings[0].dense_rank == 1
     assert projected.rankings[0].dense_score == 0.9
+    assert projected.rankings[0].matched_queries == ("如何部署",)
     assert [metric.stage for metric in projected.stage_metrics] == [
         "query_planning",
         "rrf_fusion",
@@ -195,6 +224,7 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
     }
     assert projected.stage_metrics[1].dropped_count == 11
     assert projected.stage_metrics[1].attributes["duplicate_collapsed"] == 8
+    assert projected.stage_metrics[1].attributes["max_leaves_per_root"] == 3
     assert projected.stage_metrics[4].attributes == {
         "truncated_roots": 1,
         "used_chars": 4096,
@@ -211,6 +241,8 @@ def test_projects_evidence_assessment_answer_verification_and_span_degradation()
                 "rag.recovery.covered_count": 1,
                 "rag.recovery.missing_count": 1,
                 "rag.recovery.decision": "recover",
+                "rag.recovery.covered_requirements": ["定义"],
+                "rag.recovery.missing_requirements": ["期限"],
                 "rag.llm_calls": 1,
                 "rag.input_tokens": 200,
                 "rag.output_tokens": 50,
@@ -227,6 +259,8 @@ def test_projects_evidence_assessment_answer_verification_and_span_degradation()
                 "rag.answer.status": "repaired",
                 "rag.answer.issue_count": 1,
                 "rag.answer.repair_count": 1,
+                "rag.answer.missing_requirements": ["期限"],
+                "rag.answer.issues": ["missing_requirement"],
                 "rag.llm_calls": 1,
                 "rag.input_tokens": 100,
                 "rag.output_tokens": 30,
@@ -255,7 +289,11 @@ def test_projects_evidence_assessment_answer_verification_and_span_degradation()
         "answer_verification",
     ]
     assert projected.stage_metrics[0].attributes["decision"] == "recover"
+    assert projected.stage_metrics[0].covered_requirements == ("定义",)
+    assert projected.stage_metrics[0].missing_requirements == ("期限",)
     assert projected.stage_metrics[1].attributes["repairs"] == 1
+    assert projected.stage_metrics[1].missing_requirements == ("期限",)
+    assert projected.stage_metrics[1].issues == ("missing_requirement",)
     assert projected.degradations == (
         QueryDegradation("evidence_assessor", "remote-assessor"),
     )

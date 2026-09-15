@@ -304,6 +304,7 @@ async def test_anonymous_trace_api_lists_own_tenant_and_hides_other_tenant(
                 "sparse_score": 0.81,
                 "rrf_score": 0.032,
                 "rerank_score": 0.97,
+                "matched_queries": [],
             }
             assert query_view.json()["degradations"] == [
                 {"component": "planner", "provider": "fixture-planner"}

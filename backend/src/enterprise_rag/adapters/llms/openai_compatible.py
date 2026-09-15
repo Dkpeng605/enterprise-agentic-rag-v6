@@ -1,5 +1,6 @@
 """OpenAI-compatible Chat Completions adapter with strict response validation."""
 
+import json
 import re
 from typing import Any
 
@@ -100,7 +101,7 @@ class OpenAICompatibleLanguageModel:
                 {"status_code": response.status_code},
             )
         try:
-            result = self._parse_response(response)
+            result = self._parse_response(response, json_mode=request.json_mode)
         except AppError:
             self._health = ProviderHealth.DEGRADED
             raise
@@ -115,7 +116,7 @@ class OpenAICompatibleLanguageModel:
         self._closed = True
 
     @staticmethod
-    def _parse_response(response: httpx.Response) -> CompletionResult:
+    def _parse_response(response: httpx.Response, *, json_mode: bool = False) -> CompletionResult:
         try:
             payload: Any = response.json()
             choices = payload["choices"]
@@ -128,7 +129,7 @@ class OpenAICompatibleLanguageModel:
             output_tokens = usage["completion_tokens"]
             if not isinstance(text, str):
                 raise TypeError("completion content is invalid")
-            text = _visible_answer(text)
+            text = _visible_answer(text, json_mode=json_mode)
             if any(
                 isinstance(value, bool) or not isinstance(value, int) or value < 0
                 for value in (input_tokens, output_tokens)
@@ -142,7 +143,7 @@ class OpenAICompatibleLanguageModel:
         return CompletionResult(text.strip(), input_tokens, output_tokens)
 
 
-def _visible_answer(text: str) -> str:
+def _visible_answer(text: str, *, json_mode: bool = False) -> str:
     """Remove provider presentation wrappers without altering the final answer."""
 
     stripped = text.strip()
@@ -154,6 +155,71 @@ def _visible_answer(text: str) -> str:
     fenced = _JSON_FENCE.fullmatch(stripped)
     if fenced is not None:
         stripped = fenced.group("body").strip()
+    if json_mode:
+        stripped = _json_mode_payload(stripped)
     if not stripped:
         raise TypeError("completion content is invalid")
     return stripped
+
+
+def _json_mode_payload(text: str) -> str:
+    """Recover a JSON object from harmless provider presentation noise.
+
+    Some reasoning gateways return a short preamble or fail to escape a quote
+    copied from source evidence even when ``response_format=json_object`` was
+    requested.  The returned text still goes through ``json.loads`` and the
+    application schema/citation verifier, so this only removes presentation
+    noise and repairs the narrow, unambiguous quote case.
+    """
+
+    stripped = text.strip()
+    try:
+        json.loads(stripped)
+        return stripped
+    except (json.JSONDecodeError, TypeError):
+        pass
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start < 0 or end <= start:
+        return stripped
+    candidate = stripped[start : end + 1]
+    try:
+        json.loads(candidate)
+        return candidate
+    except (json.JSONDecodeError, TypeError):
+        return _repair_unescaped_json_quotes(candidate)
+
+
+def _repair_unescaped_json_quotes(text: str) -> str:
+    """Escape quotes inside JSON strings when the following token is not structural."""
+
+    repaired: list[str] = []
+    in_string = False
+    escaped = False
+    for index, character in enumerate(text):
+        if not in_string:
+            repaired.append(character)
+            if character == '"':
+                in_string = True
+            continue
+        if escaped:
+            repaired.append(character)
+            escaped = False
+            continue
+        if character == "\\":
+            repaired.append(character)
+            escaped = True
+            continue
+        if character != '"':
+            repaired.append(character)
+            continue
+        next_index = index + 1
+        while next_index < len(text) and text[next_index].isspace():
+            next_index += 1
+        next_character = text[next_index] if next_index < len(text) else ""
+        if next_character in {",", ":", "}", "]", ""}:
+            repaired.append(character)
+            in_string = False
+        else:
+            repaired.extend(("\\", character))
+    return "".join(repaired)

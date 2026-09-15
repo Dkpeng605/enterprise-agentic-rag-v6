@@ -108,6 +108,7 @@ async def test_llm_evidence_assessor_reads_bounded_evidence_and_reports_usage() 
     assert result.input_tokens == 31 and result.output_tokens == 17
     assert "政策定义与期限证据" in model.requests[0].user_prompt
     assert model.requests[0].json_mode is True
+    assert model.requests[0].max_output_tokens == 2_000
 
 
 @pytest.mark.anyio
@@ -175,6 +176,53 @@ async def test_answer_author_receives_selected_leaf_evidence_not_full_root() -> 
 
     assert "有效期限为三年" in author.model_requests[0].user_prompt
     assert "完整 Root 原文" not in author.model_requests[0].user_prompt
+
+
+@pytest.mark.anyio
+async def test_answer_author_receives_leaf_subquery_requirement_hints() -> None:
+    coverage_plan = QueryPlan(
+        "定义和期限是什么？",
+        "定义和期限是什么？",
+        QueryIntent.FACTUAL,
+        ("定义", "期限"),
+        ("定义", "期限"),
+        QueryScope(),
+        "zh",
+        QueryMode.STANDARD,
+    )
+    selected_root = RootContext(
+        ROOT_ID,
+        DOCUMENT_ID,
+        VERSION_ID,
+        "policy.pdf",
+        "Policy",
+        "Acme",
+        "application/pdf",
+        {"page": 2},
+        "政策定义明确。有效期限为三年。",
+        (LEAF_ID,),
+        0.9,
+        False,
+        leaf_matched_queries={LEAF_ID: ("定义", "期限")},
+    )
+    response = {
+        "paragraphs": [{"text": "已找到相关证据。", "citation_ids": [], "factual": False}],
+        "citations": [],
+        "covered_requirements": [],
+    }
+    model = ScriptedLanguageModel([json.dumps(response, ensure_ascii=False)])
+    author = LanguageModelAnswerAuthor(model)
+
+    await author.draft(plan=coverage_plan, roots=(selected_root,))
+
+    payload = json.loads(model.requests[0].user_prompt)
+    assert payload["roots"][0]["leaf_evidence"] == [
+        {
+            "leaf_id": LEAF_ID,
+            "matched_queries": ["定义", "期限"],
+            "requirement_hints": ["定义", "期限"],
+        }
+    ]
 
 
 @pytest.mark.anyio

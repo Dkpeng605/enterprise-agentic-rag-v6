@@ -75,7 +75,7 @@ function parseEvent(frame: SseFrame): QueryStreamEvent {
 function isQueryResult(value: Record<string, unknown>): value is QueryResult {
   return (
     typeof value.query_id === 'string' &&
-    ['answered', 'abstained', 'no_results'].includes(String(value.status)) &&
+    ['answered', 'partial', 'abstained', 'no_results'].includes(String(value.status)) &&
     typeof value.answer === 'string' &&
     Array.isArray(value.citations) &&
     value.citations.every(isCitation) &&

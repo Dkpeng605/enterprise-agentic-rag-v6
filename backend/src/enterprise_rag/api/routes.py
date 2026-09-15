@@ -837,7 +837,7 @@ def create_api_router(
         principal: Annotated[Principal, Depends(reader)],
         mode: Annotated[Literal["standard", "deep"] | None, Query()] = None,
         trace_status: Annotated[
-            Literal["answered", "abstained", "no_results", "error", "cancelled"] | None,
+            Literal["answered", "partial", "abstained", "no_results", "error", "cancelled"] | None,
             Query(alias="status"),
         ] = None,
         degraded: Annotated[bool | None, Query()] = None,

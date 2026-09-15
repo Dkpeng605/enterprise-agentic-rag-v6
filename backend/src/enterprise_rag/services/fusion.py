@@ -1,6 +1,6 @@
 """Deterministic reciprocal-rank fusion across methods and sub-queries."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from enterprise_rag.domain.retrieval import RetrievalHit
 from enterprise_rag.services.retrieval import DualSearchResult, SearchBranchResult, SearchMethod
@@ -27,6 +27,7 @@ class _Accumulator:
     score: float = 0.0
     dense_rank: int | None = None
     sparse_rank: int | None = None
+    matched_queries: list[str] = field(default_factory=list)
 
 
 class ReciprocalRankFusion:
@@ -41,18 +42,43 @@ class ReciprocalRankFusion:
         self._top_k = top_k
         self._max_leaves_per_root = max_leaves_per_root
 
-    def fuse(self, results: tuple[DualSearchResult, ...]) -> FusionResult:
+    def fuse(
+        self,
+        results: tuple[DualSearchResult, ...],
+        *,
+        max_leaves_per_root: int | None = None,
+    ) -> FusionResult:
         return self.fuse_branches(
-            tuple(branch for result in results for branch in (result.dense, result.sparse))
+            tuple(branch for result in results for branch in (result.dense, result.sparse)),
+            branch_queries=tuple(
+                result.query for result in results for _ in (result.dense, result.sparse)
+            ),
+            max_leaves_per_root=max_leaves_per_root,
         )
 
-    def fuse_branches(self, branches: tuple[SearchBranchResult, ...]) -> FusionResult:
+    def fuse_branches(
+        self,
+        branches: tuple[SearchBranchResult, ...],
+        *,
+        branch_queries: tuple[str, ...] | None = None,
+        max_leaves_per_root: int | None = None,
+    ) -> FusionResult:
+        if branch_queries is not None and len(branch_queries) != len(branches):
+            raise ValueError("branch query provenance must align with ranked lists")
+        root_quota = (
+            self._max_leaves_per_root
+            if max_leaves_per_root is None
+            else max_leaves_per_root
+        )
+        if root_quota <= 0:
+            raise ValueError("max_leaves_per_root must be positive")
         accumulators: dict[str, _Accumulator] = {}
         input_count = 0
         ranked_list_count = 0
-        for branch in branches:
+        for branch_index, branch in enumerate(branches):
             ranked_list_count += 1
             seen_in_list: set[str] = set()
+            query = branch_queries[branch_index] if branch_queries is not None else None
             for rank, vector_hit in enumerate(branch.hits, start=1):
                 input_count += 1
                 if vector_hit.leaf_id in seen_in_list:
@@ -65,6 +91,8 @@ class ReciprocalRankFusion:
                 elif current.root_id != vector_hit.root_id:
                     raise ValueError("one leaf ID maps to conflicting root IDs")
                 current.score += 1.0 / (self._rrf_k + rank)
+                if query is not None and query not in current.matched_queries:
+                    current.matched_queries.append(query)
                 if branch.method is SearchMethod.DENSE:
                     current.dense_rank = self._minimum(current.dense_rank, rank)
                 else:
@@ -79,7 +107,7 @@ class ReciprocalRankFusion:
         root_quota_dropped = 0
         top_k_dropped = 0
         for leaf_id, item in ordered:
-            if root_counts.get(item.root_id, 0) >= self._max_leaves_per_root:
+            if root_counts.get(item.root_id, 0) >= root_quota:
                 root_quota_dropped += 1
                 continue
             if len(selected) >= self._top_k:
@@ -94,6 +122,7 @@ class ReciprocalRankFusion:
                     fused_score=item.score,
                     rerank_score=None,
                     selected=False,
+                    matched_queries=tuple(item.matched_queries),
                 )
             )
             root_counts[item.root_id] = root_counts.get(item.root_id, 0) + 1

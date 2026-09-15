@@ -90,6 +90,27 @@ describe('public chat browser states', () => {
     expect(wrapper.find('[data-testid="citations"]').exists()).toBe(false)
   })
 
+  it('labels a cited but incomplete answer as partial instead of abstained', async () => {
+    vi.mocked(queryApi.stream).mockImplementation(async (_input, _signal, emit) => {
+      emit({
+        type: 'completed',
+        sequence: 1,
+        result: {
+          ...answered,
+          status: 'partial',
+          answer: '以下为已核验的部分信息，但仍有缺口。',
+        },
+      })
+    })
+    const wrapper = mount(ChatView)
+    await wrapper.get('textarea').setValue('部分覆盖的问题')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('部分回答，仍有缺口')
+    expect(wrapper.text()).not.toContain('已触发有边界拒答')
+  })
+
   it('shows retry-after feedback for an HTTP 429', async () => {
     vi.mocked(queryApi.stream).mockRejectedValue(
       new ApiError('limited', 429, 'RATE_LIMITED', 'request-429', 42),

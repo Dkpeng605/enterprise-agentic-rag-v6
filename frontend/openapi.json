@@ -3833,6 +3833,7 @@
                 {
                   "enum": [
                     "answered",
+                    "partial",
                     "abstained",
                     "no_results",
                     "error",
@@ -8519,6 +8520,13 @@
             },
             "type": "array",
             "title": "Sub Queries"
+          },
+          "requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requirements"
           }
         },
         "additionalProperties": false,
@@ -8530,7 +8538,8 @@
           "rewritten_query",
           "intent",
           "language",
-          "sub_queries"
+          "sub_queries",
+          "requirements"
         ],
         "title": "QueryPlanResponse"
       },
@@ -8638,6 +8647,13 @@
               }
             ],
             "title": "Rerank Score"
+          },
+          "matched_queries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Matched Queries"
           }
         },
         "additionalProperties": false,
@@ -8652,7 +8668,8 @@
           "dense_score",
           "sparse_score",
           "rrf_score",
-          "rerank_score"
+          "rerank_score",
+          "matched_queries"
         ],
         "title": "QueryRankChangeResponse"
       },
@@ -8747,6 +8764,7 @@
             "type": "string",
             "enum": [
               "answered",
+              "partial",
               "abstained",
               "no_results"
             ],
@@ -8951,6 +8969,27 @@
             },
             "type": "object",
             "title": "Attributes"
+          },
+          "covered_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Covered Requirements"
+          },
+          "missing_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Requirements"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Issues"
           }
         },
         "additionalProperties": false,
@@ -8960,7 +8999,10 @@
           "input_count",
           "output_count",
           "dropped_count",
-          "attributes"
+          "attributes",
+          "covered_requirements",
+          "missing_requirements",
+          "issues"
         ],
         "title": "QueryStageMetricResponse"
       },
@@ -9425,6 +9467,39 @@
             ],
             "title": "Query Error Rate"
           },
+          "query_outcome_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Query Outcome Counts"
+          },
+          "query_abstention_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Abstention Rate"
+          },
+          "query_answer_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Answer Rate"
+          },
+          "query_generation_degraded_24h": {
+            "type": "integer",
+            "title": "Query Generation Degraded 24H"
+          },
           "query_p95_ms": {
             "anyOf": [
               {
@@ -9455,6 +9530,10 @@
           "queries_24h",
           "query_errors_24h",
           "query_error_rate",
+          "query_outcome_counts",
+          "query_abstention_rate",
+          "query_answer_rate",
+          "query_generation_degraded_24h",
           "query_p95_ms",
           "recent_activity"
         ],

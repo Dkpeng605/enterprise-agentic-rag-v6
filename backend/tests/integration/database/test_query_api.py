@@ -40,8 +40,9 @@ def ensure_schema() -> None:
 
 
 class FakeQueryRunner:
-    def __init__(self) -> None:
+    def __init__(self, status: QueryRunStatus = QueryRunStatus.ANSWERED) -> None:
         self.commands: list[QueryCommand] = []
+        self.status = status
 
     async def run(
         self, command: QueryCommand, *, emit: ProgressSink | None = None
@@ -53,7 +54,7 @@ class FakeQueryRunner:
             await emit(QueryProgress(QueryProgressStage.ANSWERING))
         return QueryExecution(
             command.query_id,
-            QueryRunStatus.ANSWERED,
+            self.status,
             "来自测试 Runner 的答案",
             (),
             {"mode": command.mode.value},
@@ -149,6 +150,23 @@ async def test_query_sse_has_ordered_ids_events_and_terminal_payload(
     assert '"query_id"' in response.text
     assert '"trace_id"' in response.text
     assert '"mode":"standard"' in response.text
+
+
+@pytest.mark.anyio
+async def test_query_rest_and_trace_filter_preserve_partial_status(
+    query_api: tuple[httpx2.AsyncClient, FakeQueryRunner],
+) -> None:
+    client, runner = query_api
+    runner.status = QueryRunStatus.PARTIAL
+
+    response = await client.post("/api/v1/queries", json={"query": "部分覆盖"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "partial"
+    trace_id = response.json()["trace_id"]
+    traces = await client.get("/api/v1/traces/query?status=partial")
+    assert traces.status_code == 200
+    assert traces.json()["items"][0]["trace_id"] == trace_id
 
 
 @pytest.mark.anyio

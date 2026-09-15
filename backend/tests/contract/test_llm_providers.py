@@ -123,6 +123,42 @@ async def test_openai_compatible_llm_unwraps_reasoning_and_json_fence() -> None:
 
 
 @pytest.mark.anyio
+async def test_openai_compatible_llm_recovers_json_mode_preamble_and_unescaped_quote() -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": 'Here is the requested object: '
+                                '{"answer":"source says "Atlas"","ok":true}'
+                            }
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 8, "completion_tokens": 6},
+                },
+            )
+        )
+    ) as client:
+        provider = OpenAICompatibleLanguageModel(
+            base_url="https://provider.example/v1",
+            api_key="test-secret",
+            model="chat-model",
+            client=client,
+        )
+        result = await provider.complete(
+            CompletionRequest("Use JSON only.", "Return an object.", 32, json_mode=True)
+        )
+
+    assert json.loads(result.text) == {
+        "answer": 'source says "Atlas"',
+        "ok": True,
+    }
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("status", "payload", "code"),
     [

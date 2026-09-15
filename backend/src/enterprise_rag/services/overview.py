@@ -49,6 +49,10 @@ class WorkspaceOverview:
     queries_24h: int
     query_errors_24h: int
     query_error_rate: float | None
+    query_outcome_counts: dict[str, int]
+    query_abstention_rate: float | None
+    query_answer_rate: float | None
+    query_generation_degraded_24h: int
     query_p95_ms: float | None
     recent_activity: tuple[OverviewActivity, ...]
 
@@ -62,6 +66,10 @@ class WorkspaceOverview:
             "queries_24h": self.queries_24h,
             "query_errors_24h": self.query_errors_24h,
             "query_error_rate": self.query_error_rate,
+            "query_outcome_counts": dict(self.query_outcome_counts),
+            "query_abstention_rate": self.query_abstention_rate,
+            "query_answer_rate": self.query_answer_rate,
+            "query_generation_degraded_24h": self.query_generation_degraded_24h,
             "query_p95_ms": self.query_p95_ms,
             "recent_activity": [item.to_dict() for item in self.recent_activity],
         }
@@ -112,13 +120,22 @@ class WorkspaceOverviewService:
                 )
                 or 0
             )
-            query_count, query_errors, query_p95 = (
+            query_outcome_rows = list(
+                (
+                    await session.execute(
+                        select(TraceRunModel.status, func.count())
+                        .where(
+                            TraceRunModel.tenant_id == tenant_id,
+                            TraceRunModel.trace_type == "query",
+                            TraceRunModel.started_at >= since,
+                        )
+                        .group_by(TraceRunModel.status)
+                    )
+                ).all()
+            )
+            query_p95 = (
                 await session.execute(
                     select(
-                        func.count(),
-                        func.count().filter(
-                            TraceRunModel.status.in_(("error", "failed", "cancelled"))
-                        ),
                         func.percentile_disc(0.95).within_group(TraceRunModel.duration_ms),
                     ).where(
                         TraceRunModel.tenant_id == tenant_id,
@@ -126,7 +143,17 @@ class WorkspaceOverviewService:
                         TraceRunModel.started_at >= since,
                     )
                 )
-            ).one()
+            ).scalar_one()
+            query_generation_degraded = await session.scalar(
+                select(func.count())
+                .select_from(TraceRunModel)
+                .where(
+                    TraceRunModel.tenant_id == tenant_id,
+                    TraceRunModel.trace_type == "query",
+                    TraceRunModel.started_at >= since,
+                    TraceRunModel.attributes["generation_degraded"].as_boolean().is_(True),
+                )
+            )
             job_rows = list(
                 (
                     await session.scalars(
@@ -170,8 +197,23 @@ class WorkspaceOverviewService:
         for status, count in document_rows:
             if status in counts:
                 counts[status] = int(count)
-        queries = int(query_count)
-        errors = int(query_errors)
+        outcome_counts = {
+            status: 0
+            for status in (
+                "answered",
+                "partial",
+                "abstained",
+                "no_results",
+                "error",
+                "failed",
+                "cancelled",
+            )
+        }
+        for status, count in query_outcome_rows:
+            if status in outcome_counts:
+                outcome_counts[status] = int(count)
+        queries = sum(outcome_counts.values())
+        errors = sum(outcome_counts[status] for status in ("error", "failed", "cancelled"))
         activities = [
             OverviewActivity(
                 str(job.id),
@@ -212,6 +254,15 @@ class WorkspaceOverviewService:
             queries,
             errors,
             round(errors / queries, 4) if queries else None,
+            outcome_counts,
+            round(outcome_counts["abstained"] / queries, 4) if queries else None,
+            round(
+                (outcome_counts["answered"] + outcome_counts["partial"]) / queries,
+                4,
+            )
+            if queries
+            else None,
+            int(query_generation_degraded or 0),
             float(query_p95) if query_p95 is not None else None,
             tuple(activities[:6]),
         )

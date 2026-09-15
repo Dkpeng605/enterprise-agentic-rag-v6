@@ -132,7 +132,7 @@ function modeLabel(value: string | null): string {
 }
 
 function statusLabel(value: string): string {
-  return { answered: '已回答', abstained: '已拒答', no_results: '无结果', error: '错误', cancelled: '已取消' }[value] ?? value
+  return { answered: '已回答', partial: '部分回答', abstained: '已拒答', no_results: '无结果', error: '错误', cancelled: '已取消' }[value] ?? value
 }
 
 function recoveryRoute(value: string): string {
@@ -164,8 +164,22 @@ function metricAttributeLabel(value: string): string {
     top_k_dropped: 'Top-K 淘汰', rerank_candidates: '实际送入重排', truncated_roots: '截断 Root',
     used_chars: '证据字符', llm_calls: 'LLM 调用', input_tokens: '输入 token',
     output_tokens: '输出 token', citations: '引用',
+    sub_queries_with_candidates: '有候选的子查询', sub_queries_selected: '保留的子查询',
     decision: '决策', status: '状态', issues: '问题', repairs: '修复次数',
   }[value] ?? value
+}
+
+function queryMatchCount(query: string): number {
+  return detail.value?.rankings.filter((candidate) => candidate.matched_queries.includes(query)).length ?? 0
+}
+
+function queryMatchLabel(query: string): string {
+  const count = queryMatchCount(query)
+  return count ? `${count} 个 Leaf 命中` : '没有 provenance 命中'
+}
+
+function requirementLabel(value: string): string {
+  return value
 }
 
 function sparseAlgorithmLabel(value: string): string {
@@ -184,7 +198,7 @@ onMounted(() => loadTraces())
 
     <div class="trace-toolbar">
       <label>模式<select v-model="mode" @change="loadTraces()"><option value="">全部模式</option><option value="standard">Standard</option><option value="deep">Deep</option></select></label>
-      <label>结果<select v-model="status" @change="loadTraces()"><option value="">全部结果</option><option value="answered">Answered</option><option value="abstained">Abstained</option><option value="no_results">No results</option><option value="error">Error</option><option value="cancelled">Cancelled</option></select></label>
+          <label>结果<select v-model="status" @change="loadTraces()"><option value="">全部结果</option><option value="answered">Answered</option><option value="partial">Partial</option><option value="abstained">Abstained</option><option value="no_results">No results</option><option value="error">Error</option><option value="cancelled">Cancelled</option></select></label>
       <label>健康状态<select v-model="degraded" @change="loadTraces()"><option value="">全部</option><option value="false">正常</option><option value="true">已降级</option></select></label>
       <button type="button" @click="loadTraces()">刷新</button>
     </div>
@@ -214,7 +228,8 @@ onMounted(() => loadTraces())
             <div class="trace-section-head"><div><p class="section-kicker">QUERY PLAN</p><h3>查询改写与子查询</h3></div><span v-if="detail.plan">{{ detail.plan.provider }} · {{ detail.plan.intent }} · {{ detail.plan.language }}</span></div>
             <template v-if="detail.plan">
               <div class="query-plan-copy"><article><span>ORIGINAL</span><p>{{ detail.plan.original_query }}</p></article><article><span>REWRITTEN</span><p>{{ detail.plan.rewritten_query }}</p></article></div>
-              <div class="query-branches"><article v-for="(query, index) in detail.plan.sub_queries" :key="`${index}-${query}`"><span>SUB-QUERY {{ index + 1 }}</span><strong>{{ query }}</strong><small>{{ detail.plan.sub_queries.length === 1 ? '未拆分' : `共 ${detail.plan.sub_queries.length} 条并行检索分支` }}</small></article></div>
+              <div class="query-branches"><article v-for="(query, index) in detail.plan.sub_queries" :key="`${index}-${query}`"><span>SUB-QUERY {{ index + 1 }}</span><strong>{{ query }}</strong><small>{{ detail.plan.sub_queries.length === 1 ? '未拆分' : `共 ${detail.plan.sub_queries.length} 条并行检索分支` }} · {{ queryMatchLabel(query) }}</small></article></div>
+              <div v-if="detail.plan.requirements.length" class="query-requirements"><span>REQUIREMENTS / 最终必须覆盖的需求</span><div><b v-for="requirement in detail.plan.requirements" :key="requirement">{{ requirementLabel(requirement) }}</b></div></div>
             </template>
             <p v-else class="trace-inline-empty">旧 Trace 未保存 QueryPlan，无法从最终结果反推改写或子查询。</p>
           </section>
@@ -223,13 +238,13 @@ onMounted(() => loadTraces())
             <div class="trace-section-head"><div><p class="section-kicker">RUNTIME RETRIEVAL SIGNALS</p><h3>各分支与阶段数量</h3></div><span>运行观测，不等同于 Recall@K</span></div>
             <div v-if="detail.retrieval_branches.length" class="retrieval-branch-grid"><article v-for="branch in detail.retrieval_branches" :key="branch.branch_index"><header><span>BRANCH {{ branch.branch_index + 1 }}</span><strong>{{ branch.query }}</strong></header><dl><div><dt>Dense 返回</dt><dd>{{ branch.dense_returned }} / {{ branch.dense_requested }}</dd></div><div><dt>Sparse 返回 · 算法</dt><dd>{{ branch.sparse_returned }} / {{ branch.sparse_requested }} · {{ sparseAlgorithmLabel(branch.sparse_algorithm) }}</dd></div><div><dt>两路交集</dt><dd>{{ branch.overlap_count }}</dd></div><div><dt>唯一 Leaf</dt><dd>{{ branch.unique_count }}</dd></div></dl></article></div>
             <p v-else class="trace-inline-empty">旧 Trace 未保存分支计数。</p>
-            <div v-if="detail.stage_metrics.length" class="stage-metric-flow"><article v-for="(metric, index) in detail.stage_metrics" :key="`${metric.stage}-${index}`"><span>{{ metricStageLabel(metric.stage) }}</span><strong>{{ metric.input_count }} → {{ metric.output_count }}</strong><small>淘汰 / 拒绝 {{ metric.dropped_count }}</small><ul v-if="Object.keys(metric.attributes).length"><li v-for="(value, key) in metric.attributes" :key="key">{{ metricAttributeLabel(String(key)) }} · {{ value }}</li></ul></article></div>
+            <div v-if="detail.stage_metrics.length" class="stage-metric-flow"><article v-for="(metric, index) in detail.stage_metrics" :key="`${metric.stage}-${index}`"><span>{{ metricStageLabel(metric.stage) }}</span><strong>{{ metric.input_count }} → {{ metric.output_count }}</strong><small>淘汰 / 拒绝 {{ metric.dropped_count }}</small><ul v-if="Object.keys(metric.attributes).length"><li v-for="(value, key) in metric.attributes" :key="key">{{ metricAttributeLabel(String(key)) }} · {{ value }}</li></ul><div v-if="metric.covered_requirements.length" class="metric-requirements metric-requirements--covered"><em>已覆盖</em><b v-for="item in metric.covered_requirements" :key="item">{{ item }}</b></div><div v-if="metric.missing_requirements.length" class="metric-requirements metric-requirements--missing"><em>缺失</em><b v-for="item in metric.missing_requirements" :key="item">{{ item }}</b></div><div v-if="metric.issues.length" class="metric-requirements metric-requirements--missing"><em>校验问题</em><b v-for="item in metric.issues" :key="item">{{ item }}</b></div></article></div>
             <p class="metric-disclaimer">候选返回率、Dense/Sparse 交集、权限过滤与排名位移可以描述单次运行；Recall@K、MRR、NDCG 必须使用带 gold 标注的评测集计算，请在“评测中心”查看。</p>
           </section>
 
           <section class="trace-section"><div class="trace-section-head"><div><p class="section-kicker">LATENCY WATERFALL</p><h3>全链路瀑布</h3></div><span>0 ms → {{ Math.round(detail.summary.duration_ms) }} ms</span></div><div class="waterfall" data-testid="waterfall"><article v-for="stage in detail.stages" :key="stage.span_id"><div><strong><b v-if="stage.parent_span_id">↳</b>{{ stageLabel(stage.name) }}</strong><small>+{{ Math.round(stage.offset_ms) }} ms · {{ stage.duration_ms.toFixed(1) }} ms<template v-if="stage.parent_span_id"> · parent {{ stage.parent_span_id.slice(0, 6) }}</template></small></div><div class="waterfall-track"><i :class="{ 'waterfall-bar--deep': stage.name.includes('deep_recovery'), 'waterfall-bar--degraded': stage.degraded }" :style="stageStyle(stage.offset_ms, stage.duration_ms)"></i></div></article><p v-if="!detail.stages.length" class="trace-inline-empty">该 Trace 没有已持久化 Span。</p></div></section>
 
-          <section class="trace-section"><div class="trace-section-head"><div><p class="section-kicker">RANK MOVEMENT</p><h3>Dense / Sparse → RRF → Rerank</h3></div><span>{{ detail.rankings.length }} 个可追踪候选 · 多分支取最佳 Dense/Sparse 名次</span></div><div v-if="detail.rankings.length" class="rank-table" data-testid="rank-table"><div class="rank-row rank-row--head"><span>候选 / Root</span><span v-for="item in rankStages" :key="item.key">{{ item.label }}</span></div><div v-for="candidate in detail.rankings" :key="candidate.leaf_id" class="rank-row"><span><strong>{{ candidate.leaf_id }}</strong><small>{{ candidate.root_id || 'Root 未记录' }}</small></span><span v-for="item in rankStages" :key="item.key"><b>{{ rankValue(candidate[item.key]) }}</b><small>{{ scoreValue(candidate[item.score]) }}</small></span></div></div><p v-else class="trace-inline-empty">当前 Trace 没有候选排名事件，无法推断排名变化。</p></section>
+          <section class="trace-section"><div class="trace-section-head"><div><p class="section-kicker">RANK MOVEMENT</p><h3>Dense / Sparse → RRF → Rerank</h3></div><span>{{ detail.rankings.length }} 个可追踪候选 · 多分支取最佳 Dense/Sparse 名次</span></div><div v-if="detail.rankings.length" class="rank-table" data-testid="rank-table"><div class="rank-row rank-row--head"><span>候选 / Root</span><span v-for="item in rankStages" :key="item.key">{{ item.label }}</span></div><div v-for="candidate in detail.rankings" :key="candidate.leaf_id" class="rank-row"><span><strong>{{ candidate.leaf_id }}</strong><small>{{ candidate.root_id || 'Root 未记录' }}</small><small v-if="candidate.matched_queries.length" class="rank-provenance">命中：{{ candidate.matched_queries.join(' · ') }}</small></span><span v-for="item in rankStages" :key="item.key"><b>{{ rankValue(candidate[item.key]) }}</b><small>{{ scoreValue(candidate[item.score]) }}</small></span></div></div><p v-else class="trace-inline-empty">当前 Trace 没有候选排名事件，无法推断排名变化。</p></section>
 
           <section v-if="detail.summary.mode === 'deep'" class="trace-section"><div class="trace-section-head"><div><p class="section-kicker">DEEP RECOVERY</p><h3>证据恢复轮次</h3></div><span>最多展示实际执行轮次</span></div><div v-if="detail.recovery_rounds.length" class="recovery-grid" data-testid="recovery-rounds"><article v-for="round in detail.recovery_rounds" :key="round.round_number"><span>ROUND {{ round.round_number }}</span><strong>{{ recoveryRoute(round.route) }}</strong><p>目标 {{ round.target_count }} · 返回 {{ round.returned_count }} · 新增 {{ round.added_count }}</p><small v-if="round.duplicate_count">去重 {{ round.duplicate_count }} 条</small></article></div><p v-else class="trace-inline-empty">本次 Deep 查询未触发 Recovery，或旧 Trace 未记录恢复 Span。</p></section>
         </template>

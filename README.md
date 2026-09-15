@@ -173,8 +173,9 @@ Recovery Controller：有证据时由当前 OpenAI-compatible LLM 逐项判断 r
 
 Standard 与 Deep 的回答都不再直接信任自由文本：LLM 必须返回段落、引用 ID、Root/Leaf ID、Root 原文
 连续 quote 和覆盖 requirements 的结构化草稿。后端确定性核验每个事实段落、引用归属、quote 与覆盖率；
-JSON/schema 错误最多原证据重生成一次；结构有效但核验失败时，再使用完全相同的授权证据修复一次，
-重新核验失败就返回空引用拒答。
+JSON/schema 错误最多原证据重生成一次；结构有效但核验失败时，再使用完全相同的授权证据修复一次。
+全部 requirement 覆盖后返回 `answered`；若存在合法引用但仍缺少 requirement，返回 `partial`，保留已核验段落
+和引用并明确列出缺口；引用结构错误、证据冲突或完全没有可保留事实时才返回 `abstained`，不能把边界内的部分答案误认为完整回答。
 
 本轮结构化调用会在 OpenAI-compatible 请求中显式发送 `response_format: {"type":"json_object"}`，而不是
 只依赖 Prompt 约束。Query Planner、Evidence Assessor、Answer Author/Repair、可选 LLM Judge 和人工 LLM
@@ -183,11 +184,12 @@ JSON/schema 错误最多原证据重生成一次；结构有效但核验失败�
 不会把模型返回的 Markdown 或异常文本当成结构化事实。
 
 Mac QueryRunner 会先调用同一个受 timeout/retry 保护的 OpenAI-compatible LLM 生成严格 JSON
-QueryPlan：把依赖会话的问题改写为独立检索问题，并按复杂度生成 1～4 条不重复子查询；简单事实问题保留
-1 条精确子查询，比较、多条件和多跳问题才拆成多条，不能为了展示而无意义扩增。后端继续严格校验字段、
-数量、UUID 与 Scope；坏 JSON、越权 Scope 或 Provider 故障会整体降级为确定性改写/拆分。
-由于 `requirements` 会直接驱动回答核验，简单单段 factual 问题的最终 requirement 固定为用户原问题；模型仍负责
-改写和子查询，但不能凭空追加“如有区分还要比较导入/导出”等条件，避免明明有证据却被回答核验误判为缺项。
+QueryPlan：把依赖会话的问题改写为独立检索问题。子查询不是默认步骤：正常情况下只有一条改写后的检索路径，
+只有 Planner LLM 明确返回确有必要的 2～4 条互补路径时才并行执行，不能为了展示而无意义扩增。后端继续严格
+校验字段、数量、UUID 与 Scope；坏 JSON、越权 Scope 或 Provider 故障会整体降级为单一确定性检索路径。
+`requirements` 与检索路径完全解耦：无论是否拆成多条，QueryPlan 始终只保留一个来自原始用户问题的 requirement。
+子查询只是获取同一 requirement 证据的替代路线，不会创建新的回答义务；只要任一分支提供足够可靠的证据，回答
+作者和最终核验就可以完成同一个 requirement，不会因为其他分支没有命中而强制拒答。
 完成问答后到“Query Trace”可查看本次改写、子查询、Planner Provider/降级、Planner token、每个分支的
 Dense/Sparse 返回量、交集、RRF 去重与淘汰、权限过滤、Rerank、Root 恢复、Deep 证据评估/恢复轮次、
 回答生成、引用核验/修复及各自 token。Planner、Assessor、回答与 Repair 调用都会计入查询 usage；即使
@@ -204,14 +206,20 @@ regeneration，结构有效但引用或 requirement 校验失败时再允许一�
 中调整本机输出上限，并观察 Trace 的 `answer_generation` usage；不要通过关闭 `response_format`、删除
 Citation Verify 或把 answer error 标成 answered 来掩盖问题。
 
-拒答诊断必须区分三个维度：Query 的 `status`（`answered`/`abstained`/`no_results`；底层 Trace 还可能记录
+结果诊断必须区分三个维度：Query 的 `status`（`answered`/`partial`/`abstained`/`no_results`；底层 Trace 还可能记录
 `error`/`cancelled`）、回答阶段的
-`answer_status`（包括 `not_generated`、`generation_degraded`、`answered`、`repaired`、`abstained`）以及
+`answer_status`（包括 `not_generated`、`generation_degraded`、`answered`、`repaired`、`partial`、`abstained`）以及
 `planner_degraded`、`reranker_degraded`、`assessor_degraded`、`generation_degraded` 等组件状态。
 `assessor_degraded` 表示评估器失败后的有界恢复，不等同于“没有召回”；`generation_degraded` 表示答案结构
 没有得到可核验结果，不能把安全拒答改记为成功。Query Trace 的 `degraded=true` 筛选会对这些稳定降级字段
 做 OR 查询，因此不会漏掉 Assessor 或 Answer Generation 降级；`degraded=false` 则只保留没有任何已记录组件
 降级的运行。单次 Trace 的候选数量和拒答率是运行诊断，不是 Recall/MRR，也不能替代带 gold 的评测指标。
+
+“租户总览”现在同时展示过去 24 小时的 `query_outcome_counts`、`query_abstention_rate`、
+`query_answer_rate` 和 `query_generation_degraded_24h`。拒答率定义为
+`abstained / 全部 query trace`；`partial` 计入有效回答率但不计入完整回答率，`no_results` 和
+`error` 不会被伪装成拒答或回答。`generation_degraded` 单独计数，用于识别“模型结构化输出失败造成的安全拒答”，
+不能仅凭这一项判断检索质量。
 
 若旧版本曾让测试库与应用共用，先停止后端，再做只读检查；确认后才应用删除。命令按
 `tenant/version/index_revision` 对 PostgreSQL 事实和 Milvus 投影进行对账。新写入投影会携带 revision 标记，
@@ -551,6 +559,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R11 真实 OpenAI-compatible Vision Provider 与目录选择：已完成
 - M7-R12 revision-aware Milvus reconcile：已完成
 - M7-R13 拒答率诊断与证据预算修复：已完成
+- M7-R14 部分答案状态与拒答率口径修复：已完成
 - 下一项：M8 公网发布
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
@@ -733,7 +742,7 @@ query text，并并行调用两条独立检索路径。tenant 与授权 collecti
 前写入两路请求，Milvus 再强制追加 `status=ready`；任何 scope 都不能在召回后补过滤。两路原始分数保持
 独立并附带最小诊断，融合由 M4-02 负责；Query Trace 会显示每个分支实际使用的 Sparse 算法。
 
-RRF Fusion 按每个 query 的 Dense/Sparse 排名列表计算 `Σ 1/(k+rank)`，不直接混加不可比较的原始分数。同一 Leaf 跨分路去重，同一 Root 默认最多保留 3 个 Leaf，全局默认保留 30 个；完全同分使用 Leaf ID 稳定排序，并报告各类配额丢弃数量。
+RRF Fusion 按每个 query 的 Dense/Sparse 排名列表计算 `Σ 1/(k+rank)`，不直接混加不可比较的原始分数。同一 Leaf 跨分路去重，单查询同一 Root 默认最多保留 3 个 Leaf；多子查询时配额自适应为 `max(3, 子查询数)`，避免不同分支在融合阶段提前挤掉同一 Root 的互补 Leaf。全局默认保留 30 个，完全同分使用 Leaf ID 稳定排序，并报告实际 Root 配额与各类淘汰数量。该调整只扩大候选漏斗和保留替代检索证据，不把子查询变成 requirement，也不放宽租户权限、Root 回源或引用核验。
 
 Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种实现。默认 `local_cross_encoder` 使用约 0.08GB 的 `Xenova/ms-marco-MiniLM-L-6-v2`，该默认模型只按英文能力声明；中文或多语场景必须显式选择对应模型，2GB 生产服务器可选择 SiliconFlow `BAAI/bge-reranker-v2-m3`，通过官方 `/v1/rerank` 请求 `model/query/documents/top_n`。服务默认重排前 20 个 RRF 候选并选择 8 个，严格按候选 ID 对齐；超时、坏响应、重复/未知 ID 和非有限分数都会净化诊断并降级为稳定的 RRF 选择。真实本地模型可单独验证：
 
@@ -744,13 +753,13 @@ Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种�
 
 Scope/Root 服务把服务端授权边界与用户的 metadata 条件解析为 PostgreSQL 中当前明确的 ready document ID 集合。匿名用户仍拥有 demo tenant 全部业务权限，但不能通过请求覆盖 tenant；受限身份按获准 Collection/Document 取并集。title、organization、media type、active version UUID 和 section 均在事实源中校验，显式矛盾返回不泄露资源存在性的 `QUERY_SCOPE_CONFLICT`。召回 Leaf 在进入 Reranker 前、selected Root 在进入上下文前都会再次联表检查 tenant、active collection、ready document 和 indexed active version，因此旧向量、删除中或未授权内容会被丢弃。Root 恢复的 18,000 字符上限用于上下文预算计量并记录确定性截断；`RootContext` 仍保留完整 clean text 用于 citation quote 核验，Answer/Assessor 只接收本轮授权且被选中的 Leaf 原文片段，避免把合法的后半段 quote 误判为不存在。
 
-Query Planning Service 将结构化 Planner 输出视为不可信输入，严格校验字段、intent、子查询/需求数量、UUID 和 Scope 收窄关系。模型不能改变 Standard/Deep mode，不能凭空加入 Collection/Document ID，也不能覆盖调用方显式 metadata。Mac 组合通过当前 OpenAI-compatible LLM 执行查询改写与 1～4 路分解，并独立记录 Planner token/call；简单、单段 factual 问题的 requirement 会确定性收敛为用户原问题，防止模型添加未提问的条件导致错误拒答；比较、多条件、流程和总结问题保留结构化 requirements。任何坏响应或 Provider 故障都会整体降级为确定性计划：保留原 Scope，识别中英文比较、流程和总结意图，拆分多条件，并使用最近一条 user 历史补足指代。Planner 的供应商异常不会进入 QueryPlan。
+Query Planning Service 将结构化 Planner 输出视为不可信输入，严格校验字段、intent、子查询/需求数量、UUID 和 Scope 收窄关系。模型不能改变 Standard/Deep mode，不能凭空加入 Collection/Document ID，也不能覆盖调用方显式 metadata。Mac 组合通过当前 OpenAI-compatible LLM 执行查询改写；默认只执行一条路径，只有 LLM 明确返回多个有意义的 sub-query 才并行分解，并独立记录 Planner token/call。无论 factual、comparison、多条件、流程还是总结问题，requirements 都确定性收敛为原始用户问题；sub-query 不会产生新的 requirement，也不要求每条分支分别覆盖。任一分支证据足以支撑该唯一 requirement 时即可进入回答核验。任何坏响应或 Provider 故障都会整体降级为确定性单路径计划：保留原 Scope，并使用最近一条 user 历史补足指代。Planner 的供应商异常不会进入 QueryPlan。
 
 Standard Query Graph 使用显式状态机串联 Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer。每次运行返回真实状态转移；RRF、授权 Leaf 或二次校验 Root 为空都会进入 NoResults 并跳过答案模型。Standard 固定把 Planner 尝试计为第 1 次 LLM 调用、最终答案计为第 2 次并执行硬上限；Planner 降级不触发额外调用。未分类故障进入带净化错误码的 Failed 状态，不把异常文本交给客户端。
 
-Deep Recovery 使用按 Leaf ID 跨轮去重的 Evidence Ledger，并给 Recovery 新证据预留最终名额。通用 Controller 默认以 0.45/0.80 双阈值决定直接恢复、调用 Assessor 或直接回答；Mac 真实组合采用更严格的 `always_assess` 策略，对每次有证据的 Deep 决策调用当前 LLM，模型只判断 requirement 覆盖、冲突和决策，最终分数仍由覆盖率与检索置信度计算。默认最多两轮，仍有缺口则 Abstain。四条恢复路径为 Rewrite Hybrid、HyDE Dense-only、Exact-term Sparse-only 和仅放宽 Planner 新增且调用方未指定字段的 Scope repair；每条路径都重新执行检索、RRF、权限校验、Rerank 与 Root 恢复。Mac 完整组合的精确术语路径使用真实 Milvus BM25 Provider；离线公开评测仍使用 Hashing Lexical 获得零成本确定性分数，两种模式均不会互相冒充。
+Deep Recovery 使用按 Leaf ID 跨轮去重的 Evidence Ledger，并给 Recovery 新证据预留最终名额。通用 Controller 默认以 0.45/0.80 双阈值决定直接恢复、调用 Assessor 或直接回答；Mac 真实组合采用更严格的 `always_assess` 策略，对每次有证据的 Deep 决策调用当前 LLM，模型只判断原始问题这一条 requirement 的覆盖、冲突和决策，最终分数仍由覆盖率与检索置信度计算。多个 sub-query 只是同一问题的替代证据来源，不要求每个分支都独立命中；只要一个分支的证据足够，Assessor 即可判定该 requirement 已覆盖。默认最多两轮，仍有缺口则 Abstain。四条恢复路径为 Rewrite Hybrid、HyDE Dense-only、Exact-term Sparse-only 和仅放宽 Planner 新增且调用方未指定字段的 Scope repair；每条路径都重新执行检索、RRF、权限校验、Rerank 与 Root 恢复。Mac 完整组合的精确术语路径使用真实 Milvus BM25 Provider；离线公开评测仍使用 Hashing Lexical 获得零成本确定性分数，两种模式均不会互相冒充。
 
-Answer Verification 要求每个事实段落绑定引用；引用 Root 必须来自本轮授权上下文、Leaf 必须属于该 Root，quote 必须是 Root clean text 中真实存在的连续片段，同时覆盖 QueryPlan 的全部 requirements。结构或覆盖错误最多 Repair 一次，并使用完全相同的证据集合再次校验；Evidence conflict 不会通过改写掩盖，而是直接 Abstain。最终只有验证通过的答案会生成带 document/root/Leaf、page/section、quote 和 score 的领域 Citation；其余返回有边界拒答和空引用，不泄露供应商错误。
+Answer Verification 要求每个事实段落绑定引用；引用 Root 必须来自本轮授权上下文、Leaf 必须属于该 Root，quote 必须是 Root clean text 中真实存在的连续片段，同时覆盖 QueryPlan 的全部 requirements。结构或覆盖错误最多 Repair 一次，并使用完全相同的证据集合再次校验；Evidence conflict 不会通过改写掩盖，而是直接 Abstain。完整覆盖且验证通过时生成带 document/root/Leaf、page/section、quote 和 score 的领域 Citation；若最终仍缺 requirement，状态保持 `abstained`，但可返回已独立通过确定性校验的部分段落与引用，并展示 missing requirements，不泄露供应商错误。
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 

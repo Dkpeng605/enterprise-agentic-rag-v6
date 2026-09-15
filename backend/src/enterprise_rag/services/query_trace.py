@@ -28,6 +28,7 @@ class QueryRankChange:
     sparse_score: float | None = None
     rrf_score: float | None = None
     rerank_score: float | None = None
+    matched_queries: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +57,7 @@ class QueryPlanSnapshot:
     intent: str
     language: str
     sub_queries: tuple[str, ...]
+    requirements: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +80,9 @@ class QueryStageMetric:
     output_count: int
     dropped_count: int
     attributes: dict[str, int | float | str]
+    covered_requirements: tuple[str, ...] = ()
+    missing_requirements: tuple[str, ...] = ()
+    issues: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,7 +136,7 @@ def _usage(detail: TraceDetail) -> dict[str, int | float]:
 
 
 def _rankings(spans: tuple[StoredSpan, ...]) -> tuple[QueryRankChange, ...]:
-    candidates: dict[str, dict[str, str | int | float | None]] = {}
+    candidates: dict[str, dict[str, object]] = {}
     insertion_order: dict[str, int] = {}
     for span in spans:
         for event in span.events:
@@ -174,6 +179,10 @@ def _rankings(spans: tuple[StoredSpan, ...]) -> tuple[QueryRankChange, ...]:
                 candidate["sparse_rank"] = _integer(
                     attributes.get("rag.sparse_rank")
                 ) or candidate.get("sparse_rank")
+                candidate["matched_queries"] = _merge_texts(
+                    candidate.get("matched_queries"),
+                    attributes.get("rag.matched_queries"),
+                )
             else:
                 candidate["rerank_rank"] = rank
                 candidate["rerank_score"] = _number(
@@ -182,6 +191,10 @@ def _rankings(spans: tuple[StoredSpan, ...]) -> tuple[QueryRankChange, ...]:
                 candidate["rrf_score"] = _number(
                     attributes.get("rag.fused_score")
                 ) or candidate.get("rrf_score")
+                candidate["matched_queries"] = _merge_texts(
+                    candidate.get("matched_queries"),
+                    attributes.get("rag.matched_queries"),
+                )
     projected = tuple(
         QueryRankChange(
             leaf_id=leaf_id,
@@ -194,6 +207,7 @@ def _rankings(spans: tuple[StoredSpan, ...]) -> tuple[QueryRankChange, ...]:
             sparse_score=_number(candidate.get("sparse_score")),
             rrf_score=_number(candidate.get("rrf_score")),
             rerank_score=_number(candidate.get("rerank_score")),
+            matched_queries=_texts(candidate.get("matched_queries")),
         )
         for leaf_id, candidate in candidates.items()
     )
@@ -275,6 +289,7 @@ def _plan(spans: tuple[StoredSpan, ...]) -> QueryPlanSnapshot | None:
     intent = _text(values.get("rag.plan.intent"))
     language = _text(values.get("rag.plan.language"))
     sub_queries = _texts(values.get("rag.plan.sub_queries"))
+    requirements = _texts(values.get("rag.plan.requirements"))
     if None in {provider, original, rewritten, intent, language} or not sub_queries:
         return None
     return QueryPlanSnapshot(
@@ -285,6 +300,7 @@ def _plan(spans: tuple[StoredSpan, ...]) -> QueryPlanSnapshot | None:
         intent or "",
         language or "",
         sub_queries,
+        requirements,
     )
 
 
@@ -356,6 +372,10 @@ def _stage_metrics(spans: tuple[StoredSpan, ...]) -> tuple[QueryStageMetric, ...
                         "duplicate_collapsed": max(0, input_count - unique_count),
                         "root_quota_dropped": root_dropped,
                         "top_k_dropped": top_k_dropped,
+                        "max_leaves_per_root": _integer(
+                            values.get("rag.fusion.max_leaves_per_root")
+                        )
+                        or 0,
                     },
                 )
             )
@@ -368,6 +388,12 @@ def _stage_metrics(spans: tuple[StoredSpan, ...]) -> tuple[QueryStageMetric, ...
                 attributes["rerank_candidates"] = (
                     _integer(values.get("rag.candidate_count")) or 0
                 )
+                attributes["sub_queries_with_candidates"] = _integer(
+                    values.get("rag.sub_query_candidate_count")
+                ) or 0
+                attributes["sub_queries_selected"] = _integer(
+                    values.get("rag.sub_query_selected_count")
+                ) or 0
             if span.name == "rag.root_restore":
                 attributes["truncated_roots"] = (
                     _integer(values.get("rag.truncated_count")) or 0
@@ -414,6 +440,12 @@ def _stage_metrics(spans: tuple[StoredSpan, ...]) -> tuple[QueryStageMetric, ...
                         "output_tokens": _integer(values.get("rag.output_tokens")) or 0,
                         "decision": _text(values.get("rag.recovery.decision")) or "unknown",
                     },
+                    covered_requirements=_texts(
+                        values.get("rag.recovery.covered_requirements")
+                    ),
+                    missing_requirements=_texts(
+                        values.get("rag.recovery.missing_requirements")
+                    ),
                 )
             )
         elif span.name == "rag.answer_verification":
@@ -433,6 +465,10 @@ def _stage_metrics(spans: tuple[StoredSpan, ...]) -> tuple[QueryStageMetric, ...
                         "input_tokens": _integer(values.get("rag.input_tokens")) or 0,
                         "output_tokens": _integer(values.get("rag.output_tokens")) or 0,
                     },
+                    missing_requirements=_texts(
+                        values.get("rag.answer.missing_requirements")
+                    ),
+                    issues=_texts(values.get("rag.answer.issues")),
                 )
             )
     order = {
@@ -449,7 +485,7 @@ def _stage_metrics(spans: tuple[StoredSpan, ...]) -> tuple[QueryStageMetric, ...
 
 
 def _record_best_rank(
-    candidate: dict[str, str | int | float | None],
+    candidate: dict[str, object],
     method: str,
     rank: int | None,
     score: float | None,
@@ -484,3 +520,7 @@ def _texts(value: object) -> tuple[str, ...]:
     if not isinstance(value, list | tuple):
         return ()
     return tuple(item for item in value if isinstance(item, str) and item)
+
+
+def _merge_texts(first: object, second: object) -> tuple[str, ...]:
+    return tuple(dict.fromkeys((*_texts(first), *_texts(second))))

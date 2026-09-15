@@ -52,7 +52,7 @@ class LanguageModelEvidenceAssessor:
         language_model: LanguageModel,
         *,
         max_evidence_chars: int = 12_000,
-        max_output_tokens: int = 700,
+        max_output_tokens: int = 2_000,
     ) -> None:
         if max_evidence_chars <= 0 or max_output_tokens <= 0:
             raise ValueError("evidence assessor limits must be positive")
@@ -227,7 +227,10 @@ class LanguageModelAnswerAuthor:
 
 _ASSESS_SYSTEM_PROMPT = """You are the evidence assessor in a Deep RAG graph.
 Return exactly one JSON object, without Markdown or extra text. Judge only the supplied evidence.
-Partition every requirement into exactly one of covered_requirements or missing_requirements.
+The requirements list contains the original user-level question, not one requirement per retrieval
+sub-query. Evidence from any one sub-query may be sufficient; do not require every sub-query to
+produce a separate supporting item. Partition every requirement into exactly one of
+covered_requirements or missing_requirements.
 List concrete contradictions in conflicts. Use decision answer only when all requirements are
 covered
 and there are no conflicts; use recover when another retrieval could help; otherwise use abstain.
@@ -236,14 +239,16 @@ Fields: covered_requirements, missing_requirements, conflicts, decision, reason.
 _ANSWER_SYSTEM_PROMPT = """You are the cited answer author in an enterprise RAG graph.
 Return exactly one compact JSON object, without Markdown, extra text, or a chain of thought. Do not
 show step-by-step reasoning, analysis, or a plan. Think privately and output only the final object.
-Use only supplied Root evidence. Keep the response small: at most 4 short paragraphs, at most 6
-citations, and one short verbatim quote per citation (preferably under 120 characters). Each
-paragraph has text, citation_ids, and factual. Each citation has id, root_id, leaf_ids, and a
-short quote copied verbatim from that Root. Every factual paragraph needs at least one valid
-citation. Do not claim a requirement is covered unless the answer addresses it. If the evidence
-does not support a requirement, leave it out of covered_requirements and state the missing point
-briefly in one non-factual paragraph. Never invent IDs or evidence. Do not repeat the evidence or
-the question.
+Use only supplied Root evidence. The leaf_evidence requirement_hints are retrieval provenance,
+not proof; verify every claim against the accompanying source text. For every requirement that
+the source supports, write a concise factual paragraph or clearly separated sentence and cite it.
+Keep the response small: at most 4 short paragraphs, at most 6 citations, and one short verbatim
+quote per citation (preferably under 120 characters). Each paragraph has text, citation_ids, and
+factual. Each citation has id, root_id, leaf_ids, and a short quote copied verbatim from that Root.
+Every factual paragraph needs at least one valid citation. Do not claim a requirement is covered
+unless the answer addresses it. If the evidence does not support a requirement, leave it out of
+covered_requirements and state the missing point briefly in one non-factual paragraph. Never invent
+IDs or evidence. Do not repeat the evidence or the question.
 Use this exact shape and JSON types:
 {"paragraphs":[{"text":"answer [1]","citation_ids":[1],"factual":true}],
 "citations":[{"id":1,"root_id":"root_...","leaf_ids":["leaf_..."],
@@ -291,6 +296,10 @@ def _bounded_evidence(items: Sequence[EvidenceItem], limit: int) -> list[dict[st
 
 
 def _answer_payload(plan: QueryPlan, roots: Sequence[RootContext]) -> str:
+    def requirement_hints(queries: Sequence[str]) -> list[str]:
+        del queries
+        return list(plan.requirements)
+
     return json.dumps(
         {
             "task": "draft",
@@ -305,6 +314,18 @@ def _answer_payload(plan: QueryPlan, roots: Sequence[RootContext]) -> str:
                     "title": root.title,
                     "source": root.source_name,
                     "text": root.evidence_text or root.text,
+                    "leaf_evidence": [
+                        {
+                            "leaf_id": leaf_id,
+                            "matched_queries": list(
+                                root.leaf_matched_queries.get(leaf_id, ())
+                            ),
+                            "requirement_hints": requirement_hints(
+                                root.leaf_matched_queries.get(leaf_id, ())
+                            ),
+                        }
+                        for leaf_id in root.leaf_ids
+                    ],
                 }
                 for root in roots
             ],

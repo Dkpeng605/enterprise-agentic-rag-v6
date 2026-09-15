@@ -16,7 +16,9 @@ from enterprise_rag.ports import (
 from enterprise_rag.services import RerankingService, RerankItem
 
 
-def hit(letter: str, fused_score: float) -> RetrievalHit:
+def hit(
+    letter: str, fused_score: float, matched_queries: tuple[str, ...] = ()
+) -> RetrievalHit:
     return RetrievalHit(
         leaf_id=f"leaf_{letter * 64}",
         root_id=f"root_{letter * 64}",
@@ -25,6 +27,7 @@ def hit(letter: str, fused_score: float) -> RetrievalHit:
         fused_score=fused_score,
         rerank_score=None,
         selected=False,
+        matched_queries=matched_queries,
     )
 
 
@@ -70,6 +73,8 @@ async def test_maps_ids_orders_scores_and_bounds_candidate_funnel() -> None:
         [
             RerankResult(items[2].hit.leaf_id, 0.7),
             RerankResult(items[0].hit.leaf_id, 0.9),
+            RerankResult(items[1].hit.leaf_id, 0.2),
+            RerankResult(items[3].hit.leaf_id, 0.1),
         ]
     )
     service = RerankingService(provider, rerank_candidates=4, selected_leaf_k=2)
@@ -84,10 +89,64 @@ async def test_maps_ids_orders_scores_and_bounds_candidate_funnel() -> None:
     assert all(result.selected for result in outcome.hits)
     assert outcome.candidate_count == 4
     assert outcome.degraded is False
-    assert provider.calls[0][2] == 2
+    assert provider.calls[0][2] == 4
     assert [value.candidate_id for value in provider.calls[0][1]] == [
         entry.hit.leaf_id for entry in items[:4]
     ]
+
+
+@pytest.mark.anyio
+async def test_selection_preserves_coverage_for_low_scoring_subquery() -> None:
+    q1 = item("a", 0.9)
+    q1_second = item("b", 0.8)
+    q2 = RerankItem(
+        hit("c", 0.1, ("subquery-2",)),
+        "text c",
+    )
+    items = (
+        RerankItem(
+            RetrievalHit(
+                leaf_id=q1.hit.leaf_id,
+                root_id=q1.hit.root_id,
+                dense_rank=1,
+                sparse_rank=None,
+                fused_score=q1.hit.fused_score,
+                rerank_score=None,
+                selected=False,
+                matched_queries=("subquery-1",),
+            ),
+            q1.retrieval_text,
+        ),
+        RerankItem(
+            RetrievalHit(
+                leaf_id=q1_second.hit.leaf_id,
+                root_id=q1_second.hit.root_id,
+                dense_rank=2,
+                sparse_rank=None,
+                fused_score=q1_second.hit.fused_score,
+                rerank_score=None,
+                selected=False,
+                matched_queries=("subquery-1",),
+            ),
+            q1_second.retrieval_text,
+        ),
+        q2,
+    )
+    provider = FakeReranker(
+        [
+            RerankResult(items[0].hit.leaf_id, 0.99),
+            RerankResult(items[1].hit.leaf_id, 0.98),
+            RerankResult(items[2].hit.leaf_id, 0.20),
+        ]
+    )
+
+    outcome = await RerankingService(provider, selected_leaf_k=2).rerank("q", items)
+
+    assert [result.leaf_id for result in outcome.hits] == [
+        items[0].hit.leaf_id,
+        items[2].hit.leaf_id,
+    ]
+    assert provider.calls[0][2] == 3
 
 
 @pytest.mark.anyio

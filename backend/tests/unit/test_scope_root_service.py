@@ -17,7 +17,14 @@ DOCUMENT_ID = UUID("01900000-0000-7000-8000-000000001402")
 VERSION_ID = UUID("01900000-0000-7000-8000-000000001403")
 
 
-def hit(letter: str, root: str, *, selected: bool = False, score: float = 0.2) -> RetrievalHit:
+def hit(
+    letter: str,
+    root: str,
+    *,
+    selected: bool = False,
+    score: float = 0.2,
+    matched_queries: tuple[str, ...] = (),
+) -> RetrievalHit:
     return RetrievalHit(
         f"leaf_{letter * 64}",
         f"root_{root * 64}",
@@ -26,6 +33,7 @@ def hit(letter: str, root: str, *, selected: bool = False, score: float = 0.2) -
         score,
         score + 1 if selected else None,
         selected,
+        matched_queries,
     )
 
 
@@ -166,6 +174,31 @@ async def test_recover_exposes_only_selected_leaf_text_as_model_evidence() -> No
 
     assert result.roots[0].text == "full Root source text"
     assert result.roots[0].evidence_text == "exact Leaf source text"
+
+
+@pytest.mark.anyio
+async def test_recover_preserves_leaf_subquery_provenance_for_answer_author() -> None:
+    selected = hit("a", "1", selected=True, matched_queries=("subquery-1",))
+    repository = FakeContextRepository(
+        roots=(
+            StoredRootEvidence(
+                selected.root_id,
+                DOCUMENT_ID,
+                VERSION_ID,
+                "policy.txt",
+                "Policy",
+                "Acme",
+                "text/plain",
+                "source text",
+            ),
+        )
+    )
+
+    result = await ScopeRootService(repository).recover(repository.scope, (selected,))
+
+    assert result.roots[0].leaf_matched_queries == {
+        selected.leaf_id: ("subquery-1",)
+    }
 
 
 @pytest.mark.anyio
