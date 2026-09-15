@@ -192,8 +192,10 @@ Dense/Sparse 返回量、交集、RRF 去重与淘汰、权限过滤、Rerank、
 没有召回结果，已发生的 Planner 调用仍会如实计费。这里的运行计数
 不是 Recall@K；带 gold 的质量指标只在“评测中心”计算。
 
-若旧版本曾让测试库与应用共用，先停止后端，再做只读检查；确认后才应用删除。命令只会删除 PostgreSQL
-中已经不存在 tenant/version 的 Milvus 投影，不会删除对象文件、文档或任务：
+若旧版本曾让测试库与应用共用，先停止后端，再做只读检查；确认后才应用删除。命令按
+`tenant/version/index_revision` 对 PostgreSQL 事实和 Milvus 投影进行对账。新写入投影会携带 revision 标记，
+因此同一 version 的旧 revision 可以定向删除而保留当前 revision；只有 PostgreSQL 中完全不存在的 tenant/version
+才允许使用 version 级删除。命令不会删除对象文件、文档或任务：
 
 ```bash
 uv run --project backend --env-file .env python scripts/mac-reconcile-vectors.py
@@ -201,7 +203,10 @@ uv run --project backend --env-file .env python scripts/mac-reconcile-vectors.py
 ```
 
 Milvus Lite 只允许单进程打开；运行以上命令时后端必须处于停止状态。`vector_count_mismatch` 不会自动
-删除，因为它也可能表示有效版本缺失向量，需要重新摄取或人工核对。
+删除，因为它也可能表示有效版本缺失向量，需要重新摄取或人工核对。旧版没有 revision 标记、但 version 仍
+存在的投影会报告 `unknown_vector_revision` 并保持不变；这是有意的安全策略，不能仅凭 collection 或当前
+Provider 猜测归属。带有 revision 标记的 stale projection 会报告 `orphan_vector`，`--apply` 只删除该
+tenant/version/revision。
 
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
 
@@ -510,6 +515,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R9 Milvus 原生 BM25 Sparse：已完成
 - M7-R10 Provider 失败路径与重建投影完整性：已完成
 - M7-R11 真实 OpenAI-compatible Vision Provider 与目录选择：已完成
+- M7-R12 revision-aware Milvus reconcile：已完成
 - 下一项：M8 公网发布
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
@@ -640,9 +646,9 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 
 删除请求会立即让租户所属文档退出 `ready`、清空 active version、取消摄取任务，并创建或复用一个 delete job。Worker 通过可重入 Saga 依次清理 Milvus、PostgreSQL 内容和无引用对象文件，最后保存 document/version tombstone 并完成任务。只要仍有非 deleted version 引用，共享内容寻址文件就会保留。
 
-Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
+Reconcile 将 Milvus 的 `(tenant_id, version_id, index_revision)` projection、本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。新投影的 revision 由隐藏诊断 metadata 持久化，避免同一 version 的新旧 collection 被错误聚合。默认模式只读；apply 模式只删除已证明无 PostgreSQL 所有权的 version 投影，或已证明属于过期 revision 的投影，并回收超期 lease。有效 version 的数量不一致、缺少 revision 标记的旧投影和缺失对象会保留为未解决项，因为当前存储阶段尚无足够事实安全重建。如果 PostgreSQL 已不存在某个 version，才使用 version 级删除清理旧数据；任何带 revision 的清理都使用定向 collection 删除。`scripts/mac-reconcile-vectors.py` 是该服务的本机入口，HTTP/MCP 仍复用同一 Application Service，不另写业务逻辑。
 
-M7-R7～R11 已补齐 Provider 重建一致性、真实 Mac Streamable HTTP MCP、Milvus 原生 BM25、远程 Provider 失败路径以及真实 OpenAI-compatible Vision。重启不会自动清除 Milvus 持久化 collection；若 PostgreSQL 与 Milvus 的事实边界不一致，先停止 API，再使用按 tenant/version 定向的 reconcile 或安全重建，禁止删除整个 Milvus 文件。
+M7-R7～R12 已补齐 Provider 重建一致性、真实 Mac Streamable HTTP MCP、Milvus 原生 BM25、远程 Provider 失败路径、真实 OpenAI-compatible Vision 以及 revision-aware reconcile。重启不会自动清除 Milvus 持久化 collection；若 PostgreSQL 与 Milvus 的事实边界不一致，先停止 API，再使用按 tenant/version/revision 定向的 reconcile 或安全重建，禁止删除整个 Milvus 文件。
 
 M1～M7 已完成（52/64 Slice）。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、EDD 评测闭环、公开 Benchmark Adapter、完整 Vue3/TypeScript 工作区，以及 Compose 中可复现的浏览器全旅程。M7-R1 另提供不计入 64 个发布 Slice 的 Mac 真实 Provider 开发组合；生产镜像、进程和公网部署仍属于 M8，因此默认入口不会把离线验收或 Mac 开发组合冒充生产服务。
 

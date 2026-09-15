@@ -3046,6 +3046,58 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - PR：`feat/m7-r11-real-vision-provider`、`feat/m7-r11-vision-config`、`feat/m7-r11-vision-runtime`，以及
   本 Slice 的 Provider catalog/UI PR。
 
+##### M7-R12 revision-aware Milvus reconcile（已完成）
+
+- 缺陷事实：Milvus Lite 的 collection 会跨 API 重启持久化，而 PostgreSQL 可能被恢复、重建或曾被测试 fixture
+  清空。旧 `list_version_projections()` 只按 `(tenant_id, version_id)` 聚合，因此同一 version 的 active/new
+  revision 与 stale/old revision 会被合并；reconcile 既无法识别 stale revision，也可能把数量错误地解释为有效
+  version 的 mismatch。普通重启本身不是数据丢失原因，真正的边界是两个存储的事实源生命周期不同。
+- EDD 顺序：先新增红灯契约测试，要求同一 tenant/version 的两个 revision 返回两个独立 projection，并暴露
+  `index_revision`；再新增 PostgreSQL + 真实 Milvus Lite 集成红灯，要求 `run_vectors(apply=True)` 删除 stale
+  revision 后 active revision 仍可计数；最后实现 marker、revision 分组和定向删除。测试禁止使用删除整个
+  Milvus 文件的方式“修复”。
+- 领域契约：`VectorProjection` 必须携带 `index_revision: str | None`。非空值表示该投影由当前协议写入并可进行
+  revision 级处理；`None` 表示 Milvus 旧行没有 marker，不能由 Adapter 伪造或从 collection 名称猜回。Projection
+  的身份完整形式为 `(index_revision, tenant_id, version_id)`，count 必须为正数；同一 version 的不同 revision
+  不得合并。
+- 持久化实现：每次 `VectorRecord` upsert 将真实 `record.index_revision` 写入 Milvus JSON metadata 的内部键
+  `_index_revision`，不改变 Root/Leaf 正文、PostgreSQL metadata 或 collection schema。Projection 扫描只读取
+  `tenant_id`、`version_id` 和该 marker，不读取向量正文；marker 缺失的旧行返回 `None`。现有 collection 重启后
+  仍由 `ensure_revision` 恢复 dimension/sparse mode，不能依赖某次查询预热。
+- 删除与计数：保留 `delete_by_version(tenant, version)` 给文档删除和 PostgreSQL 已不存在 version 的孤儿清理；
+  新增/使用 `count_by_version_revision(tenant, version, revision)` 与
+  `delete_by_version_revision(tenant, version, revision)` 时，只访问由 revision 解析出的 collection，并在删除
+  前以 tenant/version 过滤。不能因一个 revision 的失败或清理而删除同 version 的其他 revision。
+- 数据库快照：PostgreSQL reconcile snapshot 按 tenant、version 和 Root `index_revision` 分组，Leaf count 只统计
+  隶属该 Root 的行。有效事实键为 `(tenant_id, version_id, index_revision)`；version 不存在于快照时才表示
+  version-level orphan。若事实存在但 projection 缺失或数量不同，必须报告 `vector_count_mismatch`，不得猜测性删除。
+- Reconcile 状态机：
+  - projection revision 带 marker，且不在 PostgreSQL 事实键中：报告 `orphan_vector`，identity 包含
+    `tenant:version:revision`；`apply` 只调用 `delete_by_version_revision`，并以 `repaired` 标记实际处理；
+  - projection revision 带 marker，且事实键存在：按该 revision 比较 Leaf count；缺失/数量不同报告
+    `vector_count_mismatch`，不自动重建；
+  - projection revision 为 `None`，且 tenant/version 不存在：报告 `orphan_vector`，`apply` 才能调用
+    `delete_by_version`；
+  - projection revision 为 `None`，但 tenant/version 仍存在：报告 `unknown_vector_revision`，expected 为 `None`，
+    永不自动删除；管理员必须先通过可证明的旧版本清单或重新摄取解决；
+  - PostgreSQL 中存在事实键但 Milvus 没有对应 projection：报告 `vector_count_mismatch`，不把其他 revision
+    的 count 借来填充。
+- CLI 与并发边界：`scripts/mac-reconcile-vectors.py` 继续复用 `ReconcileService`，`--apply` 只表示显式允许安全
+  删除；默认 dry-run 和 JSON 字段保持稳定。运行前必须停止 API，因为 Milvus Lite 文件为 single-process；脚本
+  不删除对象、文档、任务、整个 collection 或整个 Milvus 文件。多副本生产 reconcile 不属于本 Slice，M8 必须改为
+  持久化 Job/Saga 或支持分布式互斥的 VectorStore。
+- 可观测性与隐私：内部 marker 仅用于跨存储归属核对，不进入 Root/Leaf 文本、回答、公开 Trace 或 Provider
+  catalog；报告只包含稳定 issue kind、tenant/version/revision identity、expected/actual/count 和 repaired，不能
+  输出向量、token、密钥或对象内容。`unknown_vector_revision` 的未修复状态必须在 CLI 退出码中体现。
+- 验收：Milvus contract tests、PostgreSQL + Milvus Lite integration tests、Ruff、strict Mypy、后端全量 Pytest、
+  前端 Vitest/typecheck/build、OpenAPI drift、quality gate 和 Browser E2E 必须全绿；真实 Mac smoke 需证明重启后
+  projection 仍按 revision 分开、active revision 查询不受 stale revision 定向清理影响。旧 marker 缺失数据只能得到
+  明确报告，不能把“apply 无报错”当作安全证明。
+- 回滚：停止 reconcile/重建任务后回滚代码；新 revision 的 stale 清理不会触碰同 version 的 active revision，
+  失败目标可按 revision 重试。不得删除整个 Milvus 文件，不增加 migration；旧未标记行保留原状，后续可通过重新摄取
+  写入带 marker 的新 projection。
+- PR：`fix/m7-r12-revision-aware-reconcile`。
+
 ### M8：首次公网发布
 
 #### M8-01 Images

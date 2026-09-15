@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dry-run or remove Mac Milvus projections whose versions do not exist in PostgreSQL."""
+"""Dry-run or safely remove stale Mac Milvus projections."""
 
 import argparse
 import asyncio
@@ -63,7 +63,10 @@ def main() -> int:
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="delete only projections whose tenant/version ownership is absent in PostgreSQL",
+        help=(
+            "delete only PostgreSQL-missing versions or explicitly marked stale revisions; "
+            "legacy unmarked rows remain report-only"
+        ),
     )
     arguments = parser.parse_args()
     return asyncio.run(run(apply=arguments.apply))

@@ -154,11 +154,14 @@ class UpsertResult:
 
 @dataclass(frozen=True, slots=True)
 class VectorProjection:
+    index_revision: str | None
     tenant_id: UUID
     version_id: UUID
     count: int
 
     def __post_init__(self) -> None:
+        if self.index_revision is not None and not self.index_revision.strip():
+            raise ValueError("index_revision must be non-empty when provided")
         require_uuid7(self.tenant_id, "tenant_id")
         require_uuid7(self.version_id, "version_id")
         if self.count <= 0:

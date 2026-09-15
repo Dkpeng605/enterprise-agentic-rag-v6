@@ -423,7 +423,7 @@ class MilvusLiteVectorStore:
         """Return aggregate projection ownership without exposing vector payloads."""
 
         self._ensure_open()
-        counts: dict[tuple[UUID, UUID], int] = defaultdict(int)
+        counts: dict[tuple[str | None, UUID, UUID], int] = defaultdict(int)
         async with self._lock:
             for collection_name in await self._collection_names():
                 await self._load_collection(collection_name)
@@ -432,12 +432,29 @@ class MilvusLiteVectorStore:
                     collection_name,
                 )
                 for row in rows:
-                    key = (UUID(str(row["tenant_id"])), UUID(str(row["version_id"])))
+                    metadata = row.get("metadata")
+                    revision = None
+                    if isinstance(metadata, Mapping):
+                        value = metadata.get("_index_revision")
+                        if isinstance(value, str) and value.strip():
+                            revision = value
+                    key = (
+                        revision,
+                        UUID(str(row["tenant_id"])),
+                        UUID(str(row["version_id"])),
+                    )
                     counts[key] += 1
         return tuple(
-            VectorProjection(tenant_id=key[0], version_id=key[1], count=count)
+            VectorProjection(
+                index_revision=key[0], tenant_id=key[1], version_id=key[2], count=count
+            )
             for key, count in sorted(
-                counts.items(), key=lambda item: (str(item[0][0]), str(item[0][1]))
+                counts.items(),
+                key=lambda item: (
+                    item[0][1].hex,
+                    item[0][2].hex,
+                    item[0][0] or "",
+                ),
             )
         )
 
@@ -508,7 +525,7 @@ class MilvusLiteVectorStore:
             batch_size=1000,
             limit=-1,
             filter="",
-            output_fields=["tenant_id", "version_id"],
+            output_fields=["tenant_id", "version_id", "metadata"],
         )
         rows: list[Mapping[str, object]] = []
         try:
@@ -557,7 +574,9 @@ class MilvusLiteVectorStore:
             "version_id": str(record.version_id),
             "status": record.status,
             "dense_vector": list(record.dense_vector),
-            "metadata": to_json_value(record.metadata),
+            "metadata": to_json_value(
+                {**record.metadata, "_index_revision": record.index_revision}
+            ),
         }
         if sparse_mode is SparseMode.PRECOMPUTED:
             if record.sparse_vector is None:

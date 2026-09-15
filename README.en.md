@@ -221,8 +221,11 @@ reported when retrieval finds no evidence. These runtime counts are not Recall@K
 metrics remain in Evaluations.
 
 If an older checkout shared the application and test database, stop the backend and run the read-only
-check before applying deletion. The command removes only Milvus projections whose tenant/version no
-longer exists in PostgreSQL; it does not delete objects, documents, or jobs:
+check before applying deletion. The command reconciles PostgreSQL facts with Milvus projections by
+`tenant/version/index_revision`. New projections persist a revision marker, so a stale revision for a
+valid version can be deleted precisely while the active revision is retained. A version-scoped delete
+is used only when PostgreSQL has no such tenant/version at all. The command does not delete objects,
+documents, or jobs:
 
 ```bash
 uv run --project backend --env-file .env python scripts/mac-reconcile-vectors.py
@@ -231,7 +234,11 @@ uv run --project backend --env-file .env python scripts/mac-reconcile-vectors.py
 
 Milvus Lite permits only one process to hold its file, so the backend must be stopped. A
 `vector_count_mismatch` remains unresolved because it may represent missing vectors for a valid version
-and requires re-ingestion or manual investigation.
+and requires re-ingestion or manual investigation. Legacy rows without a revision marker remain
+unchanged and are reported as `unknown_vector_revision` when their version still exists; this is an
+intentional safety boundary because collection names and the current Provider cannot prove ownership.
+Marked stale projections are reported as `orphan_vector`, and `--apply` deletes only that
+tenant/version/revision.
 
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
 To stop PostgreSQL only:
@@ -527,6 +534,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R8 Mac Streamable HTTP MCP real composition: complete
 - M7-R9 native Milvus BM25 Sparse: complete
 - M7-R10 Provider failure paths and projection integrity: complete
+- M7-R12 revision-aware Milvus reconcile: complete
 - Next: M8 public deployment
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
@@ -666,9 +674,9 @@ Application errors keep their explicit details deeply immutable, but the excepti
 
 Deletion requests immediately move a tenant-owned document out of `ready`, clear its active version, cancel ingestion work, and enqueue one reusable delete job. The worker runs an idempotent Saga across Milvus, PostgreSQL content, and unreferenced object files before persisting document/version tombstones and completing the job. Shared content-addressed files remain until no non-deleted version references them.
 
-Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
+Reconcile compares Milvus `(tenant_id, version_id, index_revision)` projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. New projection rows persist the revision in hidden diagnostic metadata, preventing old and new collections for one version from being aggregated together. Its default mode is read-only. Apply mode removes only proven orphan or stale-revision projections and files and recovers leases; a PostgreSQL-missing version is the only case that uses version-scoped deletion. Legacy projections without a marker, missing files, and vector count mismatches remain explicit unresolved findings because ownership or reconstruction cannot be proven safely. `scripts/mac-reconcile-vectors.py` is the local entry point; HTTP/MCP continue to reuse the same Application Service rather than duplicating business logic.
 
-M7-R7 through M7-R11 now cover Provider rebuild consistency, real Mac Streamable HTTP MCP, native Milvus BM25, remote-Provider failure paths, and a real OpenAI-compatible Vision adapter. A restart does not automatically remove a persisted Milvus collection; when PostgreSQL and Milvus cross-store facts diverge, stop the API first and use tenant/version-scoped reconcile or safe rebuild. Never delete the entire Milvus file.
+M7-R7 through M7-R12 now cover Provider rebuild consistency, real Mac Streamable HTTP MCP, native Milvus BM25, remote-Provider failure paths, a real OpenAI-compatible Vision adapter, and revision-aware reconcile. A restart does not automatically remove a persisted Milvus collection; when PostgreSQL and Milvus cross-store facts diverge, stop the API first and use tenant/version/revision-scoped reconcile or safe rebuild. Never delete the entire Milvus file.
 
 M1 through M7 are complete (52/64 slices). The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, the complete Vue3/TypeScript workspace, and a reproducible Compose browser journey. M7-R1 also provides a real-provider Mac development composition outside the 64 release slices. Production images, processes, and public deployment remain M8 work, so neither the offline acceptance nor Mac development composition is presented as production.
 
