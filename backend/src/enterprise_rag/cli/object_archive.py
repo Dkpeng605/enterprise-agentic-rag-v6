@@ -9,7 +9,7 @@ import sys
 import tarfile
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import BinaryIO
+from typing import IO, BinaryIO
 
 OBJECT_KEY_PARTS = 4
 OBJECT_DIGEST_LENGTH = 64
@@ -83,7 +83,10 @@ def create_archive(root: Path, output: BinaryIO) -> int:
             key = str(entry["key"])
             path = resolved_root / key
             info = tarfile.TarInfo(f"objects/{key}")
-            info.size = int(entry["size"])
+            size = entry["size"]
+            if not isinstance(size, int):
+                raise ValueError(f"ObjectStore manifest size is not an integer: {key}")
+            info.size = size
             info.mode = 0o600
             info.mtime = 0
             with path.open("rb") as source:
@@ -135,7 +138,12 @@ def _safe_target(root: Path, key: str) -> Path:
     return target
 
 
-def _restore_member(root: Path, member: tarfile.TarInfo, expected: tuple[int, str], source: BinaryIO) -> None:
+def _restore_member(
+    root: Path,
+    member: tarfile.TarInfo,
+    expected: tuple[int, str],
+    source: IO[bytes],
+) -> None:
     key = member.name.removeprefix("objects/")
     target = _safe_target(root, key)
     target.parent.mkdir(parents=True, exist_ok=True)

@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import json
 from datetime import UTC, datetime
-from pathlib import Path
 
 from enterprise_rag.adapters.database import Database
 from enterprise_rag.adapters.embeddings import DEFAULT_MODEL
@@ -79,7 +78,9 @@ async def _run(*, settings: AppSettings, apply: bool) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="apply only safe reconcile repairs")
-    parser.add_argument("--fingerprint", action="store_true", help="print provider/index identity only")
+    parser.add_argument(
+        "--fingerprint", action="store_true", help="print provider/index identity only"
+    )
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     arguments = parser.parse_args()
     del arguments.json
