@@ -2520,8 +2520,10 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - Query 链路：每次查询严格执行服务端 Scope 校验、Dense/Sparse、RRF、PostgreSQL 二次授权、
   CrossEncoder、Root 恢复、grounded LLM answer 和领域 Citation；无 Root 时跳过 LLM 并返回
   `no_results`。LLM Prompt 明确只能使用编号证据并要求 `[n]` 引用；UI Citation 的 quote 仍直接截取
-  已授权 Root，不能信任模型伪造引用。简单单 requirement 的 Standard 最多使用 3 个 Root；拆分后的多
-  requirement Standard 使用覆盖感知选择，最多使用 5 个 Root，Deep 最多使用 5 个 Root；
+  已授权 Root，不能信任模型伪造引用。单一原始 requirement 的 Standard 最多使用 3 个 Root；存在多条
+  替代 sub-query 时使用覆盖感知的候选保留，最多使用 5 个 Root，Deep 最多使用 5 个 Root。这里保留的是
+  检索路径的证据机会，不是为每条 sub-query 创建 requirement，也不要求每条路径分别有证据；任一分支的
+  可靠证据都可以支撑同一个原始 requirement；
 - Deep 限制：此增强入口的 Deep 只扩大综合证据窗口，尚未装配 M4-07 多轮 Recovery Controller，
   README 与 UI/验收不得宣称已经执行多轮 Recovery。该差距应在后续独立 Slice 接入，而不是隐式补齐；
 - 本地安全：`.env.mac.example` 只能包含占位 token；真实 `.env` 必须被 Git 忽略。文档和 query 在
@@ -2734,8 +2736,8 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   当前 Planner 的 UUID 规则不允许从空 Scope 新增 ID，因此模型不能借 Scope Recovery 扩大租户边界；
 - 证据终态：Deep 在每次评估后按 decision 继续、回答或拒答；超过两轮仍为 Recover 会转换成 Abstain。
   最终答案只使用 Ledger 选出的、当前 executor 实际持有的授权 Root，最多 5 个；简单单 requirement 的
-  Standard 最多 3 个，拆分后的多 requirement Standard 使用覆盖感知选择、最多 5 个；两种模式共用下面的
-  结构化答案与核验链路；
+  Standard 最多 3 个；多 sub-query Standard 使用替代路径感知选择、最多 5 个，Deep 最多 5 个。两种模式
+  共用下面的结构化答案与核验链路，且始终只核验一个来自原始问题的 requirement；
 - Answer Author Adapter：LLM 必须返回 `paragraphs`、`citations`、`covered_requirements`。每个事实段落显式
   列 citation IDs；每条 citation 列正整数 ID、当前 Root ID、该 Root 的 Leaf IDs，以及从 Root clean text
   连续复制的非空 quote。Root recovery 保留完整 clean text 给确定性 Verifier，但 Answer Author 与 Evidence
@@ -2744,7 +2746,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
  citation 和短 quote；证据不足时仅简洁说明缺口，不重复问题或证据。JSON 类型、重复项和领域值在进入 Verifier 前校验；首次坏 JSON/schema 可在
   同一证据上执行一次 schema regeneration，仍失败才净化为 `LLM_INVALID_RESPONSE` 并安全拒答；
 - Citation Verify：确定性服务核对 Citation ID 唯一性、Root 属于本次授权上下文、Leaf 属于 Root、quote
-  是 Root 正文连续子串、事实段落有有效引用、引用 ID 存在，并覆盖 QueryPlan 全部 requirements。Evidence
+  是 Root 正文连续子串、事实段落有有效引用、引用 ID 存在，并覆盖 QueryPlan 唯一的原始问题 requirement。Evidence
   conflict 直接拒答，不能通过措辞修复掩盖；只有验证通过才生成含 document/root/Leaf、page/section、
   quote 与 score 的领域 Citation；
 - Repair/Abstain：schema regeneration 与语义 Repair 分开计数；首次草稿结构有效但引用/覆盖校验失败时，使用完全相同的 QueryPlan 与 Root 集合调用

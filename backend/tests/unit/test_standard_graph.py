@@ -50,7 +50,7 @@ def query_plan() -> QueryPlan:
         "改写问题",
         QueryIntent.FACTUAL,
         ("子问题一", "子问题二"),
-        ("回答问题",),
+        ("问题",),
         QueryScope(),
         "zh",
         QueryMode.STANDARD,

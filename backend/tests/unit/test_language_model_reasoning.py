@@ -54,7 +54,7 @@ def plan() -> QueryPlan:
         "政策是什么？",
         QueryIntent.FACTUAL,
         ("政策是什么？",),
-        ("定义", "期限"),
+        ("政策是什么？",),
         QueryScope(),
         "zh",
         QueryMode.DEEP,
@@ -84,7 +84,7 @@ async def test_llm_evidence_assessor_reads_bounded_evidence_and_reports_usage() 
         [
             json.dumps(
                 {
-                    "covered_requirements": ["定义", "期限"],
+                    "covered_requirements": ["政策是什么？"],
                     "missing_requirements": [],
                     "conflicts": [],
                     "decision": "answer",
@@ -97,7 +97,7 @@ async def test_llm_evidence_assessor_reads_bounded_evidence_and_reports_usage() 
     assessor = LanguageModelEvidenceAssessor(model, max_evidence_chars=100)
 
     result = await assessor.assess(
-        ("定义", "期限"),
+        ("政策是什么？",),
         (EvidenceItem(LEAF_ID, ROOT_ID, 0.9, (), 0, None, "政策定义与期限证据"),),
         0.27,
     )
@@ -118,14 +118,14 @@ async def test_structured_answer_is_verified_and_invalid_first_draft_is_repaired
         "citations": [
             {"id": 1, "root_id": ROOT_ID, "leaf_ids": [LEAF_ID], "quote": "并不存在"}
         ],
-        "covered_requirements": ["定义", "期限"],
+        "covered_requirements": ["政策是什么？"],
     }
     valid = {
         "paragraphs": [{"text": "政策定义明确，有效期限为三年。[1]", "citation_ids": [1]}],
         "citations": [
             {"id": 1, "root_id": ROOT_ID, "leaf_ids": [LEAF_ID], "quote": "有效期限为三年"}
         ],
-        "covered_requirements": ["定义", "期限"],
+        "covered_requirements": ["政策是什么？"],
     }
     author = LanguageModelAnswerAuthor(
         ScriptedLanguageModel([json.dumps(invalid), json.dumps(valid)])
@@ -152,7 +152,7 @@ async def test_answer_author_receives_selected_leaf_evidence_not_full_root() -> 
         "citations": [
             {"id": 1, "root_id": ROOT_ID, "leaf_ids": [LEAF_ID], "quote": "有效期限为三年"}
         ],
-        "covered_requirements": ["定义", "期限"],
+        "covered_requirements": ["政策是什么？"],
     }
     selected_root = RootContext(
         ROOT_ID,
@@ -184,8 +184,8 @@ async def test_answer_author_receives_leaf_subquery_requirement_hints() -> None:
         "定义和期限是什么？",
         "定义和期限是什么？",
         QueryIntent.FACTUAL,
-        ("定义", "期限"),
-        ("定义", "期限"),
+        ("定义和期限是什么？",),
+        ("定义和期限是什么？",),
         QueryScope(),
         "zh",
         QueryMode.STANDARD,
@@ -220,7 +220,7 @@ async def test_answer_author_receives_leaf_subquery_requirement_hints() -> None:
         {
             "leaf_id": LEAF_ID,
             "matched_queries": ["定义", "期限"],
-            "requirement_hints": ["定义", "期限"],
+            "requirement_hints": ["定义和期限是什么？"],
         }
     ]
 
@@ -232,7 +232,7 @@ async def test_invalid_json_draft_gets_one_schema_retry_with_aggregated_usage() 
         "citations": [
             {"id": 1, "root_id": ROOT_ID, "leaf_ids": [LEAF_ID], "quote": "政策定义明确"}
         ],
-        "covered_requirements": ["定义", "期限"],
+        "covered_requirements": ["政策是什么？"],
     }
     author = LanguageModelAnswerAuthor(
         ScriptedLanguageModel(["not-json", json.dumps(valid)])

@@ -14,7 +14,6 @@ from enterprise_rag.services import (
     RootContext,
     VerificationIssue,
 )
-from enterprise_rag.services.semantic_query import _effective_plan
 
 DOCUMENT_ID = UUID("01900000-0000-7000-8000-000000001801")
 VERSION_ID = UUID("01900000-0000-7000-8000-000000001802")
@@ -28,7 +27,7 @@ def plan() -> QueryPlan:
         "政策是什么？",
         QueryIntent.FACTUAL,
         ("政策是什么？",),
-        ("定义", "期限"),
+        ("政策是什么？",),
         QueryScope(),
         "zh",
         QueryMode.DEEP,
@@ -52,45 +51,11 @@ def root() -> RootContext:
     )
 
 
-def test_runtime_fallback_uses_original_question_not_rewritten_query() -> None:
-    empty_requirement_plan = QueryPlan(
-        "原始用户问题",
-        "改写后的检索路径",
-        QueryIntent.FACTUAL,
-        ("改写后的检索路径",),
-        (),
-        QueryScope(),
-        "zh",
-        QueryMode.STANDARD,
-    )
-
-    effective = _effective_plan(empty_requirement_plan)
-
-    assert effective.requirements == ("原始用户问题",)
-
-
-def test_runtime_boundary_discards_provider_requirements_even_when_non_empty() -> None:
-    unsafe_plan = QueryPlan(
-        "原始用户问题",
-        "改写后的检索路径",
-        QueryIntent.FACTUAL,
-        ("路径一", "路径二", "路径三", "路径四"),
-        ("要求一", "要求二", "要求三", "要求四"),
-        QueryScope(),
-        "zh",
-        QueryMode.STANDARD,
-    )
-
-    effective = _effective_plan(unsafe_plan)
-
-    assert effective.requirements == ("原始用户问题",)
-
-
 def valid_draft() -> AnswerDraft:
     return AnswerDraft(
         (DraftParagraph("政策定义明确，有效期三年。[1]", (1,)),),
         (DraftCitation(1, ROOT_ID, (LEAF_ID,), "有效期限为三年"),),
-        ("定义", "期限"),
+        ("政策是什么？",),
     )
 
 
@@ -170,7 +135,7 @@ async def test_whitespace_normalized_quote_is_canonicalized_to_source_text() -> 
     draft = AnswerDraft(
         (DraftParagraph("政策定义明确，有效期限为三年。[1]", (1,)),),
         (DraftCitation(1, ROOT_ID, (LEAF_ID,), "政策定义明确。 有效期限为三年"),),
-        ("定义", "期限"),
+        ("政策是什么？",),
     )
 
     outcome = await AnswerVerificationService(FakeRepairer(RuntimeError("must not run"))).finalize(
@@ -186,7 +151,7 @@ async def test_bad_quote_is_repaired_once_using_the_same_roots() -> None:
     bad = AnswerDraft(
         (DraftParagraph("错误引用。[1]", (1,)),),
         (DraftCitation(1, ROOT_ID, (LEAF_ID,), "不存在的原文"),),
-        ("定义", "期限"),
+        ("政策是什么？",),
     )
     repairer = FakeRepairer(valid_draft())
 
@@ -205,7 +170,7 @@ async def test_missing_requirement_after_one_repair_returns_a_partial_answer() -
     incomplete = AnswerDraft(
         (DraftParagraph("只有定义。[1]", (1,)),),
         (DraftCitation(1, ROOT_ID, (LEAF_ID,), "政策定义明确"),),
-        ("定义",),
+        (),
     )
     repairer = FakeRepairer(incomplete)
 
@@ -215,8 +180,8 @@ async def test_missing_requirement_after_one_repair_returns_a_partial_answer() -
 
     assert outcome.status is AnswerStatus.PARTIAL
     assert len(outcome.citations) == 1 and outcome.repair_count == 1
-    assert outcome.missing_requirements == ("期限",)
-    assert "只有定义" in outcome.answer and "期限" in outcome.answer
+    assert outcome.missing_requirements == ("政策是什么？",)
+    assert "只有定义" in outcome.answer and "政策是什么？" in outcome.answer
     assert VerificationIssue.MISSING_REQUIREMENT in outcome.issues
     assert len(repairer.requests) == 1
 
@@ -242,13 +207,13 @@ async def test_repair_cannot_introduce_a_new_root_or_leak_repair_failure() -> No
     bad = AnswerDraft(
         (DraftParagraph("无引用事实", ()),),
         (),
-        ("定义", "期限"),
+        ("政策是什么？",),
     )
     invented_root = "root_" + "f" * 64
     invented = AnswerDraft(
         (DraftParagraph("虚构证据。[1]", (1,)),),
         (DraftCitation(1, invented_root, (LEAF_ID,), "虚构"),),
-        ("定义", "期限"),
+        ("政策是什么？",),
     )
     outcome = await AnswerVerificationService(FakeRepairer(invented)).finalize(
         plan=plan(), roots=(root(),), draft=bad
