@@ -1778,6 +1778,8 @@ export interface components {
             language: string;
             /** Sub Queries */
             sub_queries: string[];
+            /** Requirements */
+            requirements: string[];
         };
         /** QueryRankChangeResponse */
         QueryRankChangeResponse: {
@@ -1801,6 +1803,8 @@ export interface components {
             rrf_score: number | null;
             /** Rerank Score */
             rerank_score: number | null;
+            /** Matched Queries */
+            matched_queries: string[];
         };
         /** QueryRecoveryRoundResponse */
         QueryRecoveryRoundResponse: {
@@ -1844,7 +1848,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "answered" | "abstained" | "no_results";
+            status: "answered" | "partial" | "abstained" | "no_results";
             /** Answer */
             answer: string;
             /** Citations */
@@ -1912,6 +1916,12 @@ export interface components {
             attributes: {
                 [key: string]: number | string;
             };
+            /** Covered Requirements */
+            covered_requirements: string[];
+            /** Missing Requirements */
+            missing_requirements: string[];
+            /** Issues */
+            issues: string[];
         };
         /** QueryTraceViewResponse */
         QueryTraceViewResponse: {
@@ -2094,6 +2104,16 @@ export interface components {
             query_errors_24h: number;
             /** Query Error Rate */
             query_error_rate: number | null;
+            /** Query Outcome Counts */
+            query_outcome_counts: {
+                [key: string]: number;
+            };
+            /** Query Abstention Rate */
+            query_abstention_rate: number | null;
+            /** Query Answer Rate */
+            query_answer_rate: number | null;
+            /** Query Generation Degraded 24H */
+            query_generation_degraded_24h: number;
             /** Query P95 Ms */
             query_p95_ms: number | null;
             /** Recent Activity */
@@ -5095,7 +5115,7 @@ export interface operations {
         parameters: {
             query?: {
                 mode?: ("standard" | "deep") | null;
-                status?: ("answered" | "abstained" | "no_results" | "error" | "cancelled") | null;
+                status?: ("answered" | "partial" | "abstained" | "no_results" | "error" | "cancelled") | null;
                 degraded?: boolean | null;
                 cursor?: string | null;
                 limit?: number;

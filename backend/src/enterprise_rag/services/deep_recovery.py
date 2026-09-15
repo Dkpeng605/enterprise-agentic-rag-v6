@@ -293,6 +293,20 @@ class DeepRecoveryController:
                 assessment, used_assessor = await self._assess(
                     request.requirements, ledger.all()
                 )
+                if (
+                    assessment.decision is EvidenceDecision.ABSTAIN
+                    and assessment.missing_requirements
+                    and not assessment.conflicts
+                    and round_number < self._max_rounds
+                ):
+                    assessment = replace(
+                        assessment,
+                        decision=EvidenceDecision.RECOVER,
+                        reason=(
+                            "Evidence is incomplete without a conflict; scheduling bounded "
+                            "Recovery before final abstention."
+                        ),
+                    )
                 assessment_span.set_attribute("rag.recovery.score", assessment.score)
                 assessment_span.set_attribute(
                     "rag.recovery.decision", assessment.decision.value
@@ -302,6 +316,12 @@ class DeepRecoveryController:
                 )
                 assessment_span.set_attribute(
                     "rag.recovery.covered_count", len(assessment.covered_requirements)
+                )
+                assessment_span.set_attribute(
+                    "rag.recovery.covered_requirements", assessment.covered_requirements
+                )
+                assessment_span.set_attribute(
+                    "rag.recovery.missing_requirements", assessment.missing_requirements
                 )
                 assessment_span.set_attribute("rag.llm_calls", assessment.llm_calls)
                 assessment_span.set_attribute("rag.input_tokens", assessment.input_tokens)
@@ -392,14 +412,25 @@ class DeepRecoveryController:
                 assessed = await self._assessor.assess(requirements, evidence, score)
             except Exception as error:
                 llm_calls, input_tokens, output_tokens = _error_usage(error)
+                decision = (
+                    EvidenceDecision.ANSWER
+                    if score >= self._high
+                    else EvidenceDecision.RECOVER
+                )
+                reason = (
+                    "Evidence assessor unavailable; deterministic coverage and confidence "
+                    "met the high threshold."
+                    if decision is EvidenceDecision.ANSWER
+                    else "Evidence assessor unavailable; continuing with bounded recovery."
+                )
                 return (
                     EvidenceAssessment(
                         score,
                         covered,
                         missing,
                         (),
-                        EvidenceDecision.RECOVER,
-                        "Evidence assessor unavailable; continuing with bounded recovery.",
+                        decision,
+                        reason,
                         llm_calls=llm_calls,
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,

@@ -197,7 +197,10 @@ Neither mode trusts free-form answer text. The LLM must return structured paragr
 Root and Leaf IDs, contiguous quotes copied from Root evidence, and covered requirements. The backend
 deterministically verifies factual paragraphs, ownership, quotes, and coverage. A rejected draft gets at
 most one schema regeneration for malformed JSON and one semantic repair with exactly the same authorized
-roots. Each result is fully verified again; otherwise the query abstains with no citations.
+roots. Fully covered results are `answered`; when valid citations remain but requirements are missing, the
+API returns `partial`, preserves only independently verified paragraphs and citations, and lists the gaps.
+Malformed citation structure, conflicts, or no retainable evidence remain `abstained`; a partial result is
+never presented as complete.
 
 Structured calls now explicitly send `response_format: {"type":"json_object"}` through the
 OpenAI-compatible adapter instead of relying only on prompt instructions. Query Planner, Evidence Assessor,
@@ -208,17 +211,18 @@ sanitized stable error and follows the existing bounded abstention policy rather
 unexpected text as structured facts.
 
 The Mac QueryRunner first calls the same timeout/retry-bounded OpenAI-compatible LLM for a strict JSON
-QueryPlan. It rewrites context-dependent questions into standalone retrieval queries and produces one to
-four distinct sub-queries according to complexity. A simple factual request normally remains one precise
-sub-query; comparison, multi-part, and multi-hop requests are decomposed instead of inflating every query.
-Because requirements directly drive answer verification, a simple single-part factual request deterministically
-uses the user's original question as its sole requirement. The model still supplies the rewrite and sub-query,
-but cannot invent an extra conditional such as comparing import and export formats when that was not asked.
-The backend still validates every field, list bound, UUID, and Scope. Malformed JSON, expanded Scope, or a
-Provider failure falls back atomically to the deterministic planner. Query Trace displays the rewrite,
+QueryPlan. It rewrites context-dependent questions into standalone retrieval queries. Sub-query execution is
+opt-in: the normal plan has one rewritten retrieval route, and only a Planner LLM response that explicitly
+identifies two to four meaningful complementary routes activates parallel branches. The system never expands
+branches merely for presentation. The backend still validates every field, list bound, UUID, and Scope. Malformed
+JSON, expanded Scope, or a Provider failure falls back atomically to one deterministic retrieval route. Query Trace displays the rewrite,
 sub-queries, Planner Provider/degradation, Planner tokens, per-branch Dense/Sparse returns and overlap,
 RRF deduplication and drops, authorization filtering, reranking, Root recovery, Deep evidence
 assessment/recovery rounds, answer generation, citation verification/repair, and per-stage tokens.
+Requirements are independent of retrieval branching: every QueryPlan has exactly one requirement, copied from the
+original user question. A sub-query is only an alternative route to evidence for that same requirement; it creates
+no new answer obligation and does not need separate coverage. If any branch supplies sufficient reliable evidence,
+the assessor and final verifier may complete the single requirement even when other branches return no evidence.
 Planner, Assessor, answer, and Repair calls all count toward query usage; a completed Planner call is still
 reported when retrieval finds no evidence. These runtime counts are not Recall@K; gold-labelled quality
 metrics remain in Evaluations.
@@ -235,9 +239,9 @@ reasoning, adjust the local output bound in `config/macos.example.yaml` or with 
 Do not hide the issue by disabling `response_format`, removing citation verification, or marking answer
 errors as answered.
 
-Abstention diagnosis keeps three dimensions separate: Query `status` (`answered`/`abstained`/`no_results`; a
+Result diagnosis keeps three dimensions separate: Query `status` (`answered`/`partial`/`abstained`/`no_results`; a
 lower-level Trace may also record `error`/`cancelled`),
-answer-stage `answer_status` (including `not_generated`, `generation_degraded`, `answered`, `repaired`, and
+answer-stage `answer_status` (including `not_generated`, `generation_degraded`, `answered`, `repaired`, `partial`, and
 `abstained`), and component flags such as `planner_degraded`, `reranker_degraded`, `assessor_degraded`, and
 `generation_degraded`. `assessor_degraded` means that bounded recovery continued after an assessor failure; it
 does not mean that retrieval returned no evidence. `generation_degraded` means no verifiable answer structure was
@@ -245,6 +249,13 @@ obtained and must not be relabelled as success. Query Trace `degraded=true` uses
 Assessor and Answer Generation degradation are included; `degraded=false` keeps only runs with no recorded component
 degradation. Per-run candidate counts and abstention rates are diagnostics, not Recall/MRR, and do not replace
 gold-labelled Evaluation metrics.
+
+Workspace Overview also exposes the last 24 hours of `query_outcome_counts`, `query_abstention_rate`,
+`query_answer_rate`, and `query_generation_degraded_24h`. Abstention rate is defined as
+`abstained / all query traces`; `partial` contributes to the effective-answer rate but not to the full-answer rate,
+while `no_results` and `error` are not disguised as either abstentions or answers. The separate
+`generation_degraded` count helps identify safe abstentions caused by malformed structured model output; it is not, by
+itself, a retrieval-quality metric.
 
 If an older checkout shared the application and test database, stop the backend and run the read-only
 check before applying deletion. The command reconciles PostgreSQL facts with Milvus projections by
@@ -576,6 +587,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R10 Provider failure paths and projection integrity: complete
 - M7-R12 revision-aware Milvus reconcile: complete
 - M7-R13 abstention diagnosis and evidence-budget fixes: complete
+- M7-R14 partial-answer status and abstention-rate semantics: complete
 - Next: M8 public deployment
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
@@ -771,7 +783,7 @@ are included in both requests before the VectorStore call, where Milvus also for
 applied after retrieval. Raw branch scores remain separate with minimal diagnostics, and Query Trace identifies the
 actual Sparse algorithm for every branch.
 
-RRF Fusion evaluates every query's Dense/Sparse ranked lists with `Σ 1/(k+rank)` and never adds incomparable raw scores. A Leaf is deduplicated across paths, each Root keeps at most three Leaves by default, and the global default is 30 candidates. Exact score ties use the Leaf ID for stable ordering, and diagnostics report every quota drop.
+RRF Fusion evaluates every query's Dense/Sparse ranked lists with `Σ 1/(k+rank)` and never adds incomparable raw scores. A single-query run keeps at most three Leaves per Root by default; a multi-query run adapts that quota to `max(3, sub-query count)` so complementary Leaves from one Root are not discarded before reranking. The global default remains 30 candidates. Exact score ties use the Leaf ID for stable ordering, and diagnostics report the effective Root quota and every drop. This only widens the candidate funnel and preserves alternative evidence routes; it never turns sub-queries into requirements or relaxes tenant authorization, Root recovery, and citation verification.
 
 The Reranker port provides local FastEmbed CrossEncoder, HTTP, and explicit Noop implementations. The default `local_cross_encoder` uses the approximately 0.08GB `Xenova/ms-marco-MiniLM-L-6-v2`; that default model is claimed only as English-capable. Chinese or multilingual deployments must explicitly select a suitable model; the 2GB production server can use SiliconFlow `BAAI/bge-reranker-v2-m3` through the official `/v1/rerank` contract. The service reranks the first 20 RRF candidates and selects eight by default with strict candidate-ID alignment. Timeouts, malformed responses, duplicate or unknown IDs, and non-finite scores produce sanitized diagnostics and a stable RRF fallback. Run the real local model check with:
 
@@ -782,13 +794,13 @@ The Reranker port provides local FastEmbed CrossEncoder, HTTP, and explicit Noop
 
 The Scope/Root service resolves server-side authorization and user metadata constraints to an explicit set of currently ready PostgreSQL document IDs. Anonymous users retain full business access inside the demo tenant but cannot override the tenant in a request; restricted identities use the union of allowed Collections and Documents. Title, organization, media type, active-version UUID, and section are checked against the fact source, while contradictory explicit constraints return `QUERY_SCOPE_CONFLICT` without disclosing resource existence. Recalled Leaves are rechecked before reranking, and selected Roots are rechecked again before entering context, joining tenant, active Collection, ready Document, and indexed active Version. Stale vectors, deleting content, and unauthorized records are therefore discarded. The default 18,000-character Root-recovery limit is used for context-budget accounting and deterministic truncation diagnostics; `RootContext` still retains complete clean text for citation-quote verification, while Answer/Assessor receive only authorized, reranked Leaf source fragments so a valid quote in the latter half of a Root is not falsely rejected.
 
-The Query Planning Service treats structured Planner output as untrusted input and strictly validates fields, intent, sub-query and requirement limits, UUIDs, and scope narrowing. A model cannot change Standard/Deep mode, invent Collection or Document IDs, or replace explicit caller metadata. The Mac composition uses the current OpenAI-compatible LLM for rewriting and one-to-four-way decomposition and records Planner calls/tokens separately. For a simple single-part factual request, the final requirement is deterministically normalized to the user's original question so the model cannot add an unasked conditional and cause a false abstention; comparison, multi-part, procedural, and summary requests retain structured requirements. Any malformed response or Provider failure falls back as one unit to a deterministic plan that preserves the original scope, recognizes Chinese and English comparison, procedural, and summary intent, splits multiple conditions, and uses the latest user turn to resolve pronouns. Provider exception text never enters the QueryPlan.
+The Query Planning Service treats structured Planner output as untrusted input and strictly validates fields, intent, sub-query and requirement limits, UUIDs, and scope narrowing. A model cannot change Standard/Deep mode, invent Collection or Document IDs, or replace explicit caller metadata. The Mac composition uses the current OpenAI-compatible LLM for rewriting; the default is one retrieval route, and only an explicit LLM decision with meaningful sub-queries activates parallel decomposition. Planner calls/tokens are recorded separately. Regardless of factual, comparison, multi-part, procedural, or summary intent, requirements are deterministically normalized to exactly one value: the original user question. Sub-queries are alternative retrieval routes for that requirement, not separate coverage obligations; evidence from any one route can be sufficient. Any malformed response or Provider failure falls back as one unit to a deterministic single-route plan that preserves the original scope and uses the latest user turn to resolve pronouns. Provider exception text never enters the QueryPlan.
 
 The Standard Query Graph is an explicit state machine connecting Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer. Every run returns its actual transitions. Empty RRF output, authorized Leaves, or rechecked Roots terminate as NoResults without invoking the answer model. Standard counts the Planner attempt as LLM call one and final answer generation as call two, with a runtime hard ceiling; Planner degradation adds no call. Unclassified failures terminate as Failed with a sanitized error code and no exception text exposed to clients.
 
-Deep Recovery uses an Evidence Ledger deduplicated by Leaf ID across rounds and reserves final slots for new Recovery evidence. The reusable controller defaults to 0.45/0.80 thresholds for direct recovery, assessor use, or direct answer. The real Mac composition enables the stricter `always_assess` policy: every evidence-bearing Deep decision calls the current LLM for requirement coverage, conflicts, and a decision, while the score remains derived from coverage and retrieval confidence. Recovery is capped at two rounds before Abstain. Its four routes are Rewrite Hybrid, HyDE Dense-only, Exact-term Sparse-only, and Scope repair that removes only a Planner-added field absent from explicit caller scope. Every route repeats retrieval, RRF, authorization, reranking, and Root restoration. The Mac exact-term route uses the real Milvus BM25 Provider; offline evaluation deliberately remains on Hashing Lexical for deterministic zero-cost scores. Neither code nor documentation treats the two modes as interchangeable.
+Deep Recovery uses an Evidence Ledger deduplicated by Leaf ID across rounds and reserves final slots for new Recovery evidence. The reusable controller defaults to 0.45/0.80 thresholds for direct recovery, assessor use, or direct answer. The real Mac composition enables the stricter `always_assess` policy: every evidence-bearing Deep decision calls the current LLM to judge coverage of the one original-question requirement, conflicts, and a decision, while the score remains derived from coverage and retrieval confidence. Multiple sub-queries are alternative evidence routes, not separate requirements; one route with sufficient evidence can cover the requirement even when other routes return nothing. Recovery is capped at two rounds before Abstain. Its four routes are Rewrite Hybrid, HyDE Dense-only, Exact-term Sparse-only, and Scope repair that removes only a Planner-added field absent from explicit caller scope. Every route repeats retrieval, RRF, authorization, reranking, and Root restoration. The Mac exact-term route uses the real Milvus BM25 Provider; offline evaluation deliberately remains on Hashing Lexical for deterministic zero-cost scores. Neither code nor documentation treats the two modes as interchangeable.
 
-Answer Verification requires every factual paragraph to bind citations. A cited Root must come from the current authorized context, each Leaf must belong to that Root, and every quote must be a real contiguous substring of Root clean text, while all QueryPlan requirements must be covered. Structural or coverage errors get at most one Repair using exactly the same evidence and are then fully revalidated. Evidence conflicts are not hidden by rewriting and instead cause immediate Abstain. Only verified answers produce domain Citations carrying document, Root and Leaf IDs, page or section, quote, and score; every other result returns a bounded abstention with no citations or leaked provider error.
+Answer Verification requires every factual paragraph to bind citations. A cited Root must come from the current authorized context, each Leaf must belong to that Root, and every quote must be a real contiguous substring of Root clean text, while all QueryPlan requirements must be covered. Structural or coverage errors get at most one Repair using exactly the same evidence and are then fully revalidated. Evidence conflicts are not hidden by rewriting and instead cause immediate Abstain. Fully covered answers produce domain Citations carrying document, Root and Leaf IDs, page or section, quote, and score; if requirements remain missing, the status stays `abstained`, but independently verified paragraphs and citations may be returned as a bounded partial result with explicit gaps and no leaked provider error.
 
 All future adapters implement the common `Provider` lifecycle contract and are owned by one application-scoped registry. Provider keys are `(kind, name)`; duplicate registration, unknown names, missing capabilities, and resource-close failures produce stable sanitized errors.
 

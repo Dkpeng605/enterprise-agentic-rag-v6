@@ -1,7 +1,7 @@
 """Candidate reranking with strict identity alignment and safe RRF fallback."""
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from enterprise_rag.domain.errors import AppError, ErrorCode
@@ -51,7 +51,6 @@ class RerankingService:
         provider_name = self._provider.info().name
         if not candidates:
             return RerankOutcome((), provider_name, 0, False)
-        selected_count = min(self._selected_leaf_k, len(candidates))
         request = tuple(
             RerankCandidate(item.hit.leaf_id, item.retrieval_text, item.hit.fused_score)
             for item in candidates
@@ -64,11 +63,16 @@ class RerankingService:
             },
         ) as span:
             try:
-                results = await self._provider.rerank(query, request, top_k=selected_count)
+                # Ask the provider to score the full bounded funnel.  Selection is
+                # an application concern because only the application knows which
+                # Leaf is the last evidence for a sub-query.  Asking for only the
+                # final top-k here can silently discard a low-scoring but unique
+                # sub-query hit before coverage is checked.
+                results = await self._provider.rerank(query, request, top_k=len(candidates))
                 scores = self._validate_results(
                     results,
                     candidate_ids={item.hit.leaf_id for item in candidates},
-                    expected_count=selected_count,
+                    expected_count=len(candidates),
                 )
             except Exception as error:
                 code = (
@@ -80,23 +84,17 @@ class RerankingService:
                 )
                 span.set_attribute("rag.degraded", True)
                 span.set_attribute("error.code", code.value)
+                selected_items = self._select_items(candidates, None)
                 return RerankOutcome(
-                    tuple(
-                        self._selected_hit(item.hit, None)
-                        for item in candidates[:selected_count]
-                    ),
+                    tuple(self._selected_hit(item.hit, None) for item in selected_items),
                     provider_name,
                     len(candidates),
                     True,
                     code,
                 )
             span.set_attribute("rag.degraded", False)
-            span.set_attribute("rag.selected_count", len(scores))
-        original_order = {item.hit.leaf_id: index for index, item in enumerate(candidates)}
-        selected_items = [item for item in candidates if item.hit.leaf_id in scores]
-        selected_items.sort(
-            key=lambda item: (-scores[item.hit.leaf_id], original_order[item.hit.leaf_id])
-        )
+            span.set_attribute("rag.scored_count", len(scores))
+        selected_items = self._select_items(candidates, scores)
         return RerankOutcome(
             tuple(
                 self._selected_hit(item.hit, scores[item.hit.leaf_id]) for item in selected_items
@@ -105,6 +103,78 @@ class RerankingService:
             len(candidates),
             False,
         )
+
+    def _select_items(
+        self,
+        candidates: Sequence[RerankItem],
+        scores: Mapping[str, float] | None,
+    ) -> list[RerankItem]:
+        """Select high-scoring Leaves without losing sub-query coverage.
+
+        ``matched_queries`` is provenance produced by RRF.  It is deliberately
+        treated as a coverage hint, not as proof that a Leaf answers a
+        requirement.  Evidence assessment still decides whether the answer is
+        grounded.  This step only prevents the funnel from dropping the sole
+        candidate for an otherwise represented sub-query.
+        """
+
+        original_order = {item.hit.leaf_id: index for index, item in enumerate(candidates)}
+
+        def score(item: RerankItem) -> float:
+            return (
+                scores[item.hit.leaf_id]
+                if scores is not None
+                else item.hit.fused_score
+            )
+
+        ranked = sorted(
+            candidates,
+            key=lambda item: (-score(item), original_order[item.hit.leaf_id]),
+        )
+        selected_count = min(self._selected_leaf_k, len(candidates))
+        required_queries = tuple(
+            dict.fromkeys(
+                query
+                for item in candidates
+                for query in item.hit.matched_queries
+            )
+        )
+        if not required_queries:
+            return ranked[:selected_count]
+
+        uncovered = set(required_queries)
+        selected: list[RerankItem] = []
+        selected_ids: set[str] = set()
+        while uncovered and len(selected) < selected_count:
+            eligible = [
+                item
+                for item in ranked
+                if item.hit.leaf_id not in selected_ids
+                and uncovered.intersection(item.hit.matched_queries)
+            ]
+            if not eligible:
+                break
+            chosen = max(
+                eligible,
+                key=lambda item: (
+                    len(uncovered.intersection(item.hit.matched_queries)),
+                    score(item),
+                    -original_order[item.hit.leaf_id],
+                ),
+            )
+            selected.append(chosen)
+            selected_ids.add(chosen.hit.leaf_id)
+            uncovered.difference_update(chosen.hit.matched_queries)
+
+        selected.extend(
+            item for item in ranked
+            if item.hit.leaf_id not in selected_ids
+        )
+        selected = selected[:selected_count]
+        selected.sort(
+            key=lambda item: (-score(item), original_order[item.hit.leaf_id])
+        )
+        return selected
 
     @staticmethod
     def _validate_items(items: Sequence[RerankItem]) -> None:
@@ -147,4 +217,5 @@ class RerankingService:
             fused_score=hit.fused_score,
             rerank_score=score,
             selected=True,
+            matched_queries=hit.matched_queries,
         )

@@ -20,6 +20,10 @@ const snapshot: OverviewSnapshot = {
     queries_24h: 42,
     query_errors_24h: 2,
     query_error_rate: 2 / 42,
+    query_outcome_counts: { answered: 35, partial: 2, abstained: 3, no_results: 0, error: 2, failed: 0, cancelled: 0 },
+    query_abstention_rate: 3 / 42,
+    query_answer_rate: 37 / 42,
+    query_generation_degraded_24h: 1,
     query_p95_ms: 780,
     recent_activity: [
       {

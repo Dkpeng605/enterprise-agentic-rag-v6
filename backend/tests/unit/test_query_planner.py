@@ -63,7 +63,7 @@ class FakePlanner:
 
 
 @pytest.mark.anyio
-async def test_explicit_deterministic_planner_exposes_rewrite_and_sub_queries() -> None:
+async def test_deterministic_fallback_keeps_decomposition_opt_in() -> None:
     request = PlannerRequest(
         "如何部署；同时如何回滚",
         (),
@@ -76,7 +76,8 @@ async def test_explicit_deterministic_planner_exposes_rewrite_and_sub_queries() 
     assert outcome.provider == "deterministic"
     assert outcome.degraded is False
     assert outcome.plan.rewritten_query == request.query
-    assert outcome.plan.sub_queries == ("如何部署", "如何回滚")
+    assert outcome.plan.sub_queries == (outcome.plan.rewritten_query,)
+    assert outcome.plan.requirements == (request.query,)
     assert outcome.plan.scope == request.requested_scope
 
 
@@ -161,6 +162,70 @@ async def test_simple_factual_plan_collapses_model_over_split_sub_queries() -> N
 
     assert outcome.degraded is False
     assert outcome.plan.sub_queries == ("系统支持哪些文档格式？",)
+    assert outcome.plan.requirements == (request.query,)
+
+
+@pytest.mark.anyio
+async def test_simple_factual_plan_overrides_model_misclassified_intent() -> None:
+    payload = valid_payload()
+    payload.update(
+        {
+            "rewritten_query": "当前知识库中的访问控制要求是什么？包括认证和授权。",
+            "intent": "summary",
+            "sub_queries": [
+                "当前知识库的访问控制要求包括哪些内容",
+                "知识库的认证和授权机制是什么",
+                "知识库的数据隔离要求是什么",
+            ],
+            "requirements": [],
+            "scope": {
+                "collection_ids": [],
+                "document_ids": [],
+                "titles": [],
+                "organizations": [],
+                "doc_types": [],
+                "versions": [],
+                "sections": [],
+            },
+        }
+    )
+    request = PlannerRequest(
+        "当前知识库中的访问控制要求是什么？", (), QueryScope(), QueryMode.STANDARD
+    )
+
+    outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
+
+    assert outcome.degraded is False
+    assert outcome.plan.sub_queries == (payload["rewritten_query"],)
+    assert outcome.plan.requirements == (request.query,)
+
+
+@pytest.mark.anyio
+async def test_empty_provider_requirements_still_use_the_original_question() -> None:
+    payload = valid_payload()
+    payload.update(
+        {
+            "rewritten_query": "如何部署；同时如何回滚",
+            "intent": "procedural",
+            "sub_queries": ["如何部署", "如何回滚"],
+            "requirements": [],
+            "scope": {
+                "collection_ids": [],
+                "document_ids": [],
+                "titles": [],
+                "organizations": [],
+                "doc_types": [],
+                "versions": [],
+                "sections": [],
+            },
+        }
+    )
+    request = PlannerRequest("如何部署；同时如何回滚", (), QueryScope(), QueryMode.STANDARD)
+
+    outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
+
+    assert outcome.degraded is False
+    assert outcome.plan.requirements == (request.query,)
 
 
 @pytest.mark.anyio
@@ -191,6 +256,7 @@ async def test_explicit_multi_part_factual_plan_keeps_sub_queries() -> None:
 
     assert outcome.degraded is False
     assert outcome.plan.sub_queries == ("支持哪些文档格式", "哪些格式可导出")
+    assert outcome.plan.requirements == (request.query,)
 
 
 @pytest.mark.anyio
@@ -251,8 +317,8 @@ async def test_fallback_handles_pronoun_comparison_and_multiple_conditions() -> 
 
     assert outcome.plan.rewritten_query.startswith("甲方案和乙方案；后续问题：")
     assert outcome.plan.intent is QueryIntent.COMPARISON
-    assert len(outcome.plan.sub_queries) >= 2
-    assert len(outcome.plan.requirements) >= 2
+    assert outcome.plan.sub_queries == (outcome.plan.rewritten_query,)
+    assert outcome.plan.requirements == (request.query,)
     assert outcome.plan.language == "zh"
     assert outcome.plan.mode is QueryMode.DEEP
     assert outcome.plan.scope.titles == ("方案",)

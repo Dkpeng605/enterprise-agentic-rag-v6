@@ -187,7 +187,7 @@ function stop(): void {
         </div>
 
         <div v-if="result" class="answer-meta" :class="`answer-meta--${result.status}`">
-          <strong>{{ result.status === 'answered' ? '已通过证据核验' : '已触发有边界拒答' }}</strong>
+          <strong>{{ result.status === 'answered' ? '已通过证据核验' : result.status === 'partial' ? '部分回答，仍有缺口' : '已触发有边界拒答' }}</strong>
           <span>{{ mode === 'deep' ? 'Deep' : 'Standard' }} · {{ citations.length }} 条引用</span>
         </div>
 

@@ -117,6 +117,10 @@ function percent(value: number | null | undefined): string {
   return value == null ? '—' : `${(value * 100).toFixed(1)}%`
 }
 
+function outcome(status: string): number {
+  return overview.value?.query_outcome_counts[status] ?? 0
+}
+
 function timeLabel(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
@@ -184,9 +188,12 @@ onMounted(load)
           <article><small>集合</small><strong>{{ metric(overview.collection_count) }}</strong><p>当前活跃 collection</p></article>
           <article><small>文档</small><strong>{{ metric(documentTotal) }}</strong><p><i class="metric-ready"></i>{{ overview.document_counts.ready }} ready · <i class="metric-failed"></i>{{ overview.document_counts.failed }} failed</p></article>
           <article><small>索引单元</small><strong>{{ metric(overview.leaf_count) }}</strong><p>{{ overview.root_count }} roots / {{ overview.leaf_count }} leaves</p></article>
-          <article><small>查询量</small><strong>{{ metric(overview.queries_24h) }}</strong><p>{{ overview.query_errors_24h }} 次错误</p></article>
+          <article><small>查询量</small><strong>{{ metric(overview.queries_24h) }}</strong><p>{{ outcome('answered') }} answered · {{ outcome('partial') }} partial</p></article>
           <article><small>Query P95</small><strong>{{ metric(overview.query_p95_ms, ' ms') }}</strong><p>端到端执行耗时</p></article>
           <article><small>错误率</small><strong>{{ percent(overview.query_error_rate) }}</strong><p>error / failed / cancelled</p></article>
+          <article><small>拒答率</small><strong>{{ percent(overview.query_abstention_rate) }}</strong><p>{{ outcome('abstained') }} 次安全拒答 / 全部查询</p></article>
+          <article><small>有效回答率</small><strong>{{ percent(overview.query_answer_rate) }}</strong><p>answered + partial / 全部查询</p></article>
+          <article><small>生成降级</small><strong>{{ metric(overview.query_generation_degraded_24h) }}</strong><p>回答 JSON 未通过首次解析</p></article>
         </div>
       </section>
 

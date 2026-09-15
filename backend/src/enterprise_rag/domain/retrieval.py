@@ -110,6 +110,7 @@ class RetrievalHit:
     fused_score: float
     rerank_score: float | None
     selected: bool
+    matched_queries: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.leaf_id.startswith("leaf_") or not self.root_id.startswith("root_"):
@@ -124,6 +125,7 @@ class RetrievalHit:
             score = getattr(self, name)
             if score is not None and not math.isfinite(score):
                 raise ValueError(f"{name} must be finite")
+        _validate_text_tuple(self.matched_queries, "matched_queries")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -134,6 +136,7 @@ class RetrievalHit:
             "fused_score": self.fused_score,
             "rerank_score": self.rerank_score,
             "selected": self.selected,
+            "matched_queries": list(self.matched_queries),
         }
 
 

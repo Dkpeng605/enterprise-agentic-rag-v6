@@ -7,8 +7,9 @@ from dataclasses import dataclass, replace
 
 from enterprise_rag.adapters.database import Database, PostgreSQLContextRepository
 from enterprise_rag.domain.errors import AppError
-from enterprise_rag.domain.retrieval import QueryMode, QueryScope, RetrievalHit
+from enterprise_rag.domain.retrieval import QueryMode, QueryPlan, QueryScope, RetrievalHit
 from enterprise_rag.observability import start_span
+from enterprise_rag.observability.tracing import AttributeValue
 from enterprise_rag.ports.context import ScopeAuthorization
 from enterprise_rag.ports.embedding import EmbeddingProvider
 from enterprise_rag.ports.llm import LanguageModel
@@ -60,9 +61,15 @@ class _RetrievalOutcome:
 
 
 class _SemanticRecoveryExecutor:
-    def __init__(self, runner: "SemanticQueryRunner", command: QueryCommand) -> None:
+    def __init__(
+        self,
+        runner: "SemanticQueryRunner",
+        command: QueryCommand,
+        requirements: tuple[str, ...],
+    ) -> None:
         self._runner = runner
         self._command = command
+        self._requirements = requirements
         self._roots: dict[str, RootContext] = {}
 
     def remember(self, roots: Sequence[RootContext]) -> None:
@@ -79,6 +86,8 @@ class _SemanticRecoveryExecutor:
         self.remember(retrieved.recovered.roots)
         return self._runner._evidence(
             retrieved,
+            requirements=self._requirements,
+            sub_queries=(action.query,),
             round_number=action.round_number,
             route=action.route,
         )
@@ -164,6 +173,8 @@ class SemanticQueryRunner:
             span.set_attribute("rag.plan.language", plan.language)
             span.set_attribute("rag.plan.sub_queries", plan.sub_queries)
             span.set_attribute("rag.plan.sub_query_count", len(plan.sub_queries))
+            span.set_attribute("rag.plan.requirements", plan.requirements)
+            span.set_attribute("rag.plan.requirement_count", len(plan.requirements))
             span.set_attribute("rag.degraded", planned.degraded)
             span.set_attribute("rag.llm_calls", planned.llm_calls)
             span.set_attribute("rag.input_tokens", planned.input_tokens)
@@ -195,13 +206,20 @@ class SemanticQueryRunner:
             if plan.requirements
             else replace(plan, requirements=(plan.rewritten_query,))
         )
-        roots = retrieved.recovered.roots[:3]
+        answer_root_limit = _answer_root_limit(command.mode, effective_plan)
+        roots = _select_answer_roots(
+            effective_plan,
+            retrieved.recovered.roots,
+            max_roots=answer_root_limit,
+        )
         deep_decision: str | None = None
         recovery_rounds = 0
         assessor_degraded = False
         evidence_conflicts: tuple[str, ...] = ()
         if command.mode is QueryMode.DEEP:
-            executor = _SemanticRecoveryExecutor(self, command)
+            executor = _SemanticRecoveryExecutor(
+                self, command, effective_plan.requirements
+            )
             executor.remember(retrieved.recovered.roots)
             recovery = await DeepRecoveryController(
                 assessor=self._evidence_assessor,
@@ -213,7 +231,11 @@ class SemanticQueryRunner:
                     effective_plan.rewritten_query,
                     effective_plan.requirements,
                     effective_plan.scope,
-                    self._evidence(retrieved),
+                    self._evidence(
+                        retrieved,
+                        requirements=effective_plan.requirements,
+                        sub_queries=effective_plan.sub_queries,
+                    ),
                     _repairable_scope_fields(command.scope, effective_plan.scope),
                 )
             )
@@ -229,7 +251,11 @@ class SemanticQueryRunner:
             selected = EvidenceLedger(recovery.evidence).selected(
                 top_k=8, recovery_reserve=2
             )
-            roots = executor.roots_for(selected, limit=5)
+            roots = _select_answer_roots(
+                effective_plan,
+                executor.roots_for(selected, limit=5),
+                max_roots=answer_root_limit,
+            )
             if recovery.decision is EvidenceDecision.ABSTAIN:
                 await self._progress(
                     emit, QueryProgressStage.ANSWERING, "证据评估未通过，执行安全拒答"
@@ -282,6 +308,9 @@ class SemanticQueryRunner:
             "rag.answer_generation",
             attributes={"provider.name": self._language_model.info().name},
         ) as span:
+            span.set_attribute("rag.root_count", len(roots))
+            span.set_attribute("rag.root_limit", answer_root_limit)
+            span.set_attribute("rag.requirement_count", len(effective_plan.requirements))
             try:
                 authored = await author.draft(plan=effective_plan, roots=roots)
             except AppError as error:
@@ -328,6 +357,12 @@ class SemanticQueryRunner:
             span.set_attribute("rag.answer.issue_count", len(answer.issues))
             span.set_attribute("rag.answer.repair_count", answer.repair_count)
             span.set_attribute("rag.answer.missing_count", len(answer.missing_requirements))
+            span.set_attribute(
+                "rag.answer.missing_requirements", answer.missing_requirements
+            )
+            span.set_attribute(
+                "rag.answer.issues", tuple(issue.value for issue in answer.issues)
+            )
             span.set_attribute("rag.citation_count", len(answer.citations))
             span.set_attribute("rag.llm_calls", author.repair_usage.llm_calls)
             span.set_attribute("rag.input_tokens", author.repair_usage.input_tokens)
@@ -339,9 +374,13 @@ class SemanticQueryRunner:
         ) + author.repair_usage
         return QueryExecution(
             command.query_id,
-            QueryRunStatus.ABSTAINED
-            if answer.status is AnswerStatus.ABSTAINED
-            else QueryRunStatus.ANSWERED,
+            (
+                QueryRunStatus.ABSTAINED
+                if answer.status is AnswerStatus.ABSTAINED
+                else QueryRunStatus.PARTIAL
+                if answer.status is AnswerStatus.PARTIAL
+                else QueryRunStatus.ANSWERED
+            ),
             answer.answer,
             answer.citations,
             diagnostics=self._diagnostics(
@@ -397,8 +436,21 @@ class SemanticQueryRunner:
         with start_span(
             "rag.rrf_fusion", attributes={"rag.retrieval_mode": mode.value}
         ) as span:
-            fused = self._fusion.fuse_branches(branches)
+            fused = self._fusion.fuse_branches(
+                branches,
+                branch_queries=(
+                    tuple(
+                        result.query for result in searched for _ in (result.dense, result.sparse)
+                    )
+                    if mode is RetrievalMode.HYBRID
+                    else (queries[0],)
+                ),
+                max_leaves_per_root=_fusion_root_quota(queries),
+            )
             span.set_attribute("rag.candidate_count", len(fused.hits))
+            span.set_attribute(
+                "rag.fusion.max_leaves_per_root", _fusion_root_quota(queries)
+            )
             span.set_attribute(
                 "rag.fusion.ranked_list_count", fused.diagnostic.ranked_list_count
             )
@@ -415,7 +467,7 @@ class SemanticQueryRunner:
                 "rag.fusion.top_k_dropped", fused.diagnostic.top_k_dropped
             )
             for rank, hit in enumerate(fused.hits, start=1):
-                attributes: dict[str, str | int | float] = {
+                attributes: dict[str, AttributeValue] = {
                     "rag.rank": rank,
                     "rag.leaf_id": hit.leaf_id,
                     "rag.root_id": hit.root_id,
@@ -425,6 +477,8 @@ class SemanticQueryRunner:
                     attributes["rag.dense_rank"] = hit.dense_rank
                 if hit.sparse_rank is not None:
                     attributes["rag.sparse_rank"] = hit.sparse_rank
+                if hit.matched_queries:
+                    attributes["rag.matched_queries"] = hit.matched_queries
                 span.add_event("rag.fusion.candidate", attributes)
 
         if emit is not None:
@@ -458,16 +512,34 @@ class SemanticQueryRunner:
                 span.set_attribute("rag.input_count", len(items))
                 span.set_attribute("rag.candidate_count", reranked.candidate_count)
                 span.set_attribute("rag.output_count", len(reranked.hits))
+                candidate_queries = tuple(
+                    dict.fromkeys(
+                        query
+                        for item in items
+                        for query in item.hit.matched_queries
+                    )
+                )
+                selected_queries = tuple(
+                    dict.fromkeys(
+                        query
+                        for hit in reranked.hits
+                        for query in hit.matched_queries
+                    )
+                )
+                span.set_attribute("rag.sub_query_candidate_count", len(candidate_queries))
+                span.set_attribute("rag.sub_query_selected_count", len(selected_queries))
                 for rank, hit in enumerate(reranked.hits, start=1):
-                    attributes = {
+                    rerank_attributes: dict[str, AttributeValue] = {
                         "rag.rank": rank,
                         "rag.leaf_id": hit.leaf_id,
                         "rag.root_id": hit.root_id,
                         "rag.fused_score": hit.fused_score,
                     }
                     if hit.rerank_score is not None:
-                        attributes["rag.rerank_score"] = hit.rerank_score
-                    span.add_event("rag.rerank.candidate", attributes)
+                        rerank_attributes["rag.rerank_score"] = hit.rerank_score
+                    if hit.matched_queries:
+                        rerank_attributes["rag.matched_queries"] = hit.matched_queries
+                    span.add_event("rag.rerank.candidate", rerank_attributes)
 
             if emit is not None:
                 await self._progress(emit, QueryProgressStage.RECOVERING, "恢复授权 Root 原文")
@@ -530,6 +602,8 @@ class SemanticQueryRunner:
     def _evidence(
         retrieved: _RetrievalOutcome,
         *,
+        requirements: tuple[str, ...],
+        sub_queries: tuple[str, ...],
         round_number: int = 0,
         route: RecoveryRoute | None = None,
     ) -> tuple[EvidenceItem, ...]:
@@ -551,7 +625,9 @@ class SemanticQueryRunner:
                         leaf_id,
                         root.root_id,
                         confidence,
-                        (),
+                        _requirements_for_queries(
+                            requirements, sub_queries, hit.matched_queries
+                        ),
                         round_number,
                         route,
                         root.evidence_text or root.text,
@@ -632,6 +708,95 @@ class SemanticQueryRunner:
     ) -> None:
         if emit is not None:
             await emit(QueryProgress(stage, detail))
+
+
+def _requirements_for_queries(
+    requirements: tuple[str, ...],
+    sub_queries: tuple[str, ...],
+    matched_queries: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Treat sub-query provenance as alternative evidence for one user question."""
+
+    del sub_queries
+    if not matched_queries:
+        return ()
+    return requirements
+
+
+def _answer_root_limit(mode: QueryMode, plan: QueryPlan) -> int:
+    """Bound answer context without dropping a decomposed retrieval route.
+
+    A simple factual answer keeps the historical three-Root budget.  A plan with
+    multiple alternative sub-queries gets up to five Roots, which is still the
+    Deep-mode bound and gives each retrieval route a chance to contribute evidence.
+    This is a context-selection budget, not a requirement-coverage rule.
+    """
+
+    if mode is QueryMode.DEEP:
+        return 5
+    return 5 if len(plan.sub_queries) > 1 else 3
+
+
+def _fusion_root_quota(queries: Sequence[str]) -> int:
+    """Keep enough Leaves per Root for a decomposed query's branches.
+
+    The ordinary single-query default remains three Leaves per Root.  A
+    multi-query RRF run may otherwise discard all but three Leaves from a Root
+    before reranking, even though different branches can need different parts
+    of that Root.  This is only a candidate-funnel adjustment: authorization,
+    reranking, Root selection, and citation verification remain unchanged.
+    """
+
+    return max(3, len(queries))
+
+
+def _select_answer_roots(
+    plan: QueryPlan,
+    roots: Sequence[RootContext],
+    *,
+    max_roots: int,
+) -> tuple[RootContext, ...]:
+    """Select a bounded Root set, preserving route evidence without gating answer coverage.
+
+    ``matched_queries`` is retrieval provenance only.  For a decomposed plan, keep
+    the highest-ranked Root carrying each available route before filling remaining
+    slots by retrieval order.  This prevents a low-ranked but useful alternative
+    route from disappearing, while never creating a requirement or asserting that
+    every route must be covered.  Final citation and requirement verification remain
+    authoritative.
+    """
+
+    if max_roots <= 0:
+        raise ValueError("max_roots must be positive")
+    candidates = tuple(roots)
+    if len(candidates) <= max_roots or len(plan.sub_queries) <= 1:
+        return candidates[:max_roots]
+
+    selected: set[int] = set()
+    for query in plan.sub_queries:
+        index = next(
+            (
+                candidate
+                for candidate, root in enumerate(candidates)
+                if candidate not in selected
+                and any(
+                    query in root.leaf_matched_queries.get(leaf_id, ())
+                    for leaf_id in root.leaf_ids
+                )
+            ),
+            None,
+        )
+        if index is None:
+            continue
+        selected.add(index)
+        if len(selected) >= max_roots:
+            break
+    for index in range(len(candidates)):
+        if len(selected) >= max_roots:
+            break
+        if index not in selected:
+            selected.add(index)
+    return tuple(root for index, root in enumerate(candidates) if index in selected)
 
 
 def _repairable_scope_fields(

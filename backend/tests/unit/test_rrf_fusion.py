@@ -81,11 +81,44 @@ def test_root_quota_and_global_top_k_apply_after_fusion_order() -> None:
     assert fused.diagnostic.top_k_dropped == 1
 
 
+def test_multi_query_can_raise_root_quota_without_changing_default() -> None:
+    a = vector_hit("a", "1")
+    b = vector_hit("b", "1")
+    c = vector_hit("c", "1")
+    d = vector_hit("d", "1")
+    result = dual("multi", [a, b, c, d], [a, b, c, d])
+
+    default = ReciprocalRankFusion(top_k=10).fuse((result,))
+    expanded = ReciprocalRankFusion(top_k=10).fuse(
+        (result,), max_leaves_per_root=4
+    )
+
+    assert len(default.hits) == 3
+    assert len(expanded.hits) == 4
+    assert expanded.diagnostic.root_quota_dropped == 0
+
+
 def test_empty_input_is_an_explicit_empty_fusion() -> None:
     fused = ReciprocalRankFusion().fuse(())
     assert fused.hits == ()
     assert fused.diagnostic.ranked_list_count == 0
     assert fused.diagnostic.unique_leaf_count == 0
+
+
+def test_fusion_preserves_the_sub_queries_that_retrieved_each_leaf() -> None:
+    a = vector_hit("a", "1")
+    b = vector_hit("b", "2")
+
+    fused = ReciprocalRankFusion(top_k=10).fuse(
+        (
+            dual("身份认证", [a, b], []),
+            dual("授权机制", [a], []),
+        )
+    )
+
+    assert fused.hits[0].leaf_id == a.leaf_id
+    assert fused.hits[0].matched_queries == ("身份认证", "授权机制")
+    assert fused.hits[1].matched_queries == ("身份认证",)
 
 
 def test_conflicting_root_identity_is_rejected() -> None:

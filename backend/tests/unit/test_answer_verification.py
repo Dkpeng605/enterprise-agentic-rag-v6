@@ -1,3 +1,4 @@
+from dataclasses import replace
 from uuid import UUID
 
 import pytest
@@ -87,6 +88,44 @@ async def test_valid_answer_builds_traceable_domain_citation() -> None:
 
 
 @pytest.mark.anyio
+async def test_four_retrieval_routes_still_have_one_original_requirement() -> None:
+    multi_route_plan = replace(
+        plan(),
+        sub_queries=("政策定义", "政策期限", "政策适用范围", "政策例外情况"),
+        requirements=("政策是什么？",),
+    )
+    draft = AnswerDraft(
+        (DraftParagraph("政策定义明确。[1]", (1,)),),
+        (DraftCitation(1, ROOT_ID, (LEAF_ID,), "政策定义明确"),),
+        ("政策是什么？",),
+    )
+
+    outcome = await AnswerVerificationService(
+        FakeRepairer(RuntimeError("must not run"))
+    ).finalize(plan=multi_route_plan, roots=(root(),), draft=draft)
+
+    assert outcome.status is AnswerStatus.ANSWERED
+    assert outcome.missing_requirements == ()
+
+
+@pytest.mark.anyio
+async def test_whitespace_normalized_quote_is_canonicalized_to_source_text() -> None:
+    source_root = replace(root(), text="政策定义明确。\n有效期限为三年")
+    draft = AnswerDraft(
+        (DraftParagraph("政策定义明确，有效期限为三年。[1]", (1,)),),
+        (DraftCitation(1, ROOT_ID, (LEAF_ID,), "政策定义明确。 有效期限为三年"),),
+        ("定义", "期限"),
+    )
+
+    outcome = await AnswerVerificationService(FakeRepairer(RuntimeError("must not run"))).finalize(
+        plan=plan(), roots=(source_root,), draft=draft
+    )
+
+    assert outcome.status is AnswerStatus.ANSWERED
+    assert outcome.citations[0].quote == "政策定义明确。\n有效期限为三年"
+
+
+@pytest.mark.anyio
 async def test_bad_quote_is_repaired_once_using_the_same_roots() -> None:
     bad = AnswerDraft(
         (DraftParagraph("错误引用。[1]", (1,)),),
@@ -106,7 +145,7 @@ async def test_bad_quote_is_repaired_once_using_the_same_roots() -> None:
 
 
 @pytest.mark.anyio
-async def test_missing_requirement_after_one_repair_abstains() -> None:
+async def test_missing_requirement_after_one_repair_returns_a_partial_answer() -> None:
     incomplete = AnswerDraft(
         (DraftParagraph("只有定义。[1]", (1,)),),
         (DraftCitation(1, ROOT_ID, (LEAF_ID,), "政策定义明确"),),
@@ -118,9 +157,10 @@ async def test_missing_requirement_after_one_repair_abstains() -> None:
         plan=plan(), roots=(root(),), draft=incomplete
     )
 
-    assert outcome.status is AnswerStatus.ABSTAINED
-    assert outcome.citations == () and outcome.repair_count == 1
+    assert outcome.status is AnswerStatus.PARTIAL
+    assert len(outcome.citations) == 1 and outcome.repair_count == 1
     assert outcome.missing_requirements == ("期限",)
+    assert "只有定义" in outcome.answer and "期限" in outcome.answer
     assert VerificationIssue.MISSING_REQUIREMENT in outcome.issues
     assert len(repairer.requests) == 1
 

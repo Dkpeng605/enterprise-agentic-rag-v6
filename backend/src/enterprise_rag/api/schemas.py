@@ -325,7 +325,7 @@ class QueryCitationResponse(ApiModel):
 
 class QueryResponseModel(ApiModel):
     query_id: UUID
-    status: Literal["answered", "abstained", "no_results"]
+    status: Literal["answered", "partial", "abstained", "no_results"]
     answer: str
     citations: list[QueryCitationResponse]
     diagnostics: dict[str, object]
@@ -393,6 +393,7 @@ class QueryRankChangeResponse(ApiModel):
     sparse_score: float | None
     rrf_score: float | None
     rerank_score: float | None
+    matched_queries: list[str]
 
 
 class QueryRecoveryRoundResponse(ApiModel):
@@ -418,6 +419,7 @@ class QueryPlanResponse(ApiModel):
     intent: str
     language: str
     sub_queries: list[str]
+    requirements: list[str]
 
 
 class QueryRetrievalBranchResponse(ApiModel):
@@ -438,6 +440,9 @@ class QueryStageMetricResponse(ApiModel):
     output_count: int
     dropped_count: int
     attributes: dict[str, int | float | str]
+    covered_requirements: list[str]
+    missing_requirements: list[str]
+    issues: list[str]
 
 
 class QueryTraceViewResponse(ApiModel):
@@ -685,5 +690,9 @@ class WorkspaceOverviewResponse(ApiModel):
     queries_24h: int
     query_errors_24h: int
     query_error_rate: float | None
+    query_outcome_counts: dict[str, int]
+    query_abstention_rate: float | None
+    query_answer_rate: float | None
+    query_generation_degraded_24h: int
     query_p95_ms: float | None
     recent_activity: list[OverviewActivityResponse]

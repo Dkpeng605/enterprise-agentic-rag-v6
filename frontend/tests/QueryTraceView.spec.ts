@@ -27,13 +27,14 @@ const standardDetail: QueryTraceView = {
   rankings: [{
     leaf_id: 'leaf_01', root_id: 'root_01', dense_rank: 1, sparse_rank: 4, rrf_rank: 2,
     rerank_rank: 1, dense_score: 0.91, sparse_score: 0.72, rrf_score: 0.032,
-    rerank_score: 0.97,
+    rerank_score: 0.97, matched_queries: ['如何部署'],
   }],
   recovery_rounds: [], degradations: [],
   plan: {
     provider: 'deterministic', degraded: false,
     original_query: '如何部署；同时如何回滚', rewritten_query: '如何部署；同时如何回滚',
     intent: 'procedural', language: 'zh', sub_queries: ['如何部署', '如何回滚'],
+    requirements: ['如何部署', '如何回滚'],
   },
   retrieval_branches: [{
     branch_index: 0, query: '如何部署', dense_requested: 40, dense_returned: 8,
@@ -42,6 +43,7 @@ const standardDetail: QueryTraceView = {
   stage_metrics: [{
     stage: 'rrf_fusion', input_count: 14, output_count: 10, dropped_count: 4,
     attributes: { ranked_lists: 4, unique_leaves: 10 },
+    covered_requirements: [], missing_requirements: [], issues: [],
   }],
 }
 
@@ -66,6 +68,8 @@ describe('query trace workspace', () => {
     expect(wrapper.get('[data-testid="rank-table"]').text()).toContain('#4')
     expect(wrapper.get('[data-testid="rank-table"]').text()).toContain('0.970')
     expect(wrapper.get('[data-testid="query-plan"]').text()).toContain('共 2 条并行检索分支')
+    expect(wrapper.get('[data-testid="query-plan"]').text()).toContain('1 个 Leaf 命中')
+    expect(wrapper.get('[data-testid="query-plan"]').text()).toContain('最终必须覆盖的需求')
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('8 / 40')
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('BM25（Milvus 原生）')
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('不等同于 Recall@K')
@@ -87,6 +91,21 @@ describe('query trace workspace', () => {
     expect(wrapper.get('[data-testid="recovery-rounds"]').text()).toContain('HyDE · Dense')
     expect(wrapper.get('[data-testid="recovery-rounds"]').text()).toContain('新增 2')
     expect(wrapper.text()).toContain('已拒答')
+  })
+
+  it('distinguishes a partial answer from a hard abstention', async () => {
+    vi.mocked(traceApi.listQueries).mockResolvedValue({
+      items: [{ ...summary, status: 'partial' }],
+    })
+    vi.mocked(traceApi.getQuery).mockResolvedValue({
+      ...standardDetail,
+      summary: { ...summary, status: 'partial' },
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('部分回答')
+    expect(wrapper.text()).not.toContain('已拒答')
   })
 
   it('labels a degraded component without exposing raw exceptions', async () => {

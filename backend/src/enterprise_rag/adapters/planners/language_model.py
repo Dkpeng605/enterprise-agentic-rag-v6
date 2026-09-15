@@ -15,10 +15,14 @@ Return exactly one JSON object and no Markdown, commentary, or reasoning.
 Your tasks:
 1. Rewrite the current query into a self-contained retrieval query. Resolve pronouns and omitted
    subjects only from the supplied conversation history. Never invent facts.
-2. Produce 1 to 4 distinct retrieval sub-queries. A simple factual request normally needs one
-   precise sub-query. Comparisons, multi-part requests, and multi-hop questions need 2 to 4
-   complementary sub-queries. Do not create duplicates merely to increase the count.
-3. List the factual requirements that the final answer must cover.
+2. Decide whether decomposition is genuinely useful. Use one precise retrieval sub-query by
+   default. Produce 2 to 4 distinct complementary sub-queries only when one route is likely to
+   miss relevant evidence or separate retrieval perspectives are truly necessary; a comparison,
+   multi-part, or multi-hop label alone is not a mandate to split. Never create duplicates merely
+   to increase the count.
+3. Return exactly one user-level requirement: the original current question. Sub-queries are
+   retrieval routes, not additional answer obligations. Do not turn each sub-query into a
+   separate requirement.
 4. Preserve the requested scope exactly. Never add or replace IDs or metadata filters.
 
 Use exactly these top-level fields:
@@ -26,7 +30,7 @@ Use exactly these top-level fields:
   "rewritten_query": "non-empty string",
   "intent": "factual|comparison|procedural|summary",
   "sub_queries": ["1 to 4 unique non-empty strings"],
-  "requirements": ["0 to 8 unique non-empty strings"],
+  "requirements": ["exactly one non-empty string containing the original question"],
   "scope": {
     "collection_ids": [], "document_ids": [], "titles": [], "organizations": [],
     "doc_types": [], "versions": [], "sections": []

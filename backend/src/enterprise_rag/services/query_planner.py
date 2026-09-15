@@ -111,15 +111,12 @@ class QueryPlanningService:
         sub_queries = _text_tuple(payload["sub_queries"], 1, self._max_sub_queries)
         sub_queries = _normalize_sub_queries(
             request,
-            intent=intent,
             rewritten=rewritten,
             sub_queries=sub_queries,
         )
         requirements = _text_tuple(payload["requirements"], 0, 8)
         requirements = _normalize_requirements(
             request,
-            intent=intent,
-            sub_queries=sub_queries,
             provider_requirements=requirements,
         )
         language = _required_text(payload["language"])
@@ -153,15 +150,12 @@ class QueryPlanningService:
             if previous:
                 rewritten = f"{previous}；后续问题：{query}"
         intent = _intent(query)
-        segments = tuple(
-            dict.fromkeys(
-                value.strip(" ，,。?")
-                for value in _MULTI_SPLIT.split(rewritten)
-                if value.strip(" ，,。?")
-            )
-        )
-        sub_queries = segments[: self._max_sub_queries] if len(segments) > 1 else (rewritten,)
-        requirements = segments[:8] if len(segments) > 1 else (query,)
+        # Decomposition is an LLM decision, not a deterministic default.  The
+        # fallback must remain a single retrieval route after a planner outage;
+        # splitting punctuation or conjunctions here would recreate the same
+        # false multi-requirement behavior we are explicitly preventing.
+        sub_queries = (rewritten,)
+        requirements = (query,)
         return QueryPlan(
             request.query,
             rewritten,
@@ -257,51 +251,38 @@ def _intent(query: str) -> QueryIntent:
 def _normalize_requirements(
     request: PlannerRequest,
     *,
-    intent: QueryIntent,
-    sub_queries: tuple[str, ...],
     provider_requirements: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Keep a model from turning a simple question into an unasked checklist.
+    """Keep retrieval branches separate from the single user-level obligation.
 
-    Requirements drive answer verification, so an invented conditional such as
-    "if applicable, also compare import and export formats" can make a directly
-    answerable factual question abstain.  For a single-part factual request the
-    user's exact question is the only answer obligation.  Multi-part, procedural,
-    comparison, and summary requests retain the provider's decomposition because
-    those requests genuinely need multiple independently verifiable obligations.
+    The provider's list is still parsed and bounded as untrusted structured output,
+    but its semantic contents never become extra answer obligations. A sub-query
+    can be an alternative route to evidence for this same original question.
     """
 
-    query = request.query.strip()
-    if (
-        intent is QueryIntent.FACTUAL
-        and _intent(query) is QueryIntent.FACTUAL
-        and len(sub_queries) == 1
-        and not _MULTI_SPLIT.search(query)
-    ):
-        return (query,)
-    return provider_requirements
+    del provider_requirements
+    return (request.query.strip(),)
 
 
 def _normalize_sub_queries(
     request: PlannerRequest,
     *,
-    intent: QueryIntent,
     rewritten: str,
     sub_queries: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Prevent a factual question from becoming an accidental multi-branch search.
+    """Keep decomposition opt-in while tolerating a model's explicit decision.
 
-    A model may return several paraphrases for a single factual question. They do not
-    add coverage: they multiply Dense/Sparse ranked lists, duplicate the same Root, and
-    make the answer verifier see less useful Root diversity after fusion. Explicitly
-    multi-part factual questions still retain their sub-queries because the original
-    query contains a recognized conjunction or delimiter.
+    The model's list is the only source allowed to activate multiple retrieval
+    routes.  A plain factual question is still protected from accidental model
+    over-splitting because it has no signal that decomposition is useful.  For
+    explicit multi-part wording, the model's distinct routes are retained.  This
+    affects retrieval only; requirements are canonicalized independently to the
+    original user question.
     """
 
     query = request.query.strip()
     if (
-        intent is QueryIntent.FACTUAL
-        and _intent(query) is QueryIntent.FACTUAL
+        _intent(query) is QueryIntent.FACTUAL
         and not _MULTI_SPLIT.search(query)
     ):
         return (rewritten,)

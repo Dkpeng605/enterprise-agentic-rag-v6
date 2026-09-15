@@ -99,6 +99,11 @@ async def test_language_model_planner_sends_bounded_context_and_parses_json() ->
     }
     assert prompt["requested_scope"]["titles"] == ["选课指南"]
     assert "exactly one JSON object" in completion.system_prompt
+    assert "Use one precise retrieval sub-query by" in completion.system_prompt
+    assert "default" in completion.system_prompt
+    assert "not a mandate to split" in completion.system_prompt
+    assert "Do not turn each sub-query into a" in completion.system_prompt
+    assert "separate requirement" in completion.system_prompt
 
 
 @pytest.mark.anyio

@@ -1,7 +1,7 @@
 """Prepare authorized Leaf candidates and recover bounded Root context."""
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from uuid import UUID
 
@@ -32,9 +32,20 @@ class RootContext:
     score: float
     truncated: bool
     evidence_text: str | None = None
+    leaf_matched_queries: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_locator", MappingProxyType(dict(self.source_locator)))
+        object.__setattr__(
+            self,
+            "leaf_matched_queries",
+            MappingProxyType(
+                {
+                    leaf_id: tuple(queries)
+                    for leaf_id, queries in self.leaf_matched_queries.items()
+                }
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +107,9 @@ class ScopeRootService:
             leaf_ids.setdefault(hit.root_id, []).append(hit.leaf_id)
             score = hit.rerank_score if hit.rerank_score is not None else hit.fused_score
             scores[hit.root_id] = max(scores.get(hit.root_id, score), score)
+        matched_queries = {
+            hit.leaf_id: hit.matched_queries for hit in selected_hits
+        }
 
         roots: list[RootContext] = []
         used_chars = 0
@@ -140,6 +154,10 @@ class ScopeRootService:
                     scores[root_id],
                     truncated,
                     model_evidence,
+                    {
+                        leaf_id: matched_queries.get(leaf_id, ())
+                        for leaf_id in leaf_ids[root_id]
+                    },
                 )
             )
             used_chars += min(len(context_text), remaining)

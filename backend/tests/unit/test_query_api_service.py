@@ -93,6 +93,17 @@ async def test_sync_execute_and_ordered_sse_progress() -> None:
     assert events[-1].data["status"] == "answered"
 
 
+def test_partial_query_status_is_serializable() -> None:
+    result = QueryExecution(
+        QUERY_ID,
+        QueryRunStatus.PARTIAL,
+        "仅回答了部分问题。",
+        (),
+    )
+
+    assert result.to_dict()["status"] == "partial"
+
+
 @pytest.mark.anyio
 async def test_stream_emits_heartbeat_while_runner_is_quiet() -> None:
     service = QueryApiService(FakeRunner(delay=0.03), heartbeat_seconds=0.005)

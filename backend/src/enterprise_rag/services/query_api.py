@@ -19,6 +19,7 @@ DisconnectCheck = Callable[[], Awaitable[bool]]
 
 class QueryRunStatus(StrEnum):
     ANSWERED = "answered"
+    PARTIAL = "partial"
     ABSTAINED = "abstained"
     NO_RESULTS = "no_results"
 

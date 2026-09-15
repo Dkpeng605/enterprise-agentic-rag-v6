@@ -127,6 +127,8 @@ async def test_workspace_overview_is_tenant_scoped_and_aggregates_operational_me
     assert empty.status_code == 200
     assert empty.json()["queries_24h"] == 0
     assert empty.json()["query_error_rate"] is None
+    assert empty.json()["query_abstention_rate"] is None
+    assert empty.json()["query_answer_rate"] is None
 
     collection = await api.post(
         "/api/v1/collections",
@@ -265,6 +267,18 @@ async def test_workspace_overview_is_tenant_scoped_and_aggregates_operational_me
     assert payload["queries_24h"] == 3
     assert payload["query_errors_24h"] == 1
     assert payload["query_error_rate"] == pytest.approx(1 / 3, abs=0.0001)
+    assert payload["query_outcome_counts"] == {
+        "answered": 1,
+        "partial": 0,
+        "abstained": 1,
+        "no_results": 0,
+        "error": 1,
+        "failed": 0,
+        "cancelled": 0,
+    }
+    assert payload["query_abstention_rate"] == pytest.approx(1 / 3, abs=0.0001)
+    assert payload["query_answer_rate"] == pytest.approx(1 / 3, abs=0.0001)
+    assert payload["query_generation_degraded_24h"] == 0
     assert payload["query_p95_ms"] == 800
     assert {item["kind"] for item in payload["recent_activity"]} == {
         "ingestion",

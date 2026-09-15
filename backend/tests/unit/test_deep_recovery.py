@@ -223,6 +223,90 @@ async def test_deep_policy_can_require_llm_assessment_for_high_scoring_evidence(
 
 
 @pytest.mark.anyio
+async def test_assessor_failure_does_not_recover_when_deterministic_coverage_is_high() -> None:
+    class BrokenAssessor:
+        async def assess(
+            self,
+            requirements: tuple[str, ...],
+            evidence: tuple[EvidenceItem, ...],
+            score: float,
+        ) -> EvidenceAssessment:
+            del requirements, evidence, score
+            raise RuntimeError("provider protocol failure")
+
+    request = DeepRecoveryRequest(
+        "问题",
+        ("需求",),
+        QueryScope(),
+        (evidence("a", confidence=1.0, covered=("需求",)),),
+    )
+
+    result = await DeepRecoveryController(
+        assessor=BrokenAssessor(),
+        executor=FakeExecutor(),
+        always_assess=True,
+    ).run(request)
+
+    assert result.decision is EvidenceDecision.ANSWER
+    assert result.recovery_rounds == 0
+    assert result.actions == ()
+    assert result.assessor_degraded is True
+    assert result.assessment.degraded is True
+
+
+@pytest.mark.anyio
+async def test_non_conflicting_assessor_abstention_gets_bounded_recovery() -> None:
+    class SequenceAssessor:
+        def __init__(self) -> None:
+            self.assessments = [
+                EvidenceAssessment(
+                    0.3,
+                    (),
+                    ("需求",),
+                    (),
+                    EvidenceDecision.ABSTAIN,
+                    "当前证据缺少一个需求，但可以继续检索",
+                ),
+                EvidenceAssessment(
+                    0.9,
+                    ("需求",),
+                    (),
+                    (),
+                    EvidenceDecision.ANSWER,
+                    "Recovery 后证据完整",
+                ),
+            ]
+
+        async def assess(
+            self,
+            requirements: tuple[str, ...],
+            evidence: tuple[EvidenceItem, ...],
+            score: float,
+        ) -> EvidenceAssessment:
+            del requirements, evidence, score
+            return self.assessments.pop(0)
+
+    assessor = SequenceAssessor()
+    request = DeepRecoveryRequest(
+        "问题",
+        ("需求",),
+        QueryScope(),
+        (evidence("a", confidence=0.4),),
+    )
+
+    result = await DeepRecoveryController(
+        assessor=assessor,
+        executor=FakeExecutor(),
+        max_rounds=2,
+        always_assess=True,
+    ).run(request)
+
+    assert result.decision is EvidenceDecision.ANSWER
+    assert result.recovery_rounds == 1
+    assert result.actions[0].target_requirements == ("需求",)
+
+
+@pytest.mark.anyio
 async def test_low_evidence_stops_after_two_rounds_and_deduplicates() -> None:
     duplicate = evidence("a", confidence=0.1)
     assessor = FakeAssessor()
