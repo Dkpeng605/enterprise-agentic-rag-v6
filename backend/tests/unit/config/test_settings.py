@@ -53,6 +53,20 @@ def test_precedence_is_defaults_then_yaml_then_env_then_override(tmp_path: Path)
     assert settings.deep.high_threshold == 0.80
 
 
+def test_repository_relative_config_path_is_stable_from_backend_working_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository_root = Path(__file__).resolve().parents[4]
+    monkeypatch.chdir(repository_root / "backend")
+
+    settings = load_settings(
+        environ={"ENTERPRISE_RAG_CONFIG_FILE": "config/development.example.yaml"}
+    )
+
+    assert settings.providers.llm == "mock"
+    assert settings.app.commit_sha == "development"
+
+
 def test_secret_values_are_masked_in_models() -> None:
     secret = "must-not-appear"
     settings = load_settings(environ={"SESSION_SECRET": secret})

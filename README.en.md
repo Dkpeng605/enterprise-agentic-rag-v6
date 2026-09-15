@@ -665,7 +665,10 @@ uv build --project backend
 `--no-env-file` is important because `uv run` reads the repository-root `.env` by default. Quality
 gates must prevent local LLM credentials and development database settings from changing the
 semantics of unconfigured-application tests. PostgreSQL integration tests receive their test
-connection only through an explicit `TEST_DATABASE_URL`.
+connection only through an explicit `TEST_DATABASE_URL`; when both `DATABASE_URL` and
+`TEST_DATABASE_URL` are visible to Alembic, migrations always prefer the latter so a baseline
+downgrade cannot touch the development database. Repository-relative YAML paths resolve from
+both the repository root and the `backend/` working directory.
 
 Frontend:
 
