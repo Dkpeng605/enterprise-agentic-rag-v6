@@ -388,6 +388,55 @@ docker image inspect ghcr.io/<owner>/enterprise-agentic-rag-backend:<commit-sha>
 Compose `BACKEND_IMAGE`/`FRONTEND_IMAGE` should use the complete references for the same commit. GHCR publication alone does
 not mean SSH deployment or public acceptance has completed.
 
+### M8-04 SSH deploy and rollback
+
+`.github/workflows/deploy.yml` is a manually dispatched workflow that only accepts runs from `main`. Its job is bound to the
+GitHub Environment `production`, so the required reviewers configured for that Environment must approve each run; concurrent
+deployments are never cancelled. A deploy accepts only a 40-character commit SHA already published by M8-03. The runner
+checks that it is an ancestor of `origin/main` and that both images exist before using verified SSH to upload the Compose/Caddy
+files and `scripts/production-deploy.sh`. The server's `infra/production/.env.production` is never overwritten from Git.
+
+Configure these Secrets in the GitHub Repository/Environment `production` (never commit them):
+
+```text
+DEPLOY_HOST                 VPS hostname or IP
+DEPLOY_USER                 dedicated user with Docker permission
+DEPLOY_SSH_PRIVATE_KEY      deployment private key
+DEPLOY_KNOWN_HOSTS          complete SSH host-key line verified out of band
+DEPLOY_REGISTRY_USERNAME    GHCR read-only account
+DEPLOY_REGISTRY_TOKEN       GHCR packages:read token
+```
+
+Optional Environment Variables are `DEPLOY_PORT` (default `22`), `DEPLOY_PATH` (default
+`/opt/enterprise-agentic-rag-v6`), and `PUBLIC_BASE_URL` (only for the Environment link). The server must have Docker
+Engine/Compose plugin and a prepared `${DEPLOY_PATH}/infra/production/.env.production` containing the public domain,
+remote Providers, Milvus, administrator bootstrap, and all production secrets. The script atomically updates only
+`APP_COMMIT_SHA`, `BACKEND_IMAGE`, and `FRONTEND_IMAGE`; all other server configuration remains in place.
+
+Run deploy or rollback as follows. Leave `release_sha` empty to deploy the current `main` commit, and first confirm that the
+M8-03 image workflow succeeded for that commit:
+
+```bash
+gh workflow run deploy.yml --ref main \
+  -f action=deploy -f confirmation=DEPLOY \
+  [-f release_sha=<40-character-commit-sha>]
+gh run watch
+
+gh workflow run deploy.yml --ref main \
+  -f action=rollback -f confirmation=ROLLBACK
+gh run watch
+```
+
+Each deploy first creates a custom-format PostgreSQL `pg_dump` at
+`backups/deploy/pre-deploy-<sha>-<timestamp>.dump`, then runs `docker compose run --rm migrate`, and starts the API,
+standalone Worker, frontend, and gateway. Smoke checks Caddy HTTPS `/health/live`, anonymous `/auth/me` and the isolated
+`/workspace/overview`, and verifies that administrator login returns `super_admin` inside the API container; it never prints
+content, cookies, or credentials. A failed deploy restores the pre-deploy environment file and attempts to restart the last
+valid SHA image pair. An explicit rollback only switches to the recorded previous immutable image pair; it never deletes
+PostgreSQL, ObjectStore, Root/Leaf, Trace, Milvus, or volumes and never performs a migration downgrade. Production migrations
+must therefore remain backward-compatible. Until a pre-production host completes one successful deploy and rollback drill,
+the system must not be described as publicly released.
+
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
 To stop PostgreSQL only:
 
@@ -691,7 +740,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - Production API composition root (M8-02 prerequisite): complete
 - M8-02 production Compose/Caddy: complete (not publicly released)
 - M8-03 GHCR immutable images: complete
-- Next: M8-04 Deploy/Rollback
+- M8-04 Deploy/Rollback: implemented, awaiting the pre-production host drill
+- Next: M8-05 Backup/Restore
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 

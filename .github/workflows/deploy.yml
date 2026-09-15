@@ -1,0 +1,195 @@
+name: Production deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Deploy a published release or roll back to the recorded previous release
+        required: true
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - rollback
+      release_sha:
+        description: Optional 40-character SHA already published by the images workflow (deploy only)
+        required: false
+        type: string
+      confirmation:
+        description: Type DEPLOY or ROLLBACK to confirm the selected operation
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy-or-rollback-production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_BASE_URL }}
+    env:
+      DEPLOY_ACTION: ${{ inputs.action }}
+      RELEASE_SHA_INPUT: ${{ inputs.release_sha }}
+      DEPLOY_CONFIRMATION: ${{ inputs.confirmation }}
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_REGISTRY_USERNAME: ${{ secrets.DEPLOY_REGISTRY_USERNAME }}
+      DEPLOY_REGISTRY_TOKEN: ${{ secrets.DEPLOY_REGISTRY_TOKEN }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/enterprise-agentic-rag-v6' }}
+    steps:
+      - name: Check out selected main revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate release and deployment contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "Deployments must be dispatched from main." >&2
+            exit 1
+          }
+          [[ "$DEPLOY_ACTION" == deploy || "$DEPLOY_ACTION" == rollback ]] || {
+            echo "Unknown deployment action." >&2
+            exit 1
+          }
+          expected_confirmation="${DEPLOY_ACTION^^}"
+          [[ "$DEPLOY_CONFIRMATION" == "$expected_confirmation" ]] || {
+            echo "The confirmation text does not match the selected action." >&2
+            exit 1
+          }
+          for required_name in \
+            DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_PRIVATE_KEY DEPLOY_KNOWN_HOSTS \
+            DEPLOY_REGISTRY_USERNAME DEPLOY_REGISTRY_TOKEN; do
+            [[ -n "${!required_name}" ]] || {
+              echo "Missing GitHub Environment secret: ${required_name}" >&2
+              exit 1
+            }
+          done
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9._:-]+$ ]] || {
+            echo "DEPLOY_HOST contains unsupported characters." >&2
+            exit 1
+          }
+          [[ "$DEPLOY_USER" =~ ^[A-Za-z0-9._-]+$ ]] || {
+            echo "DEPLOY_USER contains unsupported characters." >&2
+            exit 1
+          }
+          [[ "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]] || {
+            echo "DEPLOY_PORT must be numeric." >&2
+            exit 1
+          }
+          (( DEPLOY_PORT >= 1 && DEPLOY_PORT <= 65535 )) || {
+            echo "DEPLOY_PORT must be between 1 and 65535." >&2
+            exit 1
+          }
+          [[ "$DEPLOY_PATH" == /* && "$DEPLOY_PATH" != *[!a-zA-Z0-9_./-]* ]] || {
+            echo "DEPLOY_PATH must be an absolute path without shell metacharacters." >&2
+            exit 1
+          }
+          [[ "$DEPLOY_REGISTRY_USERNAME" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] || {
+            echo "DEPLOY_REGISTRY_USERNAME contains unsupported characters." >&2
+            exit 1
+          }
+
+          if [[ "$DEPLOY_ACTION" == deploy ]]; then
+            release_sha="${RELEASE_SHA_INPUT:-$GITHUB_SHA}"
+            [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "release_sha must be a 40-character lowercase commit SHA." >&2
+              exit 1
+            }
+            git cat-file -e "${release_sha}^{commit}"
+            git merge-base --is-ancestor "$release_sha" origin/main || {
+              echo "release_sha is not an ancestor of origin/main." >&2
+              exit 1
+            }
+            image_namespace="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+            backend_image="${image_namespace}/enterprise-agentic-rag-backend:${release_sha}"
+            frontend_image="${image_namespace}/enterprise-agentic-rag-frontend:${release_sha}"
+
+            printf '%s' "$DEPLOY_REGISTRY_TOKEN" | docker login ghcr.io \
+              --username "$DEPLOY_REGISTRY_USERNAME" --password-stdin
+            docker buildx imagetools inspect "$backend_image" >/dev/null
+            docker buildx imagetools inspect "$frontend_image" >/dev/null
+
+            {
+              printf 'RELEASE_SHA=%s\n' "$release_sha"
+              printf 'BACKEND_IMAGE=%s\n' "$backend_image"
+              printf 'FRONTEND_IMAGE=%s\n' "$frontend_image"
+            } >> "$GITHUB_ENV"
+          else
+            # Rollback resolves the previous SHA from the host's non-secret state file.
+            printf 'RELEASE_SHA=\nBACKEND_IMAGE=\nFRONTEND_IMAGE=\n' >> "$GITHUB_ENV"
+          fi
+
+      - name: Deploy over verified SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_dir="${RUNNER_TEMP}/enterprise-rag-ssh"
+          install -d -m 700 "$ssh_dir"
+          ssh_key="${ssh_dir}/deploy_key"
+          known_hosts="${ssh_dir}/known_hosts"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$ssh_key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$known_hosts"
+          chmod 600 "$ssh_key" "$known_hosts"
+
+          target="${DEPLOY_USER}@${DEPLOY_HOST}"
+          ssh_options=(
+            -i "$ssh_key"
+            -o "Port=${DEPLOY_PORT}"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o "UserKnownHostsFile=${known_hosts}"
+          )
+          scp_options=(
+            -i "$ssh_key"
+            -P "$DEPLOY_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o "UserKnownHostsFile=${known_hosts}"
+          )
+
+          printf '%s' "$DEPLOY_REGISTRY_TOKEN" | ssh "${ssh_options[@]}" "$target" \
+            "docker login ghcr.io --username '${DEPLOY_REGISTRY_USERNAME}' --password-stdin"
+          ssh "${ssh_options[@]}" "$target" \
+            "mkdir -p -- '${DEPLOY_PATH}/infra/production' '${DEPLOY_PATH}/backups/deploy'"
+          scp "${scp_options[@]}" \
+            infra/production/compose.yml infra/production/gateway.Caddyfile \
+            scripts/production-deploy.sh \
+            "$target:${DEPLOY_PATH}/"
+          ssh "${ssh_options[@]}" "$target" \
+            "mkdir -p -- '${DEPLOY_PATH}/infra/production' && \
+             mv -- '${DEPLOY_PATH}/compose.yml' '${DEPLOY_PATH}/infra/production/compose.yml' && \
+             mv -- '${DEPLOY_PATH}/gateway.Caddyfile' '${DEPLOY_PATH}/infra/production/gateway.Caddyfile' && \
+             chmod 700 '${DEPLOY_PATH}/production-deploy.sh'"
+
+          if [[ "$DEPLOY_ACTION" == deploy ]]; then
+            ssh "${ssh_options[@]}" "$target" \
+              "DEPLOY_PATH='${DEPLOY_PATH}' '${DEPLOY_PATH}/production-deploy.sh' deploy \
+               '${RELEASE_SHA}' '${BACKEND_IMAGE}' '${FRONTEND_IMAGE}'"
+          else
+            ssh "${ssh_options[@]}" "$target" \
+              "DEPLOY_PATH='${DEPLOY_PATH}' '${DEPLOY_PATH}/production-deploy.sh' rollback"
+          fi
+
+      - name: Report deployed revision
+        if: success() && env.DEPLOY_ACTION == 'deploy'
+        run: echo "Deployed immutable release ${RELEASE_SHA}."
+
+      - name: Report rollback
+        if: success() && env.DEPLOY_ACTION == 'rollback'
+        run: echo "Rollback completed using the host's recorded previous release."
