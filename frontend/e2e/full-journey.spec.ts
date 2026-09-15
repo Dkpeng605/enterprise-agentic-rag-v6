@@ -43,6 +43,12 @@ test('anonymous full journey and isolated administrator login', async ({ page })
   await expect(page.getByTestId('citations')).toContainText('Atlas 发布手册')
   await expect(page.getByTestId('citations')).toContainText('蓝鲸-7429')
 
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await expect(page.getByRole('checkbox', { name: collectionName, exact: false })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await page.setViewportSize({ width: 1280, height: 720 })
+
   await page.getByRole('link', { name: 'Query Trace' }).click()
   await expect(page.getByTestId('waterfall')).toBeVisible()
   await expect(page.getByTestId('rank-table')).toContainText('leaf_')
