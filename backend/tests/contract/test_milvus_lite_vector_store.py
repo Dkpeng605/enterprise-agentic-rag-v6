@@ -6,7 +6,7 @@ from uuid import UUID
 
 import pytest
 
-from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
+from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore, MilvusRemoteVectorStore
 from enterprise_rag.observability import ApplicationMetrics, bind_metrics
 from enterprise_rag.ports import (
     DenseSearchRequest,
@@ -281,3 +281,37 @@ async def test_milvus_operations_publish_bounded_success_and_error_metrics(
     rendered = metrics.render().decode()
     assert 'milvus_operations_total{operation="ensure_revision",status="success"} 1.0' in rendered
     assert 'milvus_operations_total{operation="ensure_revision",status="error"} 1.0' in rendered
+
+
+def test_remote_milvus_adapter_uses_server_uri_and_never_reports_as_lite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import enterprise_rag.adapters.vector_store.milvus_lite as module
+
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    class FakeRemoteClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            calls.append((args, kwargs))
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(module, "MilvusClient", FakeRemoteClient)
+
+    store = MilvusRemoteVectorStore(
+        "http://milvus:19530", token="server-token", db_name="enterprise_rag"
+    )
+
+    assert store.info().name == "milvus_remote"
+    assert store.info().is_remote is True
+    assert calls == [
+        (
+            (),
+            {
+                "uri": "http://milvus:19530",
+                "token": "server-token",
+                "db_name": "enterprise_rag",
+            },
+        )
+    ]

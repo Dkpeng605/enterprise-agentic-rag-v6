@@ -277,7 +277,7 @@ intentional safety boundary because collection names and the current Provider ca
 Marked stale projections are reported as `orphan_vector`, and `--apply` deletes only that
 tenant/version/revision.
 
-### Local single-process Worker and production scope
+### Local single-process Worker and production Worker
 
 The local `mac_runtime` entrypoint starts the polling Worker inside the same FastAPI process. It reuses the real Loader,
 Cleaner, Splitter, Embedding, Sparse, Vision, Projection, Milvus, and persistent Trace components; uploaded Jobs are
@@ -285,11 +285,20 @@ processed with PostgreSQL leases, heartbeats, expiry recovery, and bounded retri
 `./scripts/mac-backend.sh` command above, and do not start another process that opens the same Milvus Lite
 `vectors.db`.
 
-The standalone production Worker is postponed and is not part of this local acceptance or a claim of public multi-replica
-deployment. Milvus Lite `.db` files are single-process. A future M8 slice must first add a cross-process Milvus
-Adapter/Standalone Milvus, or an authenticated Projection RPC owned by the one Lite process, before standalone Worker,
-images, Compose, and server deployment work resumes. Any Worker-only implementation still present in the working tree
-is uncommitted experimental code, not a current repository startup contract.
+M8-00 now provides the standalone `enterprise-rag-worker` process entrypoint. It reuses the real Loader, Cleaner, Splitter,
+Embedding, Sparse, Vision, Projection, and Trace components, and coordinates multiple Workers through PostgreSQL `SKIP LOCKED`,
+leases, heartbeats, expiry recovery, and bounded retries. Each process runs one Pipeline at a time; `SIGINT`/`SIGTERM` stops
+new claims and closes resources in reverse order. Start it with:
+
+```bash
+uv run --project backend --env-file .env enterprise-rag-worker
+```
+
+For local development with `milvus_lite`, the API and standalone Worker must not open the same `vectors.db` concurrently;
+run the standalone Worker only while the API is stopped. Production must set `providers.vector_store=milvus_remote` and
+provide `VECTOR_STORE_URI`, `VECTOR_STORE_TOKEN` (and optionally `VECTOR_STORE_DATABASE`) so the API and multiple Workers
+share a server-backed Milvus. This completes the production Worker prerequisite, while production images, Compose, backups,
+and public release remain later M8 slices.
 
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
 To stop PostgreSQL only:
@@ -589,7 +598,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R13 abstention diagnosis and evidence-budget fixes: complete
 - M7-R14 partial-answer status and abstention-rate semantics: complete
 - M7-R15 protected image preview in the Pipeline Inspector: complete
-- Next: M8 public deployment
+- M8-00 standalone ingestion Worker prerequisite: complete
+- Next: M8-01 production images
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 
@@ -774,7 +784,7 @@ the same rule. The administration UI therefore distinguishes “Provider changed
 revision is fully searchable” instead of presenting incompatible vectors as valid. Remote Embedding and Reranker
 transport failures use bounded retries and sanitized errors; invalid reranker identities fall back to a bounded RRF order.
 
-The ingestion Pipeline creates or reuses its Job in the document-registration transaction, then executes Loader → image enrichment → Cleaner → Splitter → PostgreSQL → Milvus → final commit. Each checkpoint renews the lease, advances monotonic progress, and observes cancellation. Deterministic input errors fail immediately; transient failures retry up to the configured limit. Failure and cancellation compensate PostgreSQL content and Milvus projections for that version, and a document becomes `ready` only after both stores verify successfully. The service runs through `run_once(owner=...)`; the M7-08 offline composition now includes a single-process polling Worker, while M8 still owns the production process and resource constraints.
+The ingestion Pipeline creates or reuses its Job in the document-registration transaction, then executes Loader → image enrichment → Cleaner → Splitter → PostgreSQL → Milvus → final commit. Each checkpoint renews the lease, advances monotonic progress, and observes cancellation. Deterministic input errors fail immediately; transient failures retry up to the configured limit. Failure and cancellation compensate PostgreSQL content and Milvus projections for that version, and a document becomes `ready` only after both stores verify successfully. The service runs through `run_once(owner=...)`; the M7-08 offline composition includes a single-process polling Worker, and M8-00 now provides the standalone production Worker process and resource bounds.
 
 The anonymous workspace API uses server-side sessions to bind every request to one fixed demo tenant. Anonymous `demo_operator` sessions can manage collections and documents inside that tenant but cannot access the system administration surface; writes require a rotating CSRF token. Administrators use separate database sessions, Argon2id passwords, and system roles; frontend guards improve UX while the backend still authorizes every system request. Collection CRUD, streaming upload, document cursor pagination, details, job lookup, and idempotent asynchronous deletion all use the unified error model and request IDs. Cross-tenant identifiers always appear as 404.
 
