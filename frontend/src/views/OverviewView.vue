@@ -36,7 +36,24 @@ const documentTotal = computed(() => {
 const isEmpty = computed(
   () => documentTotal.value === 0 && overview.value?.queries_24h === 0 && !overview.value.recent_activity.length,
 )
-const isDegraded = computed(() => Boolean(health.value && (!health.value.ready || health.value.status !== 'healthy')))
+const hasProviderFailure = computed(() => {
+  const report = health.value
+  if (!report) return false
+  return report.providers.some((provider) => ['degraded', 'unavailable'].includes(provider.health))
+    || report.checks.some((check) => check.kind === 'provider' && check.status === 'unavailable')
+})
+const hasNonProviderIssue = computed(() => Boolean(
+  health.value?.checks.some((check) => check.kind !== 'provider' && check.status !== 'healthy'),
+))
+const isDegraded = computed(() => Boolean(
+  health.value && (!health.value.ready || hasProviderFailure.value || hasNonProviderIssue.value),
+))
+const probePending = computed(() => Boolean(
+  health.value
+  && health.value.ready
+  && !isDegraded.value
+  && health.value.providers.some((provider) => provider.health === 'unknown'),
+))
 const providerGroups = computed(() => {
   const providers = health.value?.providers ?? []
   return providerSlots.map((slot) => ({
@@ -119,7 +136,7 @@ onMounted(load)
       </div>
       <div v-if="state === 'ready' && overview" class="overview-freshness">
         <span :class="{ 'status-dot--degraded': isDegraded }"></span>
-        <div><strong>{{ isDegraded ? '服务处于降级态' : '服务运行正常' }}</strong><small>快照 {{ timeLabel(overview.generated_at) }}</small></div>
+        <div><strong>{{ isDegraded ? '服务处于降级态' : probePending ? '服务运行中 · 远程 Provider 待探测' : '服务运行正常' }}</strong><small>快照 {{ timeLabel(overview.generated_at) }}</small></div>
       </div>
     </header>
 
@@ -134,6 +151,9 @@ onMounted(load)
     <template v-else-if="overview && health">
       <aside v-if="isDegraded" class="degraded-banner" role="status">
         <span>DEGRADED</span><div><strong>部分依赖尚未就绪</strong><p>页面继续展示可确认的数据；请根据下方 Provider 和健康检查定位缺失能力。</p></div>
+      </aside>
+      <aside v-else-if="probePending" class="degraded-banner" role="status">
+        <span>PROBE PENDING</span><div><strong>远程 Provider 尚未探测</strong><p>LLM、Reranker 等 Provider 会在首次真实请求后显示健康或具体错误；这不是故障，页面当前可以正常使用。</p></div>
       </aside>
 
       <div v-if="seedMessage" class="overview-seed-message" role="status">{{ seedMessage }}</div>

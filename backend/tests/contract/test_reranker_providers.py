@@ -142,6 +142,7 @@ async def test_siliconflow_bge_reranker_uses_official_rerank_contract() -> None:
     ]
     assert provider.info().name == "siliconflow"
     assert provider.info().version == "BAAI/bge-reranker-v2-m3"
+    assert provider.info().health.value == "healthy"
 
 
 @pytest.mark.anyio

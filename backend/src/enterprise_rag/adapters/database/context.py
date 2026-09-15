@@ -146,6 +146,7 @@ class PostgreSQLContextRepository:
                 row.document_id,
                 row.version_id,
                 row.retrieval_text,
+                row.text,
             )
             for row in rows
         )

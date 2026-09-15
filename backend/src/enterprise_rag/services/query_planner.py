@@ -110,6 +110,12 @@ class QueryPlanningService:
         intent = QueryIntent(_required_text(payload["intent"]))
         sub_queries = _text_tuple(payload["sub_queries"], 1, self._max_sub_queries)
         requirements = _text_tuple(payload["requirements"], 0, 8)
+        requirements = _normalize_requirements(
+            request,
+            intent=intent,
+            sub_queries=sub_queries,
+            provider_requirements=requirements,
+        )
         language = _required_text(payload["language"])
         scope_payload = payload["scope"]
         if not isinstance(scope_payload, Mapping):
@@ -240,6 +246,34 @@ def _intent(query: str) -> QueryIntent:
     return next(
         (intent for pattern, intent in checks if pattern.search(query)), QueryIntent.FACTUAL
     )
+
+
+def _normalize_requirements(
+    request: PlannerRequest,
+    *,
+    intent: QueryIntent,
+    sub_queries: tuple[str, ...],
+    provider_requirements: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Keep a model from turning a simple question into an unasked checklist.
+
+    Requirements drive answer verification, so an invented conditional such as
+    "if applicable, also compare import and export formats" can make a directly
+    answerable factual question abstain.  For a single-part factual request the
+    user's exact question is the only answer obligation.  Multi-part, procedural,
+    comparison, and summary requests retain the provider's decomposition because
+    those requests genuinely need multiple independently verifiable obligations.
+    """
+
+    query = request.query.strip()
+    if (
+        intent is QueryIntent.FACTUAL
+        and _intent(query) is QueryIntent.FACTUAL
+        and len(sub_queries) == 1
+        and not _MULTI_SPLIT.search(query)
+    ):
+        return (query,)
+    return provider_requirements
 
 
 def _error_usage(error: Exception) -> tuple[int, int, int]:

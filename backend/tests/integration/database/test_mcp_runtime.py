@@ -155,7 +155,9 @@ async def test_real_mounted_runtime_supports_catalog_search_resources_verify_and
             name="official client e2e",
             collection_ids=(COLLECTION_ID,),
             scopes=tuple(sorted(ALL_MCP_SCOPES)),
-            expires_in=timedelta(hours=1),
+            # The official SDK also checks the wall clock, while this test uses a fixed
+            # application clock. Keep the fixture valid independently of the test date.
+            expires_in=timedelta(days=365),
         )
         settings = AppSettings.model_validate(
             {
@@ -242,7 +244,6 @@ async def test_real_mounted_runtime_supports_catalog_search_resources_verify_and
                         "collection_ids": [str(OUTSIDE_COLLECTION_ID)],
                     },
                 )
-
         assert collections.structured_content["items"][0]["id"] == str(COLLECTION_ID)
         assert searched.structured_content["items"][0]["leaf_id"] == LEAF_ID
         assert summary.structured_content["id"] == str(DOCUMENT_ID)

@@ -1,13 +1,13 @@
 """Explicit offline composition root used by Compose browser acceptance."""
 
 import asyncio
-import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI
 
 from enterprise_rag.adapters.cleaners import DeterministicCleaner
 from enterprise_rag.adapters.database import Database
+from enterprise_rag.adapters.database.jobs import IngestionJobRepository
 from enterprise_rag.adapters.embeddings import HashingDenseEmbedding
 from enterprise_rag.adapters.loaders import PdfLoader, SpreadsheetLoader, TextDocumentLoader
 from enterprise_rag.adapters.object_store import LocalObjectStore
@@ -24,11 +24,11 @@ from enterprise_rag.services import (
     DeterministicLocalQueryRunner,
     ImageEnricher,
     IngestionPipeline,
+    IngestionWorker,
     ProjectionService,
     build_persistent_tracing,
 )
 
-LOGGER = logging.getLogger(__name__)
 INDEX_REVISION = "local-e2e-hashing-v1"
 
 
@@ -85,7 +85,7 @@ def build_local_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         vector_store=vector_store,
         temporary_root=runtime_root / "ingestion-temporary",
         index_revision=INDEX_REVISION,
-        lease_for=timedelta(minutes=2),
+        lease_for=timedelta(seconds=active.worker.lease_seconds),
         retry_delay=timedelta(seconds=1),
         tracer_provider=tracer_provider,
         trace_recorder=trace_service,
@@ -106,21 +106,24 @@ def build_local_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         max_parent_chars=retrieval.max_parent_chars,
     )
 
+    async def recover_expired(now: datetime, limit: int) -> int:
+        async with database.session() as session:
+            retry_count, failed_count = await IngestionJobRepository(session).recover_expired(
+                now=now, limit=limit
+            )
+        return retry_count + failed_count
+
+    ingestion_worker = IngestionWorker(
+        pipeline,
+        recover_expired,
+        owner="compose-local-worker",
+        poll_interval_seconds=active.worker.poll_interval_seconds,
+        recovery_interval_seconds=active.worker.recovery_interval_seconds,
+        recovery_limit=active.worker.recovery_limit,
+    )
+
     async def worker() -> None:
-        while True:
-            try:
-                result = await pipeline.run_once(owner="compose-local-worker")
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                LOGGER.exception(
-                    "rag.local_worker.poll_failed",
-                    extra={"event_code": "LOCAL_WORKER_POLL_FAILED", "outcome": "error"},
-                )
-                await asyncio.sleep(1)
-                continue
-            if result is None:
-                await asyncio.sleep(0.2)
+        await ingestion_worker.run_forever(asyncio.Event())
 
     async def close_tracer() -> None:
         await asyncio.to_thread(tracer_provider.shutdown)

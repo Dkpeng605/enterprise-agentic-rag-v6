@@ -211,6 +211,9 @@ The Mac QueryRunner first calls the same timeout/retry-bounded OpenAI-compatible
 QueryPlan. It rewrites context-dependent questions into standalone retrieval queries and produces one to
 four distinct sub-queries according to complexity. A simple factual request normally remains one precise
 sub-query; comparison, multi-part, and multi-hop requests are decomposed instead of inflating every query.
+Because requirements directly drive answer verification, a simple single-part factual request deterministically
+uses the user's original question as its sole requirement. The model still supplies the rewrite and sub-query,
+but cannot invent an extra conditional such as comparing import and export formats when that was not asked.
 The backend still validates every field, list bound, UUID, and Scope. Malformed JSON, expanded Scope, or a
 Provider failure falls back atomically to the deterministic planner. Query Trace displays the rewrite,
 sub-queries, Planner Provider/degradation, Planner tokens, per-branch Dense/Sparse returns and overlap,
@@ -219,6 +222,18 @@ assessment/recovery rounds, answer generation, citation verification/repair, and
 Planner, Assessor, answer, and Repair calls all count toward query usage; a completed Planner call is still
 reported when retrieval finds no evidence. These runtime counts are not Recall@K; gold-labelled quality
 metrics remain in Evaluations.
+
+The local real-LLM smoke distinguishes a model request failure from a structured answer failing verification.
+The Answer Author allows one schema regeneration; when structure is valid but citation or requirement
+verification fails, it allows one Repair. Root recovery still retains the complete clean text for deterministic
+verification, but Answer/Assessor receive only the original text of authorized, reranked Leaves selected in this
+run, avoiding repeated delivery of a long document to a reasoning model. The Answer Author system contract also
+forbids chain-of-thought output and limits the result to four short paragraphs, six citations, and short quotes;
+unsupported requirements are reported as a concise gap. Every attempt uses the same authorized Root set, and failure returns a safe abstention instead of raw model text. If a TokenHub/MiniMax-M3 answer contains long `<think>`
+reasoning, adjust the local output bound in `config/macos.example.yaml` or with `.env` variable
+`ENTERPRISE_RAG__COST_GUARD__ANSWER_MAX_OUTPUT_TOKENS`, then inspect `answer_generation` usage in Trace.
+Do not hide the issue by disabling `response_format`, removing citation verification, or marking answer
+errors as answered.
 
 If an older checkout shared the application and test database, stop the backend and run the read-only
 check before applying deletion. The command reconciles PostgreSQL facts with Milvus projections by
@@ -239,6 +254,20 @@ unchanged and are reported as `unknown_vector_revision` when their version still
 intentional safety boundary because collection names and the current Provider cannot prove ownership.
 Marked stale projections are reported as `orphan_vector`, and `--apply` deletes only that
 tenant/version/revision.
+
+### Local single-process Worker and production scope
+
+The local `mac_runtime` entrypoint starts the polling Worker inside the same FastAPI process. It reuses the real Loader,
+Cleaner, Splitter, Embedding, Sparse, Vision, Projection, Milvus, and persistent Trace components; uploaded Jobs are
+processed with PostgreSQL leases, heartbeats, expiry recovery, and bounded retries. Start the local service with the
+`./scripts/mac-backend.sh` command above, and do not start another process that opens the same Milvus Lite
+`vectors.db`.
+
+The standalone production Worker is postponed and is not part of this local acceptance or a claim of public multi-replica
+deployment. Milvus Lite `.db` files are single-process. A future M8 slice must first add a cross-process Milvus
+Adapter/Standalone Milvus, or an authenticated Projection RPC owned by the one Lite process, before standalone Worker,
+images, Compose, and server deployment work resumes. Any Worker-only implementation still present in the working tree
+is uncommitted experimental code, not a current repository startup contract.
 
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
 To stop PostgreSQL only:
@@ -591,7 +620,7 @@ successful Runs with complete and identical Dataset, Mode, Case-set, Index, Prom
 Candidate − Base deltas; every other comparison shows the backend's specific incompatibility reasons. Reports can
 be exported as JSON or Markdown.
 
-The Cost Guard atomically reserves a per-minute query slot and worst-case call/token capacity with PostgreSQL conditional upserts before QueryRunner can enter Provider logic. Minute limits are isolated per anonymous session, UTC daily capacity is shared by all anonymous sessions, and Standard/Deep use different weights. Successful calls refund unused capacity from trustworthy usage; failures or unverifiable usage conservatively consume the reservation, and 429 responses include `Retry-After`. The LLM decorator adds configurable per-attempt timeout, bounded transient-only retries, and a retry count. Apply the new tables first with the `alembic upgrade head` command above.
+The Cost Guard atomically reserves a per-minute query slot and worst-case call/token capacity with PostgreSQL conditional upserts before QueryRunner can enter Provider logic. Minute limits are isolated per anonymous session, UTC daily capacity is shared by all anonymous sessions, and Standard/Deep use different weights. Successful calls refund unused capacity from trustworthy usage; failures or unverifiable usage conservatively consume the reservation, and 429 responses include `Retry-After`. The LLM decorator adds configurable per-attempt timeout, bounded transient-only retries, and a retry count. `cost_guard.answer_max_output_tokens` separately controls the `max_tokens` sent for each Answer Author/schema-regeneration/Repair request. Reasoning models such as MiniMax-M3 count hidden reasoning inside completion, so the macOS example defaults to 6000 to avoid truncating the structured JSON before the answer; it does not bypass citation verification or expand the evidence scope. Apply the new tables first with the `alembic upgrade head` command above.
 
 `KnowledgeApplication` is now the only query use-case boundary for HTTP, MCP, and the later CLI. The official MCP SDK v2 stdio adapter exposes six read-only tools plus collection/document/section resources, with every identity bound by the server process. Tools return both human-readable and structured content while sanitizing errors. The entry point reserves stdout for JSON-RPC, and a real SDK-client subprocess test covers list/call/read plus buffered-output isolation.
 
@@ -739,9 +768,9 @@ The Reranker port provides local FastEmbed CrossEncoder, HTTP, and explicit Noop
   tests/contract/test_reranker_providers.py -m model)
 ```
 
-The Scope/Root service resolves server-side authorization and user metadata constraints to an explicit set of currently ready PostgreSQL document IDs. Anonymous users retain full business access inside the demo tenant but cannot override the tenant in a request; restricted identities use the union of allowed Collections and Documents. Title, organization, media type, active-version UUID, and section are checked against the fact source, while contradictory explicit constraints return `QUERY_SCOPE_CONFLICT` without disclosing resource existence. Recalled Leaves are rechecked before reranking, and selected Roots are rechecked again before entering context, joining tenant, active Collection, ready Document, and indexed active Version. Stale vectors, deleting content, and unauthorized records are therefore discarded. Recovered content has a strict default 18,000-character budget, merges Leaf references per Root, and records deterministic truncation.
+The Scope/Root service resolves server-side authorization and user metadata constraints to an explicit set of currently ready PostgreSQL document IDs. Anonymous users retain full business access inside the demo tenant but cannot override the tenant in a request; restricted identities use the union of allowed Collections and Documents. Title, organization, media type, active-version UUID, and section are checked against the fact source, while contradictory explicit constraints return `QUERY_SCOPE_CONFLICT` without disclosing resource existence. Recalled Leaves are rechecked before reranking, and selected Roots are rechecked again before entering context, joining tenant, active Collection, ready Document, and indexed active Version. Stale vectors, deleting content, and unauthorized records are therefore discarded. The default 18,000-character Root-recovery limit is used for context-budget accounting and deterministic truncation diagnostics; `RootContext` still retains complete clean text for citation-quote verification, while Answer/Assessor receive only authorized, reranked Leaf source fragments so a valid quote in the latter half of a Root is not falsely rejected.
 
-The Query Planning Service treats structured Planner output as untrusted input and strictly validates fields, intent, sub-query and requirement limits, UUIDs, and scope narrowing. A model cannot change Standard/Deep mode, invent Collection or Document IDs, or replace explicit caller metadata. The Mac composition uses the current OpenAI-compatible LLM for rewriting and one-to-four-way decomposition and records Planner calls/tokens separately. Any malformed response or Provider failure falls back as one unit to a deterministic plan that preserves the original scope, recognizes Chinese and English comparison, procedural, and summary intent, splits multiple conditions, and uses the latest user turn to resolve pronouns. Provider exception text never enters the QueryPlan.
+The Query Planning Service treats structured Planner output as untrusted input and strictly validates fields, intent, sub-query and requirement limits, UUIDs, and scope narrowing. A model cannot change Standard/Deep mode, invent Collection or Document IDs, or replace explicit caller metadata. The Mac composition uses the current OpenAI-compatible LLM for rewriting and one-to-four-way decomposition and records Planner calls/tokens separately. For a simple single-part factual request, the final requirement is deterministically normalized to the user's original question so the model cannot add an unasked conditional and cause a false abstention; comparison, multi-part, procedural, and summary requests retain structured requirements. Any malformed response or Provider failure falls back as one unit to a deterministic plan that preserves the original scope, recognizes Chinese and English comparison, procedural, and summary intent, splits multiple conditions, and uses the latest user turn to resolve pronouns. Provider exception text never enters the QueryPlan.
 
 The Standard Query Graph is an explicit state machine connecting Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer. Every run returns its actual transitions. Empty RRF output, authorized Leaves, or rechecked Roots terminate as NoResults without invoking the answer model. Standard counts the Planner attempt as LLM call one and final answer generation as call two, with a runtime hard ceiling; Planner degradation adds no call. Unclassified failures terminate as Failed with a sanitized error code and no exception text exposed to clients.
 

@@ -554,7 +554,7 @@ class SemanticQueryRunner:
                         (),
                         round_number,
                         route,
-                        root.text,
+                        root.evidence_text or root.text,
                     )
                 )
         return tuple(result)

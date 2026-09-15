@@ -83,6 +83,15 @@ class IngestionSettings(SettingsModel):
         return self
 
 
+class WorkerSettings(SettingsModel):
+    """Resource and recovery bounds for the standalone ingestion Worker."""
+
+    poll_interval_seconds: Annotated[float, Field(gt=0, le=60)] = 0.5
+    recovery_interval_seconds: Annotated[float, Field(gt=0, le=3_600)] = 5.0
+    recovery_limit: PositiveInt = 10
+    lease_seconds: Annotated[float, Field(gt=0, le=3_600)] = 120.0
+
+
 class RetrievalSettings(SettingsModel):
     dense_candidates: PositiveInt = 40
     sparse_candidates: PositiveInt = 40
@@ -135,6 +144,8 @@ class CostGuardSettings(SettingsModel):
     provider_timeout_seconds: Annotated[float, Field(gt=0, le=300)] = 30.0
     provider_max_retries: Annotated[int, Field(ge=0, le=10)] = 2
     provider_retry_backoff_seconds: Annotated[float, Field(ge=0, le=10)] = 0.25
+    # Reasoning models may place their hidden reasoning in the completion budget.
+    answer_max_output_tokens: Annotated[int, Field(gt=0, le=12_000)] = 6_000
     standard_reserved_llm_calls: PositiveInt = 6
     standard_reserved_input_tokens: PositiveInt = 120_000
     standard_reserved_output_tokens: PositiveInt = 12_000
@@ -188,6 +199,7 @@ class AppSettings(SettingsModel):
     app: ApplicationSettings = ApplicationSettings()
     providers: ProviderSettings = ProviderSettings()
     ingestion: IngestionSettings = IngestionSettings()
+    worker: WorkerSettings = WorkerSettings()
     retrieval: RetrievalSettings = RetrievalSettings()
     deep: DeepSettings = DeepSettings()
     cost_guard: CostGuardSettings = CostGuardSettings()

@@ -46,6 +46,7 @@ class OpenAICompatibleReranker:
         self._client = client or httpx.AsyncClient()
         self._owns_client = client is None
         self._sleeper = sleeper
+        self._health = ProviderHealth.UNKNOWN
         self._closed = False
 
     def info(self) -> ProviderInfo:
@@ -55,7 +56,7 @@ class OpenAICompatibleReranker:
             version=self._model,
             capabilities=frozenset({"cross-encoder", "http", "retry"}),
             is_remote=True,
-            health=ProviderHealth.UNAVAILABLE if self._closed else ProviderHealth.UNKNOWN,
+            health=ProviderHealth.UNAVAILABLE if self._closed else self._health,
         )
 
     async def rerank(
@@ -83,6 +84,7 @@ class OpenAICompatibleReranker:
                 )
             except httpx.TransportError as error:
                 if attempt >= self._max_retries:
+                    self._health = ProviderHealth.UNAVAILABLE
                     raise RerankerError(
                         ErrorCode.RERANKER_UNAVAILABLE,
                         "The remote reranker Provider is unavailable.",
@@ -93,18 +95,26 @@ class OpenAICompatibleReranker:
                 if attempt < self._max_retries:
                     await self._sleeper(0.25 * (2**attempt))
                     continue
+                self._health = ProviderHealth.UNAVAILABLE
                 raise RerankerError(
                     ErrorCode.RERANKER_UNAVAILABLE,
                     "The remote reranker Provider exhausted bounded retries.",
                     {"status_code": response.status_code},
                 )
             if response.status_code >= 400:
+                self._health = ProviderHealth.UNAVAILABLE
                 raise RerankerError(
                     ErrorCode.RERANKER_UNAVAILABLE,
                     "The remote reranker Provider rejected the request.",
                     {"status_code": response.status_code},
                 )
-            return self._parse_response(response, candidates, top_k)
+            try:
+                result = self._parse_response(response, candidates, top_k)
+            except RerankerError:
+                self._health = ProviderHealth.DEGRADED
+                raise
+            self._health = ProviderHealth.HEALTHY
+            return result
         raise AssertionError("retry loop did not terminate")
 
     async def aclose(self) -> None:

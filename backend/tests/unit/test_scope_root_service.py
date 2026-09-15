@@ -125,11 +125,74 @@ async def test_recover_merges_leaf_ids_preserves_root_order_and_enforces_char_bu
     assert [root.root_id for root in result.roots] == [a.root_id, c.root_id]
     assert result.roots[0].leaf_ids == (a.leaf_id, b.leaf_id)
     assert result.roots[0].score == b.rerank_score
-    assert result.roots[1].text == "abc"
+    # Root text remains complete for deterministic citation verification even when the
+    # bounded recovery budget reports the Root as truncated.
+    assert result.roots[1].text == "abcdef"
     assert result.roots[1].truncated is True
     assert result.used_chars == 9
     assert result.truncated_count == 1
     assert repository.requested_root_ids == (a.root_id, c.root_id)
+
+
+@pytest.mark.anyio
+async def test_recover_exposes_only_selected_leaf_text_as_model_evidence() -> None:
+    selected = hit("a", "1", selected=True, score=0.2)
+    repository = FakeContextRepository(
+        leaves=(
+            StoredLeafEvidence(
+                selected.leaf_id,
+                selected.root_id,
+                DOCUMENT_ID,
+                VERSION_ID,
+                "retrieval-only text",
+                "exact Leaf source text",
+            ),
+        ),
+        roots=(
+            StoredRootEvidence(
+                selected.root_id,
+                DOCUMENT_ID,
+                VERSION_ID,
+                "policy.txt",
+                "Policy",
+                "Acme",
+                "text/plain",
+                "full Root source text",
+            ),
+        ),
+    )
+
+    result = await ScopeRootService(repository).recover(repository.scope, (selected,))
+
+    assert result.roots[0].text == "full Root source text"
+    assert result.roots[0].evidence_text == "exact Leaf source text"
+
+
+@pytest.mark.anyio
+async def test_recover_keeps_late_quote_source_when_context_budget_truncates() -> None:
+    selected = hit("a", "1", selected=True)
+    repository = FakeContextRepository(
+        roots=(
+            StoredRootEvidence(
+                selected.root_id,
+                DOCUMENT_ID,
+                VERSION_ID,
+                "policy.txt",
+                "Policy",
+                "Acme",
+                "text/plain",
+                "0123456789",
+            ),
+        )
+    )
+
+    result = await ScopeRootService(repository, max_parent_chars=5).recover(
+        repository.scope, (selected,)
+    )
+
+    assert result.roots[0].text == "0123456789"
+    assert result.roots[0].truncated is True
+    assert result.used_chars == 5
 
 
 @pytest.mark.anyio
