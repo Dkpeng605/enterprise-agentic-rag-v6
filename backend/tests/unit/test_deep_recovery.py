@@ -184,6 +184,30 @@ async def test_high_threshold_answers_without_assessor_or_recovery() -> None:
 
 
 @pytest.mark.anyio
+async def test_one_of_four_routes_can_cover_the_single_original_requirement() -> None:
+    requirement = "原始问题"
+    request = DeepRecoveryRequest(
+        requirement,
+        (requirement,),
+        QueryScope(),
+        (
+            evidence("a", confidence=0.1),
+            evidence("b", confidence=0.9, covered=(requirement,)),
+            evidence("c", confidence=0.1),
+            evidence("d", confidence=0.1),
+        ),
+    )
+
+    result = await DeepRecoveryController(
+        assessor=FakeAssessor(), executor=FakeExecutor()
+    ).run(request)
+
+    assert result.decision is EvidenceDecision.ANSWER
+    assert result.assessment.covered_requirements == (requirement,)
+    assert result.assessment.missing_requirements == ()
+
+
+@pytest.mark.anyio
 async def test_middle_band_uses_assessor_once() -> None:
     assessor = FakeAssessor()
     executor = FakeExecutor()

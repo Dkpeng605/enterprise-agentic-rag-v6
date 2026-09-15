@@ -309,6 +309,21 @@ async def test_provider_unavailable_uses_sanitized_deterministic_fallback() -> N
 
 
 @pytest.mark.anyio
+async def test_planner_has_a_hard_four_route_limit() -> None:
+    payload = valid_payload()
+    payload["sub_queries"] = [f"检索路径 {index}" for index in range(5)]
+    request = PlannerRequest("原始问题", (), QueryScope(), QueryMode.STANDARD)
+
+    outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
+
+    assert outcome.degraded is True
+    assert outcome.plan.sub_queries == (request.query,)
+    assert outcome.plan.requirements == (request.query,)
+    with pytest.raises(ValueError, match="between 1 and 4"):
+        QueryPlanningService(max_sub_queries=5)
+
+
+@pytest.mark.anyio
 async def test_fallback_handles_pronoun_comparison_and_multiple_conditions() -> None:
     provider = FakePlanner(RuntimeError("offline"))
     request = PlannerRequest(
