@@ -63,6 +63,12 @@ The script creates and migrates `enterprise_rag_dev` exclusively for the applica
 can no longer cascade-delete Mac workspace data. Both databases use the same persistent PostgreSQL
 container, but they are separate databases.
 
+The Mac composition also mounts the official SDK v2 Streamable HTTP MCP endpoint at
+`http://127.0.0.1:8000/mcp`. If development has no explicit `MCP_TOKEN_PEPPER`, it atomically creates a
+dedicated 0600 secret at the ignored `data/runtime/mac/mcp-token-pepper`. This secret is never reused as a
+session, LLM, or Provider key and is never logged. Production forbids automatic generation and requires a
+separate HTTPS `MCP_PUBLIC_BASE_URL` plus an `MCP_TOKEN_PEPPER` of at least 32 bytes.
+
 The first upload or query downloads these ONNX models into the ignored
 `data/runtime/mac/model-cache/` directory and reuses them afterward:
 
@@ -110,6 +116,38 @@ already carry the current revision. Once a restart applies a saved Provider sele
 the running profile instead of continuing to label the same model as pending.
 The corresponding endpoints are `GET /api/v1/admin/providers/index-status` and
 `POST /api/v1/admin/providers/reindex`.
+
+After the first page visit creates the Demo Tenant, a trusted local terminal can issue an MCP token bound to all
+currently active collections. The raw token is written to stdout once while non-secret metadata goes to stderr;
+do not copy it into Git, issues, or terminal logs:
+
+```bash
+umask 077
+uv run --project backend --env-file .env enterprise-rag-mcp-token issue \
+  > /tmp/enterprise-rag-mcp-token
+```
+
+Configure the single-line value from `/tmp/enterprise-rag-mcp-token` in the MCP client, use
+`http://127.0.0.1:8000/mcp` as the endpoint, and send it as a Bearer credential. The default token has all four
+MCP scopes and can access only collections present in the Demo Tenant when it was issued; tool arguments cannot
+widen that allowlist. List non-secret metadata or revoke a token with:
+
+```bash
+uv run --project backend --env-file .env enterprise-rag-mcp-token list
+uv run --project backend --env-file .env enterprise-rag-mcp-token revoke <TOKEN_UUID>
+rm -f /tmp/enterprise-rag-mcp-token
+```
+
+Before revocation, run a live official-SDK smoke that prints neither content nor credentials. Add `--run-query`
+only when the current LLM should also be called:
+
+```bash
+uv run --project backend --env-file .env python scripts/mac-mcp-smoke.py \
+  --token-file /tmp/enterprise-rag-mcp-token
+```
+
+This CLI is a local operator boundary, not an anonymous HTTP API. Anonymous users still cannot issue, read, or
+revoke tokens from the frontend.
 
 The Overview page's “Load demo data” button calls the CSRF-protected `/api/v1/demo/seed` endpoint and submits
 two non-sensitive Markdown examples from the repository through the same upload registration, PostgreSQL job,
@@ -288,15 +326,22 @@ ENTERPRISE_RAG_MCP_STDIO_FACTORY=your_package.bootstrap:build_mcp_server \
 
 The factory must be a no-argument function returning `MCPServer`. No default production Provider composition exists yet, so the entry point does not present test data as a working service; `backend/tests/fixtures/mcp_stdio_server.py` is only a real-SDK subprocess contract fixture. stdout is reserved for stdio JSON-RPC and application logs must use stderr.
 
-A production composition creates the Streamable HTTP server with `build_http_mcp_app(...)`; its fixed endpoint is `/mcp`:
+The composition root creates the Streamable HTTP server with `build_http_mcp_app(...)`; its fixed endpoint is
+`/mcp`. The Mac runtime now shares the REST `KnowledgeApplication` and uses the real PostgreSQL Catalog, current
+Dense/Sparse providers, and Milvus revision rather than fixtures:
 
 ```bash
+export MCP_PUBLIC_BASE_URL='https://rag.example.com'
 export MCP_TOKEN_PEPPER='replace-with-at-least-32-random-bytes'
 uv run --project backend alembic -c backend/alembic.ini upgrade head
-uv run --project backend uvicorn your_package.bootstrap:mcp_app
+uv run --project backend uvicorn enterprise_rag.mac_runtime:app
 ```
 
-The public `public_base_url` must use HTTPS; only a local test composition may opt into `allow_insecure_http=True`. Clients send `Authorization: Bearer <token>`. Tokens are stored only as peppered HMACs and bind a tenant, actor, tool scopes, and a collection allowlist. Anonymous demo users cannot issue or administer tokens. The system-admin issuance and revocation UI arrives in M9-03, so a trusted deployment/bootstrap process must populate `api_tokens` for now; the repository ships no default token.
+Public `MCP_PUBLIC_BASE_URL` must use HTTPS; only development/test compositions allow plaintext loopback HTTP.
+Clients send `Authorization: Bearer <token>`. PostgreSQL stores only a peppered HMAC and binds each token to an
+active tenant, active actor, tool scopes, and a non-empty collection allowlist; it never stores the raw token.
+The trusted CLI above currently handles issuance, listing, and revocation. Anonymous demo users cannot invoke this
+operator boundary; M9-03 will add the system-administrator UI.
 
 The default backend entry point writes one-line JSON application logs with environment plus request/trace/span/tenant correlation and stable event fields. HTTP accepts W3C `traceparent`; Query, Standard RAG stages, and Ingestion stages are manually instrumented with OpenTelemetry. When PostgreSQL is configured, FastAPI composes a bounded in-memory exporter and PostgreSQL Trace Store by default; custom deployments may still inject an SDK `TracerProvider`/`TraceService` into `create_app`, `KnowledgeApplication`, and `IngestionPipeline`. Logs and traces exclude query strings, request bodies, raw questions, Root text, prompts, Authorization, cookies, and secrets. A Trace write failure does not change the business result.
 
@@ -308,7 +353,7 @@ Start the frontend in a second terminal:
 pnpm --dir=frontend dev
 ```
 
-Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, system route guards, public SSE chat, tenant overview, Collection/Document management, ingestion-job monitoring, Query and Ingestion Trace inspectors, the MCP capability catalog, and the budgeted evaluation workspace. Anonymous visitors may use `/workspace/*` without login; `/workspace/overview` reads current-tenant collection, document, index, 24-hour query, and recent activity aggregates alongside `/health/doctor` Provider states. `/workspace/documents` provides collection CRUD, filtering, upload, detail, and safe deletion, while `/workspace/ingestion` shows persisted job progress. `/admin/providers` shows the live Provider registry and selectable Embedding/Reranker profiles; all other `/admin/*` routes still require a system administrator. `/workspace/mcp` renders the backend definitions shared with the SDK server: tool names, read-only annotations, required scopes, resource URIs/templates, and current transport composition. When Streamable HTTP is not mounted in the Mac API process, the page explicitly reports that an external HTTPS composition is required; it never exposes tokens, prompts, authorization headers, or document content. Regenerate the committed OpenAPI types with:
+Vite proxies `/api` and `/health` to `127.0.0.1:8000` with same-origin browser semantics. The frontend now includes a responsive shell, the complete route table, anonymous-session bootstrap, administrator login, system route guards, public SSE chat, tenant overview, Collection/Document management, ingestion-job monitoring, Query and Ingestion Trace inspectors, the MCP capability catalog, and the budgeted evaluation workspace. Anonymous visitors may use `/workspace/*` without login; `/workspace/overview` reads current-tenant collection, document, index, 24-hour query, and recent activity aggregates alongside `/health/doctor` Provider states. `/workspace/documents` provides collection CRUD, filtering, upload, detail, and safe deletion, while `/workspace/ingestion` shows persisted job progress. `/admin/providers` shows the live Provider registry and selectable Embedding/Reranker profiles; all other `/admin/*` routes still require a system administrator. `/workspace/mcp` renders the backend definitions shared with the SDK server: tool names, read-only annotations, required scopes, resource URIs/templates, and current transport composition. The Mac API now reports Streamable HTTP as `mounted` at `http://127.0.0.1:8000/mcp`; compositions without an injected HTTP factory still report that external composition is required. The page never exposes tokens, prompts, authorization headers, or document content. Regenerate the committed OpenAPI types with:
 
 ```bash
 pnpm --dir=frontend generate:api

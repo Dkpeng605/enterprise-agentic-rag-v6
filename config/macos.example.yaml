@@ -1,6 +1,7 @@
 app:
   environment: development
   public_base_url: http://127.0.0.1:5173
+  mcp_public_base_url: http://127.0.0.1:8000
   commit_sha: mac-local
 
 providers:

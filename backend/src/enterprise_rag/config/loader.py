@@ -19,6 +19,7 @@ ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "APP_ENVIRONMENT": ("app", "environment"),
     "APP_COMMIT_SHA": ("app", "commit_sha"),
     "PUBLIC_BASE_URL": ("app", "public_base_url"),
+    "MCP_PUBLIC_BASE_URL": ("app", "mcp_public_base_url"),
     "DATABASE_URL": ("credentials", "database_url"),
     "SESSION_SECRET": ("credentials", "session_secret"),
     "ADMIN_BOOTSTRAP_EMAIL": ("credentials", "admin_bootstrap_email"),

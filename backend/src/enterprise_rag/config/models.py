@@ -18,6 +18,7 @@ class SettingsModel(BaseModel):
 class ApplicationSettings(SettingsModel):
     environment: Literal["development", "test", "production"] = "development"
     public_base_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8000")
+    mcp_public_base_url: AnyHttpUrl | None = None
     commit_sha: Annotated[str, Field(min_length=1, max_length=100)] = "development"
 
 

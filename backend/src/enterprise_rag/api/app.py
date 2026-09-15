@@ -4,7 +4,7 @@ import asyncio
 import hmac
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime
 from time import perf_counter
 from typing import Final
@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from opentelemetry import propagate
 from opentelemetry.sdk.trace import TracerProvider as SdkTracerProvider
 from opentelemetry.trace import Status, StatusCode, TracerProvider
+from starlette.applications import Starlette
 
 from enterprise_rag import __version__
 from enterprise_rag.adapters.database import (
@@ -58,6 +59,7 @@ SERVICE_NAME: Final = "enterprise-agentic-rag-v6"
 LOGGER = logging.getLogger(__name__)
 Clock = Callable[[], datetime]
 RequestHandler = Callable[[Request], Awaitable[Response]]
+McpHttpFactory = Callable[[KnowledgeApplication], Starlette]
 
 STATUS_BY_ERROR = {
     ErrorCode.VALIDATION_ERROR: 400,
@@ -96,6 +98,7 @@ def create_app(
     provider_catalog: RuntimeProviderCatalog | None = None,
     provider_reindex: ProviderReindexService | None = None,
     mcp_catalog: McpCapabilityCatalog | None = None,
+    mcp_http_factory: McpHttpFactory | None = None,
     background_tasks: Sequence[Callable[[], Awaitable[None]]] = (),
     resource_closers: Sequence[Callable[[], Awaitable[None]]] = (),
     clock: Clock = utc_now,
@@ -138,26 +141,67 @@ def create_app(
         else:
             active_trace_service = TraceService(PostgreSQLTraceStore(database))
 
+    active_knowledge = (
+        KnowledgeApplication(
+            QueryApiService(
+                _budgeted_query_runner(
+                    query_runner,
+                    usage_store
+                    or (
+                        PostgreSQLUsageStore(database)
+                        if database
+                        else InMemoryUsageStore()
+                    ),
+                    active_settings,
+                    clock,
+                ),
+                heartbeat_seconds=query_heartbeat_seconds,
+            ),
+            tracer_provider=active_tracer_provider,
+            trace_recorder=trace_recorder,
+            metrics=active_metrics,
+            clock=clock,
+        )
+        if query_runner is not None
+        else None
+    )
+    if mcp_http_factory is not None and active_knowledge is None:
+        raise ValueError("mcp_http_factory requires a configured query_runner")
+    mcp_http_app = (
+        mcp_http_factory(active_knowledge)
+        if mcp_http_factory is not None and active_knowledge is not None
+        else None
+    )
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        running: list[asyncio.Future[None]] = [
-            asyncio.ensure_future(factory()) for factory in background_tasks
-        ]
+        stack = AsyncExitStack()
+        running: list[asyncio.Future[None]] = []
         try:
+            if mcp_http_app is not None:
+                await stack.enter_async_context(
+                    mcp_http_app.router.lifespan_context(mcp_http_app)
+                )
+            running.extend(
+                asyncio.ensure_future(factory()) for factory in background_tasks
+            )
             yield
         finally:
             for task in running:
                 task.cancel()
             if running:
                 await asyncio.gather(*running, return_exceptions=True)
-            for closer in reversed(resource_closers):
-                await closer()
-            if owned_tracer_provider is not None:
-                owned_tracer_provider.shutdown()
-            if owns_database and database is not None:
-                await database.dispose()
-            if owns_database and object_store is not None:
-                await object_store.aclose()
+            try:
+                await stack.aclose()
+            finally:
+                for closer in reversed(resource_closers):
+                    await closer()
+                if owned_tracer_provider is not None:
+                    owned_tracer_provider.shutdown()
+                if owns_database and database is not None:
+                    await database.dispose()
+                if owns_database and object_store is not None:
+                    await object_store.aclose()
 
     application = FastAPI(
         title="Enterprise Agentic RAG v6",
@@ -336,30 +380,7 @@ def create_app(
         create_api_router(
             auth=auth,
             workspace=workspace,
-            knowledge=(
-                KnowledgeApplication(
-                    QueryApiService(
-                        _budgeted_query_runner(
-                            query_runner,
-                            usage_store
-                            or (
-                                PostgreSQLUsageStore(database)
-                                if database
-                                else InMemoryUsageStore()
-                            ),
-                            active_settings,
-                            clock,
-                        ),
-                        heartbeat_seconds=query_heartbeat_seconds,
-                    ),
-                    tracer_provider=active_tracer_provider,
-                    trace_recorder=trace_recorder,
-                    metrics=active_metrics,
-                    clock=clock,
-                )
-                if query_runner is not None
-                else None
-            ),
+            knowledge=active_knowledge,
             traces=active_trace_service,
             overview=WorkspaceOverviewService(database) if database is not None else None,
             evaluations=(
@@ -392,6 +413,11 @@ def create_app(
             clock=clock,
         )
     )
+
+    # Keep the catch-all mount last so FastAPI's HTTP routes retain precedence.
+    # The MCP child already owns the fixed /mcp path, hence it is mounted at root.
+    if mcp_http_app is not None:
+        application.mount("/", mcp_http_app, name="mcp-streamable-http")
 
     return application
 

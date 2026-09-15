@@ -7,9 +7,10 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from fastapi import FastAPI
+from starlette.applications import Starlette
 
 from enterprise_rag.adapters.cleaners import DeterministicCleaner
-from enterprise_rag.adapters.database import Database
+from enterprise_rag.adapters.database import Database, PostgreSQLMcpTokenStore
 from enterprise_rag.adapters.database.jobs import IngestionJobRepository
 from enterprise_rag.adapters.embeddings import (
     LocalMultilingualEmbedding,
@@ -31,18 +32,25 @@ from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
 from enterprise_rag.adapters.vision import NoopVisionProvider
 from enterprise_rag.api import create_app
 from enterprise_rag.config import AppSettings, load_settings
+from enterprise_rag.mcp import build_http_mcp_app
 from enterprise_rag.mcp.catalog import McpCapabilityCatalog
+from enterprise_rag.mcp.knowledge_catalog import McpKnowledgeCatalog
+from enterprise_rag.mcp.local_credentials import resolve_mcp_token_pepper
 from enterprise_rag.observability import configure_json_logging
 from enterprise_rag.ports import Provider, ProviderRegistry
 from enterprise_rag.services import (
     BoundedLanguageModel,
     DeterministicEvaluator,
+    DualSearchService,
     ImageEnricher,
     IngestionPipeline,
+    KnowledgeApplication,
     ManualLlmCleaningService,
+    McpApplicationService,
     ProjectionService,
     ProviderReindexService,
     QueryPlanningService,
+    ReciprocalRankFusion,
     SemanticQueryRunner,
     build_persistent_tracing,
 )
@@ -55,6 +63,7 @@ from enterprise_rag.services.provider_catalog import (
     selected_embedding_dimension,
     selected_runtime_model,
 )
+from enterprise_rag.services.workspace import WorkspaceService
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_RERANKER_MODEL = "jinaai/jina-reranker-v2-base-multilingual"
@@ -311,6 +320,60 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         temporary_root=runtime_root.parent / "provider-reindex-temporary",
         max_documents=active.security.anonymous_max_ready_documents,
     )
+    mcp_base_url = str(
+        active.app.mcp_public_base_url or "http://127.0.0.1:8000"
+    ).rstrip("/")
+    if active.app.environment == "production" and active.app.mcp_public_base_url is None:
+        raise RuntimeError("MCP_PUBLIC_BASE_URL is required by the production Mac runtime")
+    configured_pepper = credentials.mcp_token_pepper
+    mcp_pepper = resolve_mcp_token_pepper(
+        configured_pepper.get_secret_value() if configured_pepper is not None else None,
+        path=runtime_root.parent / "mcp-token-pepper",
+        production=active.app.environment == "production",
+    )
+    mcp_workspace = WorkspaceService(
+        database,
+        object_store,
+        max_upload_bytes=min(
+            active.ingestion.max_upload_bytes,
+            active.security.anonymous_max_file_bytes,
+        ),
+        max_documents=active.security.anonymous_max_ready_documents,
+        max_attempts=active.ingestion.max_attempts,
+    )
+    mcp_knowledge_catalog = McpKnowledgeCatalog(
+        database=database,
+        workspace=mcp_workspace,
+        search=DualSearchService(
+            embedding=embedding,
+            sparse=sparse,
+            vector_store=vector_store,
+            dense_top_k=retrieval.dense_candidates,
+            sparse_top_k=retrieval.sparse_candidates,
+        ),
+        fusion=ReciprocalRankFusion(
+            rrf_k=retrieval.rrf_k,
+            top_k=min(retrieval.fused_candidates, 20),
+            max_leaves_per_root=3,
+        ),
+        index_revision=index_revision,
+    )
+
+    def mcp_http_factory(knowledge: KnowledgeApplication) -> Starlette:
+        return build_http_mcp_app(
+            McpApplicationService(knowledge),
+            mcp_knowledge_catalog,
+            PostgreSQLMcpTokenStore(database),
+            token_pepper=mcp_pepper,
+            public_base_url=mcp_base_url,
+            allow_insecure_http=active.app.environment != "production",
+        )
+
+    environment_catalog = McpCapabilityCatalog.from_environment()
+    mcp_capabilities = McpCapabilityCatalog(
+        environment_catalog.stdio_factory_declared,
+        http_mounted_endpoint=f"{mcp_base_url}/mcp",
+    )
 
     async def worker() -> None:
         loop = asyncio.get_running_loop()
@@ -361,7 +424,8 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         manual_llm_cleaning_service=manual_llm_cleaning,
         provider_catalog=provider_catalog,
         provider_reindex=provider_reindex,
-        mcp_catalog=McpCapabilityCatalog.from_environment(),
+        mcp_catalog=mcp_capabilities,
+        mcp_http_factory=mcp_http_factory,
         background_tasks=(worker,),
         resource_closers=closers,
     )

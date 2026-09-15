@@ -6,6 +6,7 @@ import pytest
 from enterprise_rag.domain import QueryScope
 from enterprise_rag.ports import (
     DenseSearchRequest,
+    IndexSchema,
     ProviderHealth,
     ProviderInfo,
     ProviderKind,
@@ -76,6 +77,7 @@ class SpyVectorStore:
         self.sparse_hits = sparse_hits or []
         self.dense_requests: list[DenseSearchRequest] = []
         self.sparse_requests: list[SparseSearchRequest] = []
+        self.ensured_schemas: list[IndexSchema] = []
 
     def info(self) -> ProviderInfo:
         return ProviderInfo(
@@ -95,8 +97,8 @@ class SpyVectorStore:
         self.sparse_requests.append(request)
         return self.sparse_hits
 
-    async def ensure_revision(self, schema: object) -> None:
-        del schema
+    async def ensure_revision(self, schema: IndexSchema) -> None:
+        self.ensured_schemas.append(schema)
 
     async def upsert(self, records: Sequence[object]) -> UpsertResult:
         return UpsertResult(len(records))
@@ -168,6 +170,7 @@ async def test_dense_and_sparse_are_independent_and_scope_is_pushed_before_searc
     assert sparse_request.top_k == 2
     assert result.dense.diagnostic.returned_count == 1
     assert result.sparse.diagnostic.document_filter_count == 1
+    assert store.ensured_schemas == [IndexSchema("rev-1", embedding.dimension)]
 
 
 @pytest.mark.anyio
