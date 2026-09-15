@@ -2479,7 +2479,9 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   progress，并沿用 `rag.dense_retrieval`、`rag.sparse_retrieval`、`rag.rrf_fusion`、`rag.rerank` 与
   Root 恢复 Span/候选事件；上传 Worker 使用 M7-06 的真实阶段和向量批次 Span，因此浏览器中的 Query
   与 Ingestion Trace 不是 fixture 或前端推测；
-- Compose：独立 `compose.e2e.yml` 使用一次性 PostgreSQL；后端先执行 Alembic migrate，成功后才启动
+- Compose：开发 `compose.dev.yml` 与独立 `compose.e2e.yml` 必须声明不同的固定项目名
+  `enterprise-agentic-rag-v6-dev` / `enterprise-agentic-rag-v6-e2e`，避免 E2E 重建或清理误操作开发
+  PostgreSQL；E2E 使用一次性 PostgreSQL；后端先执行 Alembic migrate，成功后才启动
   单进程 API，Vite 提供同源代理前端，并固定 Playwright 1.63.0；健康依赖按
   Postgres→backend（migration + API）→frontend→e2e 排序，运行数据使用命名卷，PostgreSQL 使用
   tmpfs，前端依赖由根级 workspace 锁文件冻结进镜像，退出后可用 `down --volumes`
