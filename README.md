@@ -498,6 +498,10 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R4 真实 Deep Recovery 与引用核验/修复：已完成
 - M7-R5 Provider 切换后的索引兼容状态与安全重建：已完成
 - M7-R6 MCP 能力目录与传输状态可视化：已完成
+- M7-R7 Provider 重建一致性与失败证明：已完成
+- M7-R8 Mac Streamable HTTP MCP 真实组合：已完成
+- M7-R9 Milvus 原生 BM25 Sparse：已完成
+- M7-R10 Provider 失败路径与重建投影完整性：已完成
 - 下一项：M8 公网发布
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
@@ -630,6 +634,8 @@ ObjectStore 端口接收异步字节流，并使用规范 SHA-256 键发布不�
 
 Reconcile 将 Milvus version projection 和本地对象键与 PostgreSQL 事实源比较，同时发现超期 Worker lease。默认模式只读；apply 模式仅删除已确认的孤儿向量/文件并回收 lease。缺失文件和向量数量不一致会保留为未解决项，因为当前存储阶段尚无 Loader 或 Embedding 可用于重建。对应 HTTP 和 CLI 入口会在后续 API/CLI Slice 中实现。
 
+M7-R7～R10 已补齐 Provider 重建一致性、真实 Mac Streamable HTTP MCP、Milvus 原生 BM25 以及远程 Provider 失败路径。重启不会自动清除 Milvus 持久化 collection；若 PostgreSQL 与 Milvus 的事实边界不一致，先停止 API，再使用按 tenant/version 定向的 reconcile 或安全重建，禁止删除整个 Milvus 文件。
+
 M1～M7 已完成（52/64 Slice）。仓库目前提供经过测试的工程基座、完整多格式摄取链路、匿名 demo tenant 的集合/文档 HTTP API、Hybrid Retrieval/Agentic RAG 服务、MCP、Trace/Metrics/Health、EDD 评测闭环、公开 Benchmark Adapter、完整 Vue3/TypeScript 工作区，以及 Compose 中可复现的浏览器全旅程。M7-R1 另提供不计入 64 个发布 Slice 的 Mac 真实 Provider 开发组合；生产镜像、进程和公网部署仍属于 M8，因此默认入口不会把离线验收或 Mac 开发组合冒充生产服务。
 
 PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr_min_chars` 时使用 Tesseract `chi_sim+eng` OCR。输出保留 1-based 页码、提取方式和内嵌图片的媒体类型、尺寸、内容 hash 与字节数据，供图片增强阶段使用。空白页不会生成空 Root；全空、加密、损坏、类型不匹配和 OCR 语言缺失均返回稳定错误，成功和失败路径都会清理临时文件。Loader 已接入后台摄取 Pipeline；HTTP 上传接口在 M3-10 交付。
@@ -660,8 +666,12 @@ Sparse 端口有两种明确模式：离线/评测的 `hashing_lexical` 用稳�
 revision。
 
 Provider Reindex Service 将旧 PostgreSQL Root/Leaf 和旧 Milvus projection 视为可回滚事实：先按当前
-Embedding tokenizer 重新切分并投影新 revision，再在事务中交换 Root/Leaf，最后按旧 revision 定向清理。
-系统管理员状态页因此能区分“模型已切换但索引尚未重建”和“当前 revision 已完整可检索”，不会把旧向量伪装成新模型结果。
+Embedding tokenizer 重新切分并投影新 revision，再通过 ProjectionResult 和独立的
+`count_by_version_revision(tenant, version, target_revision)` 双重核验，之后才在事务中交换 Root/Leaf，最后
+按旧 revision 定向清理。即使投影适配器静默返回成功但没有写满向量，也只会清理目标 revision，旧 Root/Leaf
+与旧 revision 的真实查询保持不变；数据库交换失败同样不会破坏旧索引。系统管理员状态页因此能区分“模型已
+切换但索引尚未重建”和“当前 revision 已完整可检索”，不会把旧向量伪装成新模型结果。远程 Embedding 与
+Reranker 的 transport 异常使用有界重试并返回净化错误，Reranker 身份校验失败时回退到有限的 RRF 顺序。
 
 摄取 Pipeline 在文档注册事务内创建或复用 Job，按 Loader → 图片增强 → Cleaner → Splitter → PostgreSQL → Milvus → 最终提交的顺序运行。每个 checkpoint 同时续租、更新单调进度并确认取消；确定性输入错误直接失败，瞬时错误按上限重试。失败或取消会补偿该版本的 PostgreSQL 内容和 Milvus 投影，只有双存储核验完成后文档才进入 `ready`。服务层通过 `run_once(owner=...)` 驱动；M7-08 离线组合已提供单进程轮询 Worker，M8 仍需交付生产进程与资源约束。
 

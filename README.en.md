@@ -514,6 +514,10 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R4 real Deep Recovery and citation verification/repair: complete
 - M7-R5 Provider-switch index compatibility and safe rebuild: complete
 - M7-R6 MCP capability catalog and transport-state UI: complete
+- M7-R7 Provider rebuild consistency and failure proof: complete
+- M7-R8 Mac Streamable HTTP MCP real composition: complete
+- M7-R9 native Milvus BM25 Sparse: complete
+- M7-R10 Provider failure paths and projection integrity: complete
 - Next: M8 public deployment
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
@@ -655,6 +659,8 @@ Deletion requests immediately move a tenant-owned document out of `ready`, clear
 
 Reconcile compares Milvus version projections and local object keys with the PostgreSQL fact source and also finds expired worker leases. Its default mode is read-only. Apply mode removes only proven orphan vectors/files and recovers leases; missing files and vector count mismatches remain explicit unresolved findings because this storage slice does not yet have loaders or embeddings with which to reconstruct them. HTTP and CLI entry points for these application services are delivered by their later API/CLI slices.
 
+M7-R7 through M7-R10 now cover Provider rebuild consistency, real Mac Streamable HTTP MCP, native Milvus BM25, and remote-Provider failure paths. A restart does not automatically remove a persisted Milvus collection; when PostgreSQL and Milvus cross-store facts diverge, stop the API first and use tenant/version-scoped reconcile or safe rebuild. Never delete the entire Milvus file.
+
 M1 through M7 are complete (52/64 slices). The repository now provides the tested engineering foundation, complete multi-format ingestion, anonymous demo-tenant collection/document APIs, Hybrid Retrieval/Agentic RAG services, MCP, Trace/Metrics/Health, the EDD evaluation loop, a public Benchmark Adapter, the complete Vue3/TypeScript workspace, and a reproducible Compose browser journey. M7-R1 also provides a real-provider Mac development composition outside the 64 release slices. Production images, processes, and public deployment remain M8 work, so neither the offline acceptance nor Mac development composition is presented as production.
 
 The PDF Loader streams input through a temporary file, extracts each page's text first, and invokes Tesseract `chi_sim+eng` OCR when content falls below `pdf_ocr_min_chars`. Its output preserves one-based page numbers, extraction mode, and each embedded image's media type, dimensions, content hash, and bytes for image enrichment. Blank pages do not create empty Roots; entirely empty, encrypted, corrupt, type-mismatched, and missing-language inputs produce stable errors, and all success/failure paths remove temporary files. The Loader is wired into the background ingestion Pipeline; the HTTP upload endpoint arrives in M3-10.
@@ -687,9 +693,13 @@ delete retries, so a working old revision cannot be accidentally deleted. Docume
 still support version-wide cleanup.
 
 The Provider Reindex Service treats the old PostgreSQL Root/Leaf rows and old Milvus projection as rollback facts:
-it re-splits with the active Embedding tokenizer, projects the new revision, swaps Root/Leaf rows in one transaction,
-and retires old revisions only afterward. The administration UI therefore distinguishes “Provider changed, index
-not rebuilt” from “the active revision is fully searchable” instead of presenting incompatible vectors as valid.
+it re-splits with the active Embedding tokenizer, projects the new revision, verifies both the ProjectionResult and an
+independent `count_by_version_revision(tenant, version, target_revision)`, swaps Root/Leaf rows in one transaction,
+and retires old revisions only afterward. A projection adapter that silently writes too few vectors only removes the
+target revision; old PostgreSQL facts and real old-revision queries remain available. A database-swap failure follows
+the same rule. The administration UI therefore distinguishes “Provider changed, index not rebuilt” from “the active
+revision is fully searchable” instead of presenting incompatible vectors as valid. Remote Embedding and Reranker
+transport failures use bounded retries and sanitized errors; invalid reranker identities fall back to a bounded RRF order.
 
 The ingestion Pipeline creates or reuses its Job in the document-registration transaction, then executes Loader → image enrichment → Cleaner → Splitter → PostgreSQL → Milvus → final commit. Each checkpoint renews the lease, advances monotonic progress, and observes cancellation. Deterministic input errors fail immediately; transient failures retry up to the configured limit. Failure and cancellation compensate PostgreSQL content and Milvus projections for that version, and a document becomes `ready` only after both stores verify successfully. The service runs through `run_once(owner=...)`; the M7-08 offline composition now includes a single-process polling Worker, while M8 still owns the production process and resource constraints.
 

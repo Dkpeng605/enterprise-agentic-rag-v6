@@ -131,7 +131,7 @@ class OpenAICompatibleEmbedding:
                     json={"model": self._model, "input": list(texts), "encoding_format": "float"},
                     timeout=self._timeout,
                 )
-            except (httpx.TimeoutException, httpx.NetworkError) as error:
+            except httpx.TransportError as error:
                 if attempt >= self._max_retries:
                     raise EmbeddingError(
                         ErrorCode.EMBEDDING_UNAVAILABLE,

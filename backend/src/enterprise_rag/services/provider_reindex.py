@@ -25,7 +25,7 @@ from enterprise_rag.ports.cleaner import CleanRoot
 from enterprise_rag.ports.loader import IngestionContext
 from enterprise_rag.ports.splitter import Splitter
 from enterprise_rag.ports.vector_store import VectorStore
-from enterprise_rag.services.projection import ProjectionRequest, ProjectionService
+from enterprise_rag.services.projection import ProjectionError, ProjectionRequest, ProjectionService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -226,7 +226,7 @@ class ProviderReindexService:
             ]
             roots = tuple(result.root for result in results)
             leaves = tuple(leaf for result in results for leaf in result.leaves)
-            await self._projection.project(
+            projection_result = await self._projection.project(
                 ProjectionRequest(
                     snapshot.tenant_id,
                     snapshot.collection_id,
@@ -236,6 +236,24 @@ class ProviderReindexService:
                     leaves,
                 )
             )
+            if projection_result.verified_count != len(leaves):
+                raise ProjectionError(
+                    ErrorCode.PROJECTION_COUNT_MISMATCH,
+                    "Provider reindex projection result count verification failed.",
+                    {
+                        "expected_count": len(leaves),
+                        "actual_count": projection_result.verified_count,
+                    },
+                )
+            projected_count = await self._vector_store.count_by_version_revision(
+                snapshot.tenant_id, snapshot.version_id, self._active_revision
+            )
+            if projected_count != len(leaves):
+                raise ProjectionError(
+                    ErrorCode.PROJECTION_COUNT_MISMATCH,
+                    "Provider reindex projection count verification failed.",
+                    {"expected_count": len(leaves), "actual_count": projected_count},
+                )
         except BaseException as error:
             LOGGER.error(
                 "Provider reindex projection failed",
@@ -278,6 +296,13 @@ class ProviderReindexService:
                 await self._vector_store.delete_by_version_revision(
                     snapshot.tenant_id, snapshot.version_id, revision
                 )
+                if (
+                    await self._vector_store.count_by_version_revision(
+                        snapshot.tenant_id, snapshot.version_id, revision
+                    )
+                    != 0
+                ):
+                    cleanup_failed = True
             except Exception:
                 cleanup_failed = True
         return ProviderReindexItem(

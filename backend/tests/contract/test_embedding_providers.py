@@ -181,6 +181,38 @@ async def test_openai_compatible_orders_response_and_retries_only_transient_erro
 
 
 @pytest.mark.anyio
+async def test_remote_embedding_protocol_failure_is_sanitized_and_bounded() -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.RemoteProtocolError("secret upstream diagnostic", request=request)
+
+    async def sleeper(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatibleEmbedding(
+            base_url="https://provider.example/v1",
+            api_key="not-in-errors",
+            model="embed-model",
+            dimension=2,
+            max_retries=1,
+            client=client,
+            sleeper=sleeper,
+        )
+        with pytest.raises(AppError) as raised:
+            await provider.embed_query("query")
+
+    assert calls == 2
+    assert sleeps == [0.25]
+    assert raised.value.code is ErrorCode.EMBEDDING_UNAVAILABLE
+    assert "secret upstream diagnostic" not in str(raised.value)
+
+
+@pytest.mark.anyio
 async def test_siliconflow_bge_m3_uses_official_embedding_contract_and_declared_limits() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url == "https://api.siliconflow.cn/v1/embeddings"

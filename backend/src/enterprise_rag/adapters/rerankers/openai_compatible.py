@@ -81,7 +81,7 @@ class OpenAICompatibleReranker:
                     },
                     timeout=self._timeout,
                 )
-            except (httpx.TimeoutException, httpx.NetworkError) as error:
+            except httpx.TransportError as error:
                 if attempt >= self._max_retries:
                     raise RerankerError(
                         ErrorCode.RERANKER_UNAVAILABLE,
