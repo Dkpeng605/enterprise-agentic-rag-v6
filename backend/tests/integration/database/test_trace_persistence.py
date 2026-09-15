@@ -41,6 +41,8 @@ TRACE_A_2 = "2" * 32
 TRACE_B = "3" * 32
 TRACE_INGEST_OK = "4" * 32
 TRACE_INGEST_FAILED = "5" * 32
+TRACE_GENERATION_DEGRADED = "6" * 32
+TRACE_ASSESSOR_DEGRADED = "7" * 32
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -184,6 +186,39 @@ async def test_anonymous_trace_api_lists_own_tenant_and_hides_other_tenant(
                 _deep_spans(TRACE_A_2, NOW + timedelta(minutes=1)),
             )
             await trace_store.persist(
+                _completion(
+                    TRACE_GENERATION_DEGRADED,
+                    demo_tenant,
+                    DEMO_ACTOR_ID,
+                    QUERY_A_2,
+                    NOW - timedelta(minutes=1),
+                    status="abstained",
+                    attributes={
+                        "generation_degraded": True,
+                        "answer_status": "generation_degraded",
+                        "llm_provider": "fixture-llm",
+                    },
+                ),
+                (),
+            )
+            await trace_store.persist(
+                _completion(
+                    TRACE_ASSESSOR_DEGRADED,
+                    demo_tenant,
+                    DEMO_ACTOR_ID,
+                    QUERY_A,
+                    NOW - timedelta(minutes=2),
+                    mode="deep",
+                    status="abstained",
+                    attributes={
+                        "assessor_degraded": True,
+                        "answer_status": "not_generated",
+                        "llm_provider": "fixture-llm",
+                    },
+                ),
+                (),
+            )
+            await trace_store.persist(
                 _ingestion_completion(
                     TRACE_INGEST_OK,
                     demo_tenant,
@@ -231,8 +266,15 @@ async def test_anonymous_trace_api_lists_own_tenant_and_hides_other_tenant(
                 "/api/v1/traces/query?mode=standard&degraded=true"
             )
             assert [item["trace_id"] for item in degraded_list.json()["items"]] == [
-                TRACE_A
+                TRACE_A,
+                TRACE_GENERATION_DEGRADED,
             ]
+            assessor_degraded_list = await client.get(
+                "/api/v1/traces/query?mode=deep&degraded=true"
+            )
+            assert [
+                item["trace_id"] for item in assessor_degraded_list.json()["items"]
+            ] == [TRACE_ASSESSOR_DEGRADED]
             ingestion_list = await client.get("/api/v1/traces/ingestion")
             assert ingestion_list.status_code == 200
             assert [item["trace_id"] for item in ingestion_list.json()["items"]] == [

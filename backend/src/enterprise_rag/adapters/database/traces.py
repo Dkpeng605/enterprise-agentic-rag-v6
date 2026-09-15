@@ -126,6 +126,9 @@ class PostgreSQLTraceStore:
                 func.coalesce(
                     TraceRunModel.attributes["generation_degraded"].as_boolean(), False
                 ),
+                func.coalesce(
+                    TraceRunModel.attributes["assessor_degraded"].as_boolean(), False
+                ),
             )
             statement = statement.where(
                 degraded_expression if degraded else ~degraded_expression

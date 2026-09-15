@@ -3106,6 +3106,42 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   写入带 marker 的新 projection。
 - PR：`fix/m7-r12-revision-aware-reconcile`。
 
+##### M7-R13 拒答率诊断与证据预算修复（已完成）
+
+- 缺陷事实：本机真实 Trace 的拒答不能只归因于“召回不到”。当前 Demo Tenant 的 30 条历史 Query
+  中，Standard 为 10 条 answered、13 条 abstained、4 条 no_results、1 条 error；Deep 的 2 条均为
+  abstained。在 Standard 的 23 条有候选证据运行中仍有 13 条拒答，约 56.5%。这些数字是本机样本快照，
+  不是产品质量指标；必须与带 gold 的评测结果分开解释。初步定位包括 LLM 把单一 factual 问题过度拆成
+  同义子查询、Root 完整正文占用上下文预算，以及回答生成/证据评估降级后的安全终态。
+- EDD 顺序：先用 Planner 行为测试证明单一 factual 问题即使模型返回多个同义 `sub_queries` 也只保留
+  一条改写查询；再用 Root recovery 测试证明上下文预算按本轮选中 Leaf 的实际 evidence 计算，同时保留
+  完整 Root clean text 供 Citation Verify；最后用 Trace 测试证明回答生成降级与 Assessor 降级可独立筛选、
+  持久化并展示。显式多条件、比较和多跳问题仍必须保留有意义的多分支检索，不能用“减少拒答”掩盖真正缺证据。
+- Planner 归一化：当原始问题和结构化 intent 都是 factual，且原始问题没有 `；`、`;`、`并且`、`同时`、
+  `以及` 或英文 `and` 等多条件分隔符时，`sub_queries` 收敛为 `(rewritten_query,)`；同一类单意图的
+  `requirements` 收敛为用户原问题。比较、多条件、流程、总结和多跳请求保留 Provider 的 requirements
+  与互补子查询。该规则只约束执行计划，不伪造 LLM 成功，也不放宽 Scope。
+- Root evidence budget：`max_parent_chars` 只对发送给 Answer/Assessor 的已授权、已重排 Leaf 原文片段
+  计量；一个 Root 的多个选中 Leaf 按稳定顺序连接，超限时只截断模型上下文。`RootContext.text` 始终
+  保留完整 clean Root，供 quote 连续子串校验；因此长 Root 不会因为未发送的未选中正文挤掉后续有效 Root，
+  也不会为了扩大回答上下文而放宽租户或 Root 权限边界。
+- Trace 语义：Query `status`（`answered`/`abstained`/`no_results`；底层 Trace 还可能记录 `error`/`cancelled`）
+  与回答阶段 `answer_status` 分离；`generation_degraded` 表示答案结构调用
+  失败并安全拒答，`assessor_degraded` 表示评估器失败后仍进入有界 Recovery，`not_generated` 表示没有进入
+  答案生成（例如无结果或 Deep 最终拒答）。`degraded=true` 必须对 Planner、Reranker、Retrieval、
+  Answer Generation 和 Assessor 的稳定 `*_degraded` 字段做 OR 筛选，不能只看旧的两个 Provider 标志。
+  不把安全拒答改记为 answered，也不把单次候选数当作 Recall/MRR。
+- 隐私：Trace 只保存上述稳定状态和既有有界指标，不保存 Root 正文、Leaf evidence、Prompt、模型隐藏
+  推理、供应商响应或密钥；完整 Root 只在当前请求进程内用于确定性引用核验。
+- 验收：Planner factual 过度拆分、显式多条件保留分支、Root evidence budget、answer/assessor degradation
+  Trace persistence/filter 全部通过；Ruff、strict Mypy、后端 Pytest（含 PostgreSQL 集成）、前端 Vitest、
+  typecheck、build 和 OpenAPI drift 全绿。真实 Mac smoke 应确认简单 factual 为 1 个 branch，多 Root 不被
+  长正文独占预算，Trace 能分别显示 generation/assessor degraded；真实 smoke 不进入 CI，也不记录 token
+  或回答正文。
+- 回滚：移除 Planner 归一化或恢复旧 Root budget 不需要 migration，但会恢复过度拆分和上下文挤占风险；Trace
+  新字段保持 allow-list 向后兼容，旧记录缺失字段时页面显示 unavailable，不由浏览器补造。
+- PR：`fix/reduce-answer-abstentions`。
+
 ### M8：首次公网发布
 
 #### M8-00 独立摄取 Worker 前置 Slice（暂缓，不属于当前本机验收）

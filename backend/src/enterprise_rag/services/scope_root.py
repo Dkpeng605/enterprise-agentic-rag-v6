@@ -107,18 +107,24 @@ class ScopeRootService:
             remaining = self._max_parent_chars - used_chars
             if remaining <= 0:
                 break
-            # Keep the complete clean Root for deterministic citation verification.  The
-            # parent-character budget is a recovery/context accounting limit; it must not
-            # turn a valid quote from a later Leaf into a false ``quote_not_found`` result.
-            text = root.text
-            truncated = len(root.text) > remaining
-            if truncated:
-                truncated_count += 1
             evidence_text = "\n\n".join(
                 leaf_text_by_id[leaf_id]
                 for leaf_id in leaf_ids[root_id]
                 if leaf_id in leaf_text_by_id
             ) or None
+            # The model receives selected Leaf evidence, not the complete Root. Budget
+            # that actual context so a long Root cannot evict otherwise useful Roots.
+            # Keep the complete clean Root separately for deterministic quote checking.
+            context_text = evidence_text or root.text
+            truncated = len(context_text) > remaining
+            if truncated:
+                truncated_count += 1
+            bounded_evidence = context_text[:remaining]
+            model_evidence = (
+                bounded_evidence
+                if evidence_text is not None or truncated
+                else None
+            )
             roots.append(
                 RootContext(
                     root.root_id,
@@ -129,14 +135,14 @@ class ScopeRootService:
                     root.organization,
                     root.media_type,
                     root.source_locator,
-                    text,
+                    root.text,
                     tuple(leaf_ids[root_id]),
                     scores[root_id],
                     truncated,
-                    evidence_text,
+                    model_evidence,
                 )
             )
-            used_chars += min(len(root.text), remaining)
+            used_chars += min(len(context_text), remaining)
         return RecoveredContext(
             tuple(roots),
             used_chars,

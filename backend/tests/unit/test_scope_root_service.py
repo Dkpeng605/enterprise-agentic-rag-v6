@@ -169,6 +169,67 @@ async def test_recover_exposes_only_selected_leaf_text_as_model_evidence() -> No
 
 
 @pytest.mark.anyio
+async def test_recover_budgets_model_evidence_not_the_complete_root() -> None:
+    first = hit("a", "1", selected=True)
+    second = hit("b", "2", selected=True)
+    repository = FakeContextRepository(
+        leaves=(
+            StoredLeafEvidence(
+                first.leaf_id,
+                first.root_id,
+                DOCUMENT_ID,
+                VERSION_ID,
+                "first retrieval text",
+                "short evidence A",
+            ),
+            StoredLeafEvidence(
+                second.leaf_id,
+                second.root_id,
+                DOCUMENT_ID,
+                VERSION_ID,
+                "second retrieval text",
+                "short evidence B",
+            ),
+        ),
+        roots=(
+            StoredRootEvidence(
+                first.root_id,
+                DOCUMENT_ID,
+                VERSION_ID,
+                "large.txt",
+                "Large",
+                "Acme",
+                "text/plain",
+                "x" * 100,
+            ),
+            StoredRootEvidence(
+                second.root_id,
+                DOCUMENT_ID,
+                VERSION_ID,
+                "small.txt",
+                "Small",
+                "Acme",
+                "text/plain",
+                "y" * 100,
+            ),
+        ),
+    )
+
+    result = await ScopeRootService(repository, max_parent_chars=32).recover(
+        repository.scope, (first, second)
+    )
+
+    assert [root.root_id for root in result.roots] == [first.root_id, second.root_id]
+    assert [root.evidence_text for root in result.roots] == [
+        "short evidence A",
+        "short evidence B",
+    ]
+    assert [root.text for root in result.roots] == ["x" * 100, "y" * 100]
+    assert result.used_chars == len("short evidence A") + len("short evidence B")
+    assert result.truncated_count == 0
+
+
+@pytest.mark.anyio
 async def test_recover_keeps_late_quote_source_when_context_budget_truncates() -> None:
     selected = hit("a", "1", selected=True)
     repository = FakeContextRepository(

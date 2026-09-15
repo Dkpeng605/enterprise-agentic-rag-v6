@@ -132,6 +132,68 @@ async def test_simple_factual_plan_does_not_add_unasked_requirements() -> None:
 
 
 @pytest.mark.anyio
+async def test_simple_factual_plan_collapses_model_over_split_sub_queries() -> None:
+    payload = valid_payload()
+    payload.update(
+        {
+            "rewritten_query": "系统支持哪些文档格式？",
+            "intent": "factual",
+            "sub_queries": [
+                "系统支持哪些文档格式？",
+                "系统可以导入哪些格式？",
+                "系统可以导出哪些格式？",
+            ],
+            "requirements": ["系统支持哪些文档格式？"],
+            "scope": {
+                "collection_ids": [],
+                "document_ids": [],
+                "titles": [],
+                "organizations": [],
+                "doc_types": [],
+                "versions": [],
+                "sections": [],
+            },
+        }
+    )
+    request = PlannerRequest("系统支持哪些文档格式？", (), QueryScope(), QueryMode.STANDARD)
+
+    outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
+
+    assert outcome.degraded is False
+    assert outcome.plan.sub_queries == ("系统支持哪些文档格式？",)
+
+
+@pytest.mark.anyio
+async def test_explicit_multi_part_factual_plan_keeps_sub_queries() -> None:
+    payload = valid_payload()
+    payload.update(
+        {
+            "rewritten_query": "系统支持哪些文档格式；并且哪些格式可导出？",
+            "intent": "factual",
+            "sub_queries": ["支持哪些文档格式", "哪些格式可导出"],
+            "requirements": ["支持哪些文档格式", "哪些格式可导出"],
+            "scope": {
+                "collection_ids": [],
+                "document_ids": [],
+                "titles": [],
+                "organizations": [],
+                "doc_types": [],
+                "versions": [],
+                "sections": [],
+            },
+        }
+    )
+    request = PlannerRequest(
+        "系统支持哪些文档格式；并且哪些格式可导出？", (), QueryScope(), QueryMode.STANDARD
+    )
+
+    outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
+
+    assert outcome.degraded is False
+    assert outcome.plan.sub_queries == ("支持哪些文档格式", "哪些格式可导出")
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("invalid", ["expanded_scope", "bad_uuid", "unknown_field", "duplicate"])
 async def test_invalid_structured_output_falls_back_without_scope_expansion(invalid: str) -> None:
     payload = valid_payload()

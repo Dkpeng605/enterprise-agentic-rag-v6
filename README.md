@@ -204,6 +204,15 @@ regeneration，结构有效但引用或 requirement 校验失败时再允许一�
 中调整本机输出上限，并观察 Trace 的 `answer_generation` usage；不要通过关闭 `response_format`、删除
 Citation Verify 或把 answer error 标成 answered 来掩盖问题。
 
+拒答诊断必须区分三个维度：Query 的 `status`（`answered`/`abstained`/`no_results`；底层 Trace 还可能记录
+`error`/`cancelled`）、回答阶段的
+`answer_status`（包括 `not_generated`、`generation_degraded`、`answered`、`repaired`、`abstained`）以及
+`planner_degraded`、`reranker_degraded`、`assessor_degraded`、`generation_degraded` 等组件状态。
+`assessor_degraded` 表示评估器失败后的有界恢复，不等同于“没有召回”；`generation_degraded` 表示答案结构
+没有得到可核验结果，不能把安全拒答改记为成功。Query Trace 的 `degraded=true` 筛选会对这些稳定降级字段
+做 OR 查询，因此不会漏掉 Assessor 或 Answer Generation 降级；`degraded=false` 则只保留没有任何已记录组件
+降级的运行。单次 Trace 的候选数量和拒答率是运行诊断，不是 Recall/MRR，也不能替代带 gold 的评测指标。
+
 若旧版本曾让测试库与应用共用，先停止后端，再做只读检查；确认后才应用删除。命令按
 `tenant/version/index_revision` 对 PostgreSQL 事实和 Milvus 投影进行对账。新写入投影会携带 revision 标记，
 因此同一 version 的旧 revision 可以定向删除而保留当前 revision；只有 PostgreSQL 中完全不存在的 tenant/version
@@ -541,6 +550,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R10 Provider 失败路径与重建投影完整性：已完成
 - M7-R11 真实 OpenAI-compatible Vision Provider 与目录选择：已完成
 - M7-R12 revision-aware Milvus reconcile：已完成
+- M7-R13 拒答率诊断与证据预算修复：已完成
 - 下一项：M8 公网发布
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
