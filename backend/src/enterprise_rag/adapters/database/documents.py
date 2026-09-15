@@ -63,6 +63,7 @@ class DocumentRegistrationRepository:
 
         existing = await self._find_claim(tenant_id, collection_id, stored_object.sha256)
         if existing is not None:
+            await self._prepare_failed_claim(existing)
             return DocumentRegistration(
                 document_id=existing.document_id,
                 version_id=existing.version_id,
@@ -131,6 +132,33 @@ class DocumentRegistrationRepository:
             deduplicated=False,
             new_document=new_document,
         )
+
+    async def _prepare_failed_claim(self, claim: DocumentContentClaimModel) -> None:
+        """Make a terminal failed version eligible for an explicit re-upload retry.
+
+        Content deduplication must not turn a previously failed version into a
+        permanent dead end. The claim and version remain the same logical owner;
+        the registration service creates a fresh ingestion job for that version.
+        """
+
+        version = await self.session.scalar(
+            select(DocumentVersionModel)
+            .where(DocumentVersionModel.id == claim.version_id)
+            .with_for_update()
+        )
+        if version is None or version.status != "failed":
+            return
+        document = await self.session.scalar(
+            select(DocumentModel)
+            .where(DocumentModel.id == claim.document_id)
+            .with_for_update()
+        )
+        if document is None or document.status in {"deleting", "deleted"}:
+            return
+        version.status = "pending"
+        version.error_code = None
+        version.error_message = None
+        document.status = "processing"
 
     async def _require_owned_collection(self, tenant_id: UUID, collection_id: UUID) -> None:
         statement = select(CollectionModel.id).where(
