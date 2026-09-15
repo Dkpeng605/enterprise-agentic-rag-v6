@@ -255,7 +255,26 @@ uv run --project backend --env-file .env enterprise-rag-worker
 本地开发若使用 `milvus_lite`，API 与独立 Worker 不能同时打开同一个 `vectors.db`；独立 Worker 只能在 API 停止时运行。
 生产环境必须设置 `providers.vector_store=milvus_remote`，并提供 `VECTOR_STORE_URI`、`VECTOR_STORE_TOKEN`（可选
 `VECTOR_STORE_DATABASE`），让 API 与多个 Worker 共享 server-backed Milvus。该入口完成了生产 Worker 前置 Slice，
-但生产镜像、Compose、备份和公网发布仍属于后续 M8 Slice。
+生产镜像已在 M8-01 完成；Compose、备份和公网发布仍属于后续 M8 Slice。
+
+### M8-01 生产镜像
+
+`infra/production/backend.Dockerfile` 以两阶段构建生成只包含生产依赖的 FastAPI/Worker 镜像，运行时包含 PDF/OCR
+所需系统库，固定单个 Uvicorn worker、`/health/live` healthcheck，并使用 UID 10001 的非 root `app` 用户。API 镜像
+也可在 Compose 中通过命令覆盖启动为独立 `enterprise-rag-worker`，不会重复打包第二份后端环境。
+
+`infra/production/frontend.Dockerfile` 在 Node 构建阶段编译 Vue3/TypeScript，再用非 root `app` 用户运行 Caddy
+静态服务器（内部端口 8080），支持 SPA history fallback。两张镜像都不包含 `.env`、运行数据、依赖缓存、模型权重
+或本地构建产物；根目录 `.dockerignore` 会在发送 Build Context 前排除这些内容。
+
+本机以 `linux/amd64` 构建的可复核记录（Docker image inspect，2026-09-16）：backend `278238911` bytes（约
+265.3 MiB），frontend `22704397` bytes（约 21.7 MiB）。这只是当前基础镜像与依赖版本的构建记录，不是公网
+运行时容量承诺；M8-02 仍需补齐生产 Compose、网络与外层 Caddy 反向代理。
+
+```bash
+docker build --platform=linux/amd64 -f infra/production/backend.Dockerfile -t enterprise-rag-backend:local .
+docker build --platform=linux/amd64 -f infra/production/frontend.Dockerfile -t enterprise-rag-frontend:local .
+```
 
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
 
@@ -570,7 +589,8 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R14 部分答案状态与拒答率口径修复：已完成
 - M7-R15 Pipeline Inspector 图片受保护预览：已完成
 - M8-00 独立摄取 Worker 前置 Slice：已完成
-- 下一项：M8-01 生产镜像
+- M8-01 生产镜像：已完成
+- 下一项：M8-02 Production Compose/Caddy
 
 查询应用层现在提供共享 `QueryRunner` 契约上的同步 REST 与流式 SSE 接口。匿名会话可以执行 Standard/Deep 查询，但租户与调用者身份始终由服务端绑定。SSE 使用稳定的 accepted/progress/heartbeat/completed/error 事件协议；断线会取消执行，错误会被净化，未配置 Runner 时会在发送流响应头之前返回 503。
 

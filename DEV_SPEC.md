@@ -1699,7 +1699,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 完成 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 未开始 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 52/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 54/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -3231,10 +3231,28 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   ObjectStore、Root/Leaf、Trace 或 Milvus 文件；若独立 Worker 已停止，未完成 lease 由现有过期恢复流程处理；
 - PR：待提交，建议分支 `feat/m8-production-worker`；完成后必须先创建 PR，required checks 全绿，再 squash merge。
 
-#### M8-01 Images
+#### M8-01 Images（已完成）
 
-- Backend/Frontend runtime image；
-- 验收：amd64、非 root、healthcheck、大小记录。
+- 状态：`DONE`；提交两阶段 backend/frontend runtime image，M8-02 仍负责生产 Compose、外层反向代理和网络
+  拓扑，不把单独构建镜像当作已部署；
+- Backend：`infra/production/backend.Dockerfile` 使用锁定的 `uv.lock` 安装 `--no-dev` 依赖，最终层基于
+  `python:3.12-slim-bookworm`，只复制虚拟环境、源码、迁移、配置和评测 manifest；安装 PDF/OCR 所需系统库，
+  以固定 UID 10001 的非 root `app` 用户运行，并通过入口固定 `uvicorn --workers 1`。同一镜像可由后续 Compose
+  覆盖命令启动 FastAPI API 或 `enterprise-rag-worker`；
+- Frontend：`infra/production/frontend.Dockerfile` 在 Node 22 构建 Vue3/TypeScript，再以 Caddy Alpine runtime
+  和非 root UID 10001 的 `app` 用户提供 `/srv` SPA 静态文件，内部监听 8080，`Caddyfile` 提供 history fallback；
+- 构建上下文：根 `.dockerignore` 必须排除 `.env`/`.env.*`、`.git`、`data`、`artifacts`、`node_modules`、缓存和
+  本地 dist，镜像不打包 secret、运行对象、Milvus `.db` 或模型权重；
+- 健康与资源：backend healthcheck 请求 `/health/live`，frontend healthcheck 请求 `/`；两个镜像声明
+  `linux/amd64` 构建记录，实际本机记录由 `docker image inspect` 保存到 README。2026-09-16 记录为 backend
+  `278238911` bytes、frontend `22704397` bytes；该数字受基础镜像和锁文件变化影响，不是运行时内存承诺；
+- EDD 验收：先以缺少 Dockerfile 的 3 个红灯测试固定镜像契约，再补齐 Dockerfile；真实 `docker build
+  --platform=linux/amd64` 两张镜像均成功，`docker image inspect` 证明架构、非 root、healthcheck，容器黑盒验证
+  backend `/health/live` 返回 200、frontend `/` 返回 SPA HTML 且二者 health 状态为 healthy；同时通过 backend
+  441 passed/4 skipped、Ruff、strict Mypy、frontend 58 passed/typecheck/build、OpenAPI drift 和 quality gate；
+- 回滚：删除两张生产 Dockerfile、Caddyfile 和 `.dockerignore` 约束即可回到 M8-00 的进程入口，不删除任何数据库、
+  对象或 Milvus 数据；
+- PR：`feat/m8-production-images`，后续先创建 PR、等待 required checks 全绿，再 squash merge。
 
 #### M8-02 Production Compose/Caddy
 

@@ -1,4 +1,7 @@
 .git
+.git/
+.env
+.env.*
 .venv
 **/.venv
 **/__pycache__
@@ -7,8 +10,11 @@
 **/.ruff_cache
 **/dist
 **/node_modules
+node_modules/
 frontend/playwright-report
 frontend/test-results
 artifacts
+artifacts/
 data
+data/
 *.log
