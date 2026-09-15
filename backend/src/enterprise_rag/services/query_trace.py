@@ -66,6 +66,7 @@ class QueryRetrievalBranch:
     dense_returned: int
     sparse_requested: int
     sparse_returned: int
+    sparse_algorithm: str
     overlap_count: int
     unique_count: int
 
@@ -307,6 +308,7 @@ def _retrieval_branches(spans: tuple[StoredSpan, ...]) -> tuple[QueryRetrievalBr
                 _integer(values.get("rag.branch.dense_returned")) or 0,
                 _integer(values.get("rag.branch.sparse_requested")) or 0,
                 _integer(values.get("rag.branch.sparse_returned")) or 0,
+                _text(values.get("rag.branch.sparse_algorithm")) or "unknown",
                 _integer(values.get("rag.branch.overlap_count")) or 0,
                 _integer(values.get("rag.branch.unique_count")) or 0,
             )

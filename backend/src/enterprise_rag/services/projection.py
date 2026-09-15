@@ -1,7 +1,7 @@
 """Build, verify, activate, and compensate Leaf vector projections."""
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -10,7 +10,7 @@ from enterprise_rag.domain.documents import LeafChunk
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.observability import start_span
 from enterprise_rag.ports.embedding import EmbeddingProvider
-from enterprise_rag.ports.sparse import SparseEncoder
+from enterprise_rag.ports.sparse import SparseEncoder, SparseEncoding
 from enterprise_rag.ports.vector_store import IndexSchema, VectorRecord, VectorStore
 
 Sleeper = Callable[[float], Awaitable[None]]
@@ -86,7 +86,11 @@ class ProjectionService:
     async def project(self, request: ProjectionRequest) -> ProjectionResult:
         expected = len(request.leaves)
         await self._vector_store.ensure_revision(
-            IndexSchema(request.index_revision, self._embedding.dimension)
+            IndexSchema(
+                request.index_revision,
+                self._embedding.dimension,
+                sparse_mode=self._sparse.mode,
+            )
         )
         texts = tuple(leaf.retrieval_text for leaf in request.leaves)
         dense_vectors = await self._embedding.embed_documents(texts)
@@ -114,6 +118,7 @@ class ProjectionService:
                     dense_vector=record.dense_vector,
                     sparse_vector=record.sparse_vector,
                     metadata=record.metadata,
+                    retrieval_text=record.retrieval_text,
                 )
                 for record in staged
             )
@@ -201,7 +206,7 @@ class ProjectionService:
     def _records(
         request: ProjectionRequest,
         dense_vectors: Sequence[Sequence[float]],
-        sparse_vectors: Sequence[Mapping[int, float]],
+        sparse_vectors: Sequence[SparseEncoding],
         *,
         status: str,
     ) -> tuple[VectorRecord, ...]:
@@ -218,8 +223,9 @@ class ProjectionService:
                     version_id=request.version_id,
                     status=status,
                     dense_vector=tuple(dense),
-                    sparse_vector=sparse,
+                    sparse_vector=sparse.vector,
                     metadata={"token_count": leaf.token_count},
+                    retrieval_text=sparse.text,
                 )
             )
         return tuple(records)

@@ -35,9 +35,25 @@ const catalog: ProviderCatalog = {
       input_token_limit: 8192, language_note: 'multilingual', note: '官方 API /rerank',
       selected: false, available: true, unavailable_reason: null, requires_restart: true,
     },
+    {
+      kind: 'sparse_encoder', key: 'milvus_builtin_bm25', name: 'milvus_builtin_bm25',
+      model: 'jieba-v1', label: 'Milvus 原生 BM25', provider: 'Milvus Lite',
+      capabilities: ['bm25', 'corpus_idf', 'jieba'], is_remote: false, dimension: null,
+      input_token_limit: null, language_note: '中文 / 中英混合',
+      note: '由 Milvus Function 维护 TF/IDF', selected: true, available: true,
+      unavailable_reason: null, requires_restart: true,
+    },
+    {
+      kind: 'sparse_encoder', key: 'hashing_lexical', name: 'hashing_lexical',
+      model: 'blake2b-31bit-logtf-l2-v1', label: 'Hashing Lexical（离线）', provider: '内置',
+      capabilities: ['precomputed'], is_remote: false, dimension: null, input_token_limit: null,
+      language_note: null, note: '确定性词法投影', selected: false, available: true,
+      unavailable_reason: null, requires_restart: true,
+    },
   ],
   selection: {
     embedding_model: 'local', reranker_model: 'local-reranker', llm_model: 'minimax-m3',
+    sparse_encoder: 'milvus_builtin_bm25',
     pending_restart: false,
   },
 }
@@ -76,6 +92,7 @@ describe('Provider management', () => {
     expect(wrapper.text()).toContain('1024 维')
     expect(wrapper.text()).toContain('8192 tokens')
     expect(wrapper.text()).toContain('未配置')
+    expect(wrapper.text()).toContain('Milvus 原生 BM25')
     const unavailable = wrapper.find('input[value="BAAI/bge-m3"]')
     expect(unavailable.attributes('disabled')).toBeDefined()
   })
@@ -92,6 +109,16 @@ describe('Provider management', () => {
     expect(wrapper.text()).toContain('待重启生效')
     const input = wrapper.find('input[value="BAAI/bge-reranker-v2-m3"]').element as HTMLInputElement
     expect(input.checked).toBe(true)
+  })
+
+  it('persists a Sparse mode selection', async () => {
+    const wrapper = mount(AdminProvidersView)
+    await flushPromises()
+
+    await wrapper.find('input[value="hashing_lexical"]').trigger('change')
+    await flushPromises()
+
+    expect(providerApi.select).toHaveBeenCalledWith('sparse_encoder', 'hashing_lexical')
   })
 
   it('shows incompatible documents and offers a real revision rebuild', async () => {

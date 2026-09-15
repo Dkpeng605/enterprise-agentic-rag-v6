@@ -37,7 +37,7 @@ const standardDetail: QueryTraceView = {
   },
   retrieval_branches: [{
     branch_index: 0, query: '如何部署', dense_requested: 40, dense_returned: 8,
-    sparse_requested: 40, sparse_returned: 6, overlap_count: 3, unique_count: 11,
+    sparse_requested: 40, sparse_returned: 6, sparse_algorithm: 'milvus_builtin_bm25', overlap_count: 3, unique_count: 11,
   }],
   stage_metrics: [{
     stage: 'rrf_fusion', input_count: 14, output_count: 10, dropped_count: 4,
@@ -67,6 +67,7 @@ describe('query trace workspace', () => {
     expect(wrapper.get('[data-testid="rank-table"]').text()).toContain('0.970')
     expect(wrapper.get('[data-testid="query-plan"]').text()).toContain('共 2 条并行检索分支')
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('8 / 40')
+    expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('BM25（Milvus 原生）')
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('不等同于 Recall@K')
   })
 

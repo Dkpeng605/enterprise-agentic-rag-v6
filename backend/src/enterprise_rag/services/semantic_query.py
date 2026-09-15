@@ -175,7 +175,7 @@ class SemanticQueryRunner:
             f"执行 {len(plan.sub_queries)} 条子查询的 Dense / Sparse 检索",
         )
         await self._vector_store.ensure_revision(
-            IndexSchema(self._index_revision, self._embedding.dimension)
+            IndexSchema(self._index_revision, self._embedding.dimension, self._sparse.mode)
         )
         retrieved = await self._retrieve(
             command,
@@ -499,6 +499,7 @@ class SemanticQueryRunner:
                 "rag.branch.query": query,
                 "rag.retrieval_mode": mode.value,
                 "rag.branch.recovery": True,
+                "rag.branch.sparse_algorithm": self._sparse.info().name,
             },
         ) as span:
             if mode is RetrievalMode.DENSE_ONLY:
@@ -601,6 +602,7 @@ class SemanticQueryRunner:
             attributes={
                 "rag.branch.index": branch_index,
                 "rag.branch.query": query,
+                "rag.branch.sparse_algorithm": self._sparse.info().name,
             },
         ) as span:
             result = await self._search.search(

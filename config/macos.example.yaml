@@ -10,7 +10,7 @@ providers:
   reranker: local_cross_encoder
   vector_store: milvus_lite
   vision: none
-  sparse_encoder: hashing_lexical
+  sparse_encoder: milvus_builtin_bm25
 
 ingestion:
   object_store_root: data/runtime/mac/object-store

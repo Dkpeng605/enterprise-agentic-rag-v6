@@ -26,7 +26,7 @@ from enterprise_rag.adapters.rerankers import (
     LocalFastEmbedReranker,
     OpenAICompatibleReranker,
 )
-from enterprise_rag.adapters.sparse import HashingSparseEncoder
+from enterprise_rag.adapters.sparse import HashingSparseEncoder, MilvusBuiltinBm25Encoder
 from enterprise_rag.adapters.splitters import StructureAwareSplitter
 from enterprise_rag.adapters.vector_store import MilvusLiteVectorStore
 from enterprise_rag.adapters.vision import NoopVisionProvider
@@ -116,8 +116,6 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         kind="llm",
         default=credentials.llm_model or "",
     )
-    index_revision = _index_revision(embedding_model)
-
     shared_remote_key = (
         credentials.siliconflow_api_key.get_secret_value()
         if credentials.siliconflow_api_key is not None
@@ -171,7 +169,20 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         raise RuntimeError(
             "Configured ingestion.embedding_dimension does not match the selected embedding model"
         )
-    sparse = HashingSparseEncoder()
+    sparse: HashingSparseEncoder | MilvusBuiltinBm25Encoder
+    sparse_provider_name = selection.get("sparse_encoder", active.providers.sparse_encoder)
+    if sparse_provider_name == "milvus_builtin_bm25":
+        sparse = MilvusBuiltinBm25Encoder()
+    elif sparse_provider_name == "hashing_lexical":
+        sparse = HashingSparseEncoder()
+    else:
+        raise RuntimeError(f"Unknown Mac sparse encoder: {sparse_provider_name}")
+    sparse_info = sparse.info()
+    index_revision = _index_revision(
+        embedding_model,
+        sparse_provider=sparse_info.name,
+        sparse_version=sparse_info.version,
+    )
     vector_store = MilvusLiteVectorStore(runtime_root.parent / "milvus" / "vectors.db")
     reranker: LocalFastEmbedReranker | OpenAICompatibleReranker
     if reranker_model == SILICONFLOW_RERANKER_MODEL:
@@ -297,6 +308,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
             "embedding": embedding_model,
             "reranker": reranker_model,
             "llm": llm_model,
+            "sparse_encoder": sparse_info.name,
         },
         current_embedding_dimension=embedding.dimension,
         current_embedding_input_token_limit=embedding.input_token_limit,
@@ -431,8 +443,11 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
     )
 
 
-def _index_revision(embedding_model: str) -> str:
-    digest = hashlib.sha256(embedding_model.encode("utf-8")).hexdigest()[:12]
+def _index_revision(
+    embedding_model: str, *, sparse_provider: str, sparse_version: str
+) -> str:
+    contract = f"{embedding_model}\0{sparse_provider}\0{sparse_version}"
+    digest = hashlib.sha256(contract.encode("utf-8")).hexdigest()[:12]
     return f"mac-semantic-{digest}"
 
 

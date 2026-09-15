@@ -12,6 +12,7 @@ from uuid import UUID
 from enterprise_rag.domain.common import require_uuid7, to_json_value
 from enterprise_rag.observability import current_metrics
 from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, ProviderKind
+from enterprise_rag.ports.sparse import SparseMode
 from enterprise_rag.ports.vector_store import (
     DenseSearchRequest,
     IndexSchema,
@@ -25,16 +26,18 @@ from enterprise_rag.ports.vector_store import (
 OUTPUT_FIELDS = ["root_id", "metadata"]
 
 
-def _import_pymilvus() -> tuple[Any, Any]:
+def _import_pymilvus() -> tuple[Any, Any, Any, Any]:
     """Import pymilvus without allowing its settings module to load an app .env file."""
 
     disabled_before = os.environ.get("PYTHON_DOTENV_DISABLED")
     os.environ["PYTHON_DOTENV_DISABLED"] = "1"
     try:
         from pymilvus import DataType as data_type  # type: ignore[import-untyped]
+        from pymilvus import Function as function
+        from pymilvus import FunctionType as function_type
         from pymilvus import MilvusClient as client
 
-        return data_type, client
+        return data_type, function, function_type, client
     finally:
         if disabled_before is None:
             os.environ.pop("PYTHON_DOTENV_DISABLED", None)
@@ -42,7 +45,7 @@ def _import_pymilvus() -> tuple[Any, Any]:
             os.environ["PYTHON_DOTENV_DISABLED"] = disabled_before
 
 
-DataType, MilvusClient = _import_pymilvus()
+DataType, Function, FunctionType, MilvusClient = _import_pymilvus()
 
 
 def _int_value(value: object) -> int:
@@ -76,6 +79,7 @@ class MilvusLiteVectorStore:
         self._client = MilvusClient(str(path))
         self._prefix = collection_prefix
         self._dimensions: dict[str, int] = {}
+        self._sparse_modes: dict[str, SparseMode] = {}
         self._lock = asyncio.Lock()
         self._closed = False
 
@@ -106,6 +110,9 @@ class MilvusLiteVectorStore:
                 actual_dimension = self._dense_dimension(description)
                 if actual_dimension != schema.dimension:
                     raise ValueError("existing Milvus revision has a different dimension")
+                actual_sparse_mode = self._sparse_mode(description)
+                if actual_sparse_mode is not schema.sparse_mode:
+                    raise ValueError("existing Milvus revision has a different sparse mode")
             else:
                 milvus_schema = MilvusClient.create_schema(
                     auto_id=False,
@@ -139,10 +146,27 @@ class MilvusLiteVectorStore:
                     datatype=DataType.FLOAT_VECTOR,
                     dim=schema.dimension,
                 )
+                if schema.sparse_mode is SparseMode.MILVUS_BUILTIN_BM25:
+                    milvus_schema.add_field(
+                        field_name="retrieval_text",
+                        datatype=DataType.VARCHAR,
+                        max_length=65_535,
+                        enable_analyzer=True,
+                        analyzer_params={"tokenizer": "jieba"},
+                    )
                 milvus_schema.add_field(
                     field_name="sparse_vector",
                     datatype=DataType.SPARSE_FLOAT_VECTOR,
                 )
+                if schema.sparse_mode is SparseMode.MILVUS_BUILTIN_BM25:
+                    milvus_schema.add_function(
+                        Function(
+                            name="retrieval_text_bm25",
+                            function_type=FunctionType.BM25,
+                            input_field_names=["retrieval_text"],
+                            output_field_names=["sparse_vector"],
+                        )
+                    )
                 milvus_schema.add_field(field_name="metadata", datatype=DataType.JSON)
 
                 index_params = self._client.prepare_index_params()
@@ -154,7 +178,11 @@ class MilvusLiteVectorStore:
                 index_params.add_index(
                     field_name="sparse_vector",
                     index_type="SPARSE_INVERTED_INDEX",
-                    metric_type="IP",
+                    metric_type=(
+                        "BM25"
+                        if schema.sparse_mode is SparseMode.MILVUS_BUILTIN_BM25
+                        else "IP"
+                    ),
                 )
                 await asyncio.to_thread(
                     self._client.create_collection,
@@ -165,6 +193,7 @@ class MilvusLiteVectorStore:
                 )
             await asyncio.to_thread(self._client.load_collection, collection_name)
             self._dimensions[schema.revision] = schema.dimension
+            self._sparse_modes[schema.revision] = schema.sparse_mode
 
     async def upsert(self, records: Sequence[VectorRecord]) -> UpsertResult:
         return await _observe_milvus("upsert", self._upsert(records))
@@ -180,12 +209,20 @@ class MilvusLiteVectorStore:
                 raise ValueError("index revision must be ensured before upsert")
             if len(record.dense_vector) != dimension:
                 raise ValueError("dense vector dimension does not match index schema")
+            sparse_mode = self._sparse_modes[record.index_revision]
+            if sparse_mode is SparseMode.PRECOMPUTED and record.sparse_vector is None:
+                raise ValueError("precomputed sparse revision requires sparse vectors")
+            if sparse_mode is SparseMode.MILVUS_BUILTIN_BM25 and record.retrieval_text is None:
+                raise ValueError("BM25 sparse revision requires retrieval text")
             grouped[record.index_revision].append(record)
 
         count = 0
         async with self._lock:
             for revision, revision_records in grouped.items():
-                data = [self._record_data(record) for record in revision_records]
+                sparse_mode = self._sparse_modes[revision]
+                data = [
+                    self._record_data(record, sparse_mode) for record in revision_records
+                ]
                 result = await asyncio.to_thread(
                     self._client.upsert,
                     collection_name=self._collection_name(revision),
@@ -228,11 +265,22 @@ class MilvusLiteVectorStore:
     async def _sparse_search(self, request: SparseSearchRequest) -> list[VectorHit]:
         if request.index_revision not in self._dimensions:
             raise ValueError("index revision must be ensured before search")
+        sparse_mode = self._sparse_modes[request.index_revision]
+        if sparse_mode is SparseMode.PRECOMPUTED:
+            if request.vector is None:
+                raise ValueError("precomputed sparse revision requires a query vector")
+            data: list[object] = [dict(request.vector)]
+            metric_type = "IP"
+        else:
+            if request.query_text is None:
+                raise ValueError("BM25 sparse revision requires query text")
+            data = [request.query_text]
+            metric_type = "BM25"
         return await self._search(
             revision=request.index_revision,
-            data=[dict(request.vector)],
+            data=data,
             vector_field="sparse_vector",
-            metric_type="IP",
+            metric_type=metric_type,
             filter_expression=self._search_filter(
                 request.tenant_id,
                 collection_ids=request.collection_ids,
@@ -402,6 +450,7 @@ class MilvusLiteVectorStore:
             await asyncio.to_thread(self._client.close)
             self._closed = True
             self._dimensions.clear()
+            self._sparse_modes.clear()
 
     async def _search(
         self,
@@ -488,8 +537,18 @@ class MilvusLiteVectorStore:
         raise ValueError("existing Milvus revision has no dense vector field")
 
     @staticmethod
-    def _record_data(record: VectorRecord) -> dict[str, object]:
-        return {
+    def _sparse_mode(description: Mapping[str, Any]) -> SparseMode:
+        fields = cast(Sequence[Mapping[str, Any]], description.get("fields", ()))
+        names = {str(field.get("name")) for field in fields}
+        if "retrieval_text" in names:
+            return SparseMode.MILVUS_BUILTIN_BM25
+        if "sparse_vector" in names:
+            return SparseMode.PRECOMPUTED
+        raise ValueError("existing Milvus revision has no sparse vector field")
+
+    @staticmethod
+    def _record_data(record: VectorRecord, sparse_mode: SparseMode) -> dict[str, object]:
+        data: dict[str, object] = {
             "leaf_id": record.leaf_id,
             "root_id": record.root_id,
             "tenant_id": str(record.tenant_id),
@@ -498,9 +557,17 @@ class MilvusLiteVectorStore:
             "version_id": str(record.version_id),
             "status": record.status,
             "dense_vector": list(record.dense_vector),
-            "sparse_vector": dict(record.sparse_vector),
             "metadata": to_json_value(record.metadata),
         }
+        if sparse_mode is SparseMode.PRECOMPUTED:
+            if record.sparse_vector is None:
+                raise ValueError("precomputed sparse revision requires sparse vectors")
+            data["sparse_vector"] = dict(record.sparse_vector)
+        else:
+            if record.retrieval_text is None:
+                raise ValueError("BM25 sparse revision requires retrieval text")
+            data["retrieval_text"] = record.retrieval_text
+        return data
 
     @staticmethod
     def _search_filter(

@@ -168,6 +168,10 @@ function metricAttributeLabel(value: string): string {
   }[value] ?? value
 }
 
+function sparseAlgorithmLabel(value: string): string {
+  return value === 'milvus_builtin_bm25' ? 'BM25（Milvus 原生）' : value
+}
+
 onMounted(() => loadTraces())
 </script>
 
@@ -217,7 +221,7 @@ onMounted(() => loadTraces())
 
           <section class="trace-section" data-testid="retrieval-metrics">
             <div class="trace-section-head"><div><p class="section-kicker">RUNTIME RETRIEVAL SIGNALS</p><h3>各分支与阶段数量</h3></div><span>运行观测，不等同于 Recall@K</span></div>
-            <div v-if="detail.retrieval_branches.length" class="retrieval-branch-grid"><article v-for="branch in detail.retrieval_branches" :key="branch.branch_index"><header><span>BRANCH {{ branch.branch_index + 1 }}</span><strong>{{ branch.query }}</strong></header><dl><div><dt>Dense 返回</dt><dd>{{ branch.dense_returned }} / {{ branch.dense_requested }}</dd></div><div><dt>Sparse 返回</dt><dd>{{ branch.sparse_returned }} / {{ branch.sparse_requested }}</dd></div><div><dt>两路交集</dt><dd>{{ branch.overlap_count }}</dd></div><div><dt>唯一 Leaf</dt><dd>{{ branch.unique_count }}</dd></div></dl></article></div>
+            <div v-if="detail.retrieval_branches.length" class="retrieval-branch-grid"><article v-for="branch in detail.retrieval_branches" :key="branch.branch_index"><header><span>BRANCH {{ branch.branch_index + 1 }}</span><strong>{{ branch.query }}</strong></header><dl><div><dt>Dense 返回</dt><dd>{{ branch.dense_returned }} / {{ branch.dense_requested }}</dd></div><div><dt>Sparse 返回 · 算法</dt><dd>{{ branch.sparse_returned }} / {{ branch.sparse_requested }} · {{ sparseAlgorithmLabel(branch.sparse_algorithm) }}</dd></div><div><dt>两路交集</dt><dd>{{ branch.overlap_count }}</dd></div><div><dt>唯一 Leaf</dt><dd>{{ branch.unique_count }}</dd></div></dl></article></div>
             <p v-else class="trace-inline-empty">旧 Trace 未保存分支计数。</p>
             <div v-if="detail.stage_metrics.length" class="stage-metric-flow"><article v-for="(metric, index) in detail.stage_metrics" :key="`${metric.stage}-${index}`"><span>{{ metricStageLabel(metric.stage) }}</span><strong>{{ metric.input_count }} → {{ metric.output_count }}</strong><small>淘汰 / 拒绝 {{ metric.dropped_count }}</small><ul v-if="Object.keys(metric.attributes).length"><li v-for="(value, key) in metric.attributes" :key="key">{{ metricAttributeLabel(String(key)) }} · {{ value }}</li></ul></article></div>
             <p class="metric-disclaimer">候选返回率、Dense/Sparse 交集、权限过滤与排名位移可以描述单次运行；Recall@K、MRR、NDCG 必须使用带 gold 标注的评测集计算，请在“评测中心”查看。</p>

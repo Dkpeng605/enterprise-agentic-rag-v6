@@ -32,7 +32,7 @@ const savingKey = ref('')
 const indexStatus = ref<ProviderIndexStatus>()
 const reindexing = ref(false)
 
-const selectableKinds = ['embedding', 'reranker'] as const
+const selectableKinds = ['embedding', 'reranker', 'sparse_encoder'] as const
 const optionsByKind = computed(() =>
   selectableKinds.map((kind) => ({
     kind,
@@ -57,9 +57,11 @@ function providerStatusClass(provider: ProviderDiagnostic): string {
 }
 
 function optionValue(kind: ProviderKind): string {
-  const pending = catalog.value?.selection[`pending_${kind}_model`]
+  const field = kind === 'sparse_encoder' ? 'sparse_encoder' : `${kind}_model`
+  const pendingField = kind === 'sparse_encoder' ? 'pending_sparse_encoder' : `pending_${kind}_model`
+  const pending = catalog.value?.selection[pendingField]
   if (typeof pending === 'string') return pending
-  const current = catalog.value?.selection[`${kind}_model`]
+  const current = catalog.value?.selection[field]
   return typeof current === 'string' ? current : ''
 }
 
@@ -207,7 +209,7 @@ onMounted(load)
 
       <section class="provider-admin-section provider-admin-note" aria-labelledby="provider-policy-title">
         <div class="section-heading"><div><p class="section-kicker">SELECTION POLICY</p><h2 id="provider-policy-title">生效边界</h2></div></div>
-        <p>Embedding 的维度和 tokenizer 上限属于索引契约，不能在已有进程中静默热切换。切换 Embedding 后请重启 Mac backend，再在上方执行安全重建；系统先写入新 revision，数据库切换成功后才清理旧 revision，失败时保留旧索引。</p>
+        <p>Embedding 的维度、tokenizer 上限和 Sparse 模式属于索引契约，不能在已有进程中静默热切换。切换 Embedding 或 Sparse 后请重启 Mac backend，再在上方执行安全重建；系统先写入新 revision，数据库切换成功后才清理旧 revision，失败时保留旧索引。</p>
         <p v-if="pendingRestart">当前运行中仍是 <code>{{ catalog.selection.embedding_model }}</code> / <code>{{ catalog.selection.reranker_model }}</code>；上方单选框显示的是重启后待生效配置。</p>
         <p>远程 Embedding/Reranker 的 endpoint 与密钥只由 backend 环境变量管理；前端仅显示是否已配置，不回显密钥。`BAAI/bge-m3` 为 1024 维，切换会生成隔离的新索引 revision。</p>
         <p v-if="currentLlm.length">当前 LLM：<strong>{{ currentLlm.map((provider) => `${provider.name} · ${provider.version}`).join(' / ') }}</strong>。LLM endpoint 与密钥同样不在前端回显或编辑。</p>

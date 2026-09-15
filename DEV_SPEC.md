@@ -2501,8 +2501,9 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
   后台摄取 Worker、QueryRunner、Trace Store 与 Provider Registry；运行数据、模型缓存和密钥文件
   均位于 Git 忽略路径。Milvus Lite 仍只允许一个应用进程打开，不启用 Uvicorn 多 Worker；
 - Provider 选择：Dense Embedding 默认使用 FastEmbed ONNX `paraphrase-multilingual-MiniLM-L12-v2`
-  及 384 维索引，也可在管理员目录切换本地 BGE small 或 SiliconFlow `BAAI/bge-m3`；Sparse 继续使用
-  明确标注的 Hashing Lexical；Reranker 默认使用 `jina-reranker-v2-base-multilingual`，也可切换
+  及 384 维索引，也可在管理员目录切换本地 BGE small 或 SiliconFlow `BAAI/bge-m3`；Sparse 默认使用
+  真实的 Milvus 原生 BM25，也可在离线组合选择明确标注的 Hashing Lexical；Reranker 默认使用
+  `jina-reranker-v2-base-multilingual`，也可切换
   SiliconFlow `BAAI/bge-reranker-v2-m3`。远程选择使用后端环境密钥并在重启时由 Composition Root 装配；
   LLM 使用 OpenAI-compatible `POST /chat/completions`，base URL、token 和模型只从环境读取；
 - LLM Adapter：请求仅包含 system/user messages、`max_tokens`、temperature 和非流式标记；响应必须
@@ -2894,6 +2895,52 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   回滚先撤销本切片签发的 Token，再移除 root mount/factory；`api_tokens` schema、原 stdio/HTTP Adapter、
   PostgreSQL 文档和 Milvus 数据无需删除，本地 pepper 文件可由 operator 手工安全移除；
 - PR：`feat/m7-r8-mac-http-mcp`。
+
+##### M7-R9 Milvus 原生 BM25 Sparse（当前开发切片）
+
+- 目标：修复 Mac 完整语义组合中“简历声称 BM25、代码实际 Hashing”的事实不一致，同时保留离线
+  Compose/公开零成本评测所需的确定性 Hashing。该切片不通过重命名或应用层伪造 IDF 达成指标；BM25
+  必须由 Milvus 的原生 Function 与稀疏倒排索引真实计算。
+- Sparse 端口：新增 `SparseMode.PRECOMPUTED` 与 `SparseMode.MILVUS_BUILTIN_BM25`，以及严格的
+  `SparseEncoding`。前者必须包含非空 `vector` 且不含文本，后者必须包含非空 `text` 且不含预计算
+  vector。`HashingSparseEncoder` 返回前者；`MilvusBuiltinBm25Encoder` 不计算向量，只返回待 Milvus
+  分词的原文。任何调用方不能把空向量当作 BM25 占位值。
+- IndexSchema：增加 `sparse_mode`，默认值为 `precomputed` 以保持离线及旧调用方兼容；revision 的
+  语义必须同时受 Dense model、Sparse provider name 和 version 影响。相同 revision 重开时必须恢复
+  dimension 与 sparse mode；dimension 或 mode 不一致必须启动/操作失败，禁止在同一个 collection 混写。
+- VectorRecord：预计算模式保存 `sparse_vector`，BM25 模式保存 `retrieval_text`，两者必须恰好一个；
+  `SparseSearchRequest` 同理接收 vector 或 query text。请求校验在进入 Milvus 前完成，防止供应商或
+  数据库异常替代契约错误。
+- Milvus Schema：BM25 collection 必须包含 `retrieval_text VARCHAR(max_length=65535,
+  enable_analyzer=true, analyzer_params={tokenizer: jieba})`、`sparse_vector SPARSE_FLOAT_VECTOR`、
+  `FunctionType.BM25(input=retrieval_text, output=sparse_vector)`；sparse index 必须为
+  `SPARSE_INVERTED_INDEX` 且 `metric_type=BM25`。写入只提供 retrieval text，不直接写 Function output；
+  查询把原始 query text 作为 `data`，不能先在应用层计算 IDF。中文分词依赖 `jieba`，版本锁定在后端
+  `pyproject.toml`/`uv.lock`。
+- 检索与投影：Projection 根据 SparseEncoding 的 mode 组装记录；DualSearch 根据 mode 生成 vector
+  或 query_text。Dense/Sparse scope pushdown、`tenant_id`、`status=ready`、PostgreSQL 权限回源与 RRF
+  语义不变。`rag.retrieval.branch` 保存真实 sparse provider 名称，Query Trace 在每个分支显示
+  `Milvus 原生 BM25` 或 `hashing_lexical`，不能显示不带算法含义的伪标签。
+- Provider 管理：Mac runtime 默认装配 `milvus_builtin_bm25`；Hashing 仅作为离线/评测 profile。实时
+  registry、profile options、restart-bound selection 和 pending/current 状态都必须包含 Sparse，管理员
+  可以从 Vue 页面选择模式。Sparse 模式切换与 Embedding 切换一样创建新 revision，重启后使用安全
+  Provider Reindex；Reranker 切换仍不触发向量重建。运行实例的 current 必须来自已装配 Provider，不能
+  从待生效文件反推 current。
+- 数据与回滚：不删除整个 Milvus 文件，不覆盖旧 revision。新 revision 投影、数量核验、PostgreSQL
+  Root/Leaf 交换和旧 revision 定向清理沿用 Provider Reindex Saga；失败时目标 revision 可清理，旧
+  revision 的真实 Dense/Sparse 查询仍可用。已有 Hashing collection 通过 revision 隔离继续可读；新
+  BM25 revision 通过正常摄取或安全重建生成，不做隐式原地 schema 迁移。
+- EDD 验收：
+  1. Provider contract 证明 Hashing 返回预计算向量，BM25 返回文本且两者互斥；空文本、空向量和双表示均拒绝；
+  2. 真实 Milvus Lite 证明 BM25 schema/function/index 存在，中文术语、英文编号和中英混合文本可召回，
+     tenant/collection/document filter 不越权；
+  3. 真实 Milvus Lite 关闭并重开后，BM25 revision 仍能搜索，mode/dimension 冲突拒绝；
+  4. Projection、DualSearch 与 Mac composition smoke 证明文本进入 BM25 data path，而非假向量；
+  5. Provider catalog/UI 测试证明 Sparse option、选择落盘、pending/current 与 OpenAPI 同步；
+  6. 后端全量 Pytest（设置 `TEST_DATABASE_URL`）、Ruff、strict mypy，前端 Vitest、typecheck、build、
+     OpenAPI drift、30 Case quality gate 与 Browser E2E 均通过；README 中英文及本规格同步更新。
+
+- PR：`feat/m7-r9-milvus-bm25-sparse`。
 
 ### M8：首次公网发布
 

@@ -8331,6 +8331,7 @@
             "enum": [
               "embedding",
               "reranker",
+              "sparse_encoder",
               "llm"
             ],
             "title": "Kind"
@@ -8822,6 +8823,10 @@
             "type": "integer",
             "title": "Sparse Returned"
           },
+          "sparse_algorithm": {
+            "type": "string",
+            "title": "Sparse Algorithm"
+          },
           "overlap_count": {
             "type": "integer",
             "title": "Overlap Count"
@@ -8840,6 +8845,7 @@
           "dense_returned",
           "sparse_requested",
           "sparse_returned",
+          "sparse_algorithm",
           "overlap_count",
           "unique_count"
         ],

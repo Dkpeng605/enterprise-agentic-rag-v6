@@ -35,8 +35,8 @@ pnpm install --frozen-lockfile
 
 ### Full semantic demo on macOS (recommended)
 
-This entry point runs selectable local/remote multilingual embedding and CrossEncoder reranker providers,
-Milvus Lite, and the background document parsing/ingestion worker. It calls the LLM through OpenAI-compatible
+This entry point runs selectable local/remote multilingual embedding and CrossEncoder reranker providers, the native
+Milvus BM25 Sparse provider, Milvus Lite, and the background document parsing/ingestion worker. It calls the LLM through OpenAI-compatible
 Chat Completions. The defaults keep document and query text on the Mac. Selecting a SiliconFlow remote
 profile sends the corresponding Leaf/query or candidate text to SiliconFlow. The OpenAI-compatible LLM
 Planner receives the current question, at most 12 conversation turns, and the server-constrained Scope;
@@ -102,7 +102,7 @@ permissions. Create a collection, upload PDF/DOCX/XLSX/XLS/CSV/HTML/TXT/Markdown
 parsing and ingestion progress, then use Knowledge Chat to exercise Dense/Sparse retrieval, RRF,
 CrossEncoder reranking, Root recovery, LLM generation, and citations. Inspect provider status in
 Tenant Overview or at `http://127.0.0.1:8000/health/doctor`. After administrator login, the “Manage and select”
-link opens `/admin/providers`: it reads the live registry, shows selectable Embedding/Reranker profiles with
+link opens `/admin/providers`: it reads the live registry, shows selectable Embedding/Reranker/Sparse profiles with
 dimensions, effective token limits, language notes, and local/remote attributes, and saves the next-start selection.
 Selection is not a hot swap; restart the backend to apply it. The page distinguishes the current runtime profile
 from the pending restart profile. After restart, the `/admin/providers` page shows
@@ -313,7 +313,7 @@ The development API is available at `http://127.0.0.1:8000`. The backend exposes
 - `/api/v1/evaluations/catalog`, `/api/v1/evaluations/runs`, and `/api/v1/evaluations/compare` — budget preflight, tenant run history, reports, and controlled comparison
 - `GET /api/v1/traces/{trace_id}` — stage timing, candidate ranks, scores, and degradation details
 - `GET /health/live`, `GET /health/ready`, and `GET /health/doctor` — liveness, readiness, and sanitized Provider diagnostics
-- `GET /api/v1/admin/providers` and `POST /api/v1/admin/providers/select` — system-admin live Provider registry, selectable Embedding/Reranker profiles, and restart-bound selection
+- `GET /api/v1/admin/providers` and `POST /api/v1/admin/providers/select` — system-admin live Provider registry, selectable Embedding/Reranker/Sparse profiles, and restart-bound selection
 - `GET /api/v1/workspace/mcp` — current composition's MCP Server, six read-only tools, four resource forms, and stdio/HTTP transport status
 - `GET /metrics` — Prometheus text exposition; production requires a dedicated bearer token
 
@@ -676,7 +676,15 @@ The Embedding port has local multilingual and OpenAI-compatible implementations,
   tests/contract/test_embedding_providers.py -m model)
 ```
 
-The Sparse Encoder produces Milvus sparse vectors with stable multilingual lexical hashes, log-TF weights, and L2 normalization; it is not represented as BM25. The Projection Service writes Dense/Sparse records in `processing` batches, verifies their count, activates them as `ready`, and verifies again. Repeated runs overwrite the same Leaf IDs. A partial write or verification failure removes only the target `index_revision`, with bounded delete retries, so a working old revision cannot be accidentally deleted. Document deletion and full reconciliation still support version-wide cleanup.
+The Sparse port has two explicit modes: offline/evaluation `hashing_lexical` uses stable multilingual lexical hashes,
+log-TF weights, and L2 normalization to produce precomputed vectors; the complete Mac composition's
+`milvus_builtin_bm25` passes text to Milvus's native BM25 Function and `jieba` Analyzer, which own corpus TF/IDF.
+Neither mode is mislabeled as the other. `IndexSchema` includes the sparse mode in the revision, so an old Hashing
+collection cannot be mixed with a BM25 collection. The Projection Service writes mode-specific Dense/Sparse records
+in `processing` batches, verifies their count, activates them as `ready`, and verifies again. Repeated runs overwrite
+the same Leaf IDs. A partial write or verification failure removes only the target `index_revision`, with bounded
+delete retries, so a working old revision cannot be accidentally deleted. Document deletion and full reconciliation
+still support version-wide cleanup.
 
 The Provider Reindex Service treats the old PostgreSQL Root/Leaf rows and old Milvus projection as rollback facts:
 it re-splits with the active Embedding tokenizer, projects the new revision, swaps Root/Leaf rows in one transaction,
@@ -687,7 +695,11 @@ The ingestion Pipeline creates or reuses its Job in the document-registration tr
 
 The anonymous workspace API uses server-side sessions to bind every request to one fixed demo tenant. Anonymous `demo_operator` sessions can manage collections and documents inside that tenant but cannot access the system administration surface; writes require a rotating CSRF token. Administrators use separate database sessions, Argon2id passwords, and system roles; frontend guards improve UX while the backend still authorizes every system request. Collection CRUD, streaming upload, document cursor pagination, details, job lookup, and idempotent asynchronous deletion all use the unified error model and request IDs. Cross-tenant identifiers always appear as 404.
 
-The dual Search Service creates Dense and Sparse query vectors separately and runs two independent retrieval paths concurrently. Tenant and authorized collection/document scope are included in both requests before the VectorStore call, where Milvus also forces `status=ready`; scope is never applied after retrieval. Raw branch scores remain separate with minimal diagnostics, ready for M4-02 fusion.
+The dual Search Service creates Dense and Sparse inputs separately—Hashing returns a query vector while BM25 returns
+query text—and runs two independent retrieval paths concurrently. Tenant and authorized collection/document scope
+are included in both requests before the VectorStore call, where Milvus also forces `status=ready`; scope is never
+applied after retrieval. Raw branch scores remain separate with minimal diagnostics, and Query Trace identifies the
+actual Sparse algorithm for every branch.
 
 RRF Fusion evaluates every query's Dense/Sparse ranked lists with `Σ 1/(k+rank)` and never adds incomparable raw scores. A Leaf is deduplicated across paths, each Root keeps at most three Leaves by default, and the global default is 30 candidates. Exact score ties use the Leaf ID for stable ordering, and diagnostics report every quota drop.
 
@@ -704,7 +716,7 @@ The Query Planning Service treats structured Planner output as untrusted input a
 
 The Standard Query Graph is an explicit state machine connecting Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer. Every run returns its actual transitions. Empty RRF output, authorized Leaves, or rechecked Roots terminate as NoResults without invoking the answer model. Standard counts the Planner attempt as LLM call one and final answer generation as call two, with a runtime hard ceiling; Planner degradation adds no call. Unclassified failures terminate as Failed with a sanitized error code and no exception text exposed to clients.
 
-Deep Recovery uses an Evidence Ledger deduplicated by Leaf ID across rounds and reserves final slots for new Recovery evidence. The reusable controller defaults to 0.45/0.80 thresholds for direct recovery, assessor use, or direct answer. The real Mac composition enables the stricter `always_assess` policy: every evidence-bearing Deep decision calls the current LLM for requirement coverage, conflicts, and a decision, while the score remains derived from coverage and retrieval confidence. Recovery is capped at two rounds before Abstain. Its four routes are Rewrite Hybrid, HyDE Dense-only, Exact-term Sparse-only, and Scope repair that removes only a Planner-added field absent from explicit caller scope. Every route repeats retrieval, RRF, authorization, reranking, and Root restoration. The current Sparse implementation is hashing lexical, not BM25, so neither code nor documentation mislabels the exact-term route; a true BM25 Provider can replace it later.
+Deep Recovery uses an Evidence Ledger deduplicated by Leaf ID across rounds and reserves final slots for new Recovery evidence. The reusable controller defaults to 0.45/0.80 thresholds for direct recovery, assessor use, or direct answer. The real Mac composition enables the stricter `always_assess` policy: every evidence-bearing Deep decision calls the current LLM for requirement coverage, conflicts, and a decision, while the score remains derived from coverage and retrieval confidence. Recovery is capped at two rounds before Abstain. Its four routes are Rewrite Hybrid, HyDE Dense-only, Exact-term Sparse-only, and Scope repair that removes only a Planner-added field absent from explicit caller scope. Every route repeats retrieval, RRF, authorization, reranking, and Root restoration. The Mac exact-term route uses the real Milvus BM25 Provider; offline evaluation deliberately remains on Hashing Lexical for deterministic zero-cost scores. Neither code nor documentation treats the two modes as interchangeable.
 
 Answer Verification requires every factual paragraph to bind citations. A cited Root must come from the current authorized context, each Leaf must belong to that Root, and every quote must be a real contiguous substring of Root clean text, while all QueryPlan requirements must be covered. Structural or coverage errors get at most one Repair using exactly the same evidence and are then fully revalidated. Evidence conflicts are not hidden by rewriting and instead cause immediate Abstain. Only verified answers produce domain Citations carrying document, Root and Leaf IDs, page or section, quote, and score; every other result returns a bounded abstention with no citations or leaked provider error.
 

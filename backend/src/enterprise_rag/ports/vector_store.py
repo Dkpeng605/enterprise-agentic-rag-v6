@@ -9,6 +9,7 @@ from uuid import UUID
 
 from enterprise_rag.domain.common import freeze_mapping, require_non_empty, require_uuid7
 from enterprise_rag.ports.provider import Provider
+from enterprise_rag.ports.sparse import SparseMode
 
 
 def _validate_dense(vector: Sequence[float], *, dimension: int | None = None) -> None:
@@ -29,8 +30,10 @@ def _validate_sparse(vector: Mapping[int, float]) -> None:
 class IndexSchema:
     revision: str
     dimension: int
+    sparse_mode: SparseMode = SparseMode.PRECOMPUTED
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "sparse_mode", SparseMode(self.sparse_mode))
         require_non_empty(self.revision, "revision")
         if self.dimension <= 1:
             raise ValueError("dimension must be greater than one")
@@ -47,8 +50,9 @@ class VectorRecord:
     version_id: UUID
     status: str
     dense_vector: tuple[float, ...]
-    sparse_vector: Mapping[int, float]
+    sparse_vector: Mapping[int, float] | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
+    retrieval_text: str | None = None
 
     def __post_init__(self) -> None:
         require_non_empty(self.index_revision, "index_revision")
@@ -59,8 +63,15 @@ class VectorRecord:
         if self.status not in {"processing", "ready", "deleting"}:
             raise ValueError("vector status is invalid")
         _validate_dense(self.dense_vector)
-        _validate_sparse(self.sparse_vector)
-        object.__setattr__(self, "sparse_vector", MappingProxyType(dict(self.sparse_vector)))
+        if (self.sparse_vector is None) == (self.retrieval_text is None):
+            raise ValueError("vector record requires exactly one sparse representation")
+        if self.sparse_vector is not None:
+            _validate_sparse(self.sparse_vector)
+            object.__setattr__(
+                self, "sparse_vector", MappingProxyType(dict(self.sparse_vector))
+            )
+        else:
+            require_non_empty(self.retrieval_text or "", "retrieval_text")
         object.__setattr__(self, "metadata", freeze_mapping(self.metadata))
 
 
@@ -91,10 +102,11 @@ class DenseSearchRequest:
 class SparseSearchRequest:
     index_revision: str
     tenant_id: UUID
-    vector: Mapping[int, float]
+    vector: Mapping[int, float] | None
     top_k: int
     collection_ids: tuple[UUID, ...] = ()
     document_ids: tuple[UUID, ...] = ()
+    query_text: str | None = None
 
     def __post_init__(self) -> None:
         require_non_empty(self.index_revision, "index_revision")
@@ -105,10 +117,15 @@ class SparseSearchRequest:
         ):
             for value in values:
                 require_uuid7(value, field_name)
-        _validate_sparse(self.vector)
+        if (self.vector is None) == (self.query_text is None):
+            raise ValueError("sparse search requires exactly one sparse representation")
+        if self.vector is not None:
+            _validate_sparse(self.vector)
+            object.__setattr__(self, "vector", MappingProxyType(dict(self.vector)))
+        else:
+            require_non_empty(self.query_text or "", "query_text")
         if not 1 <= self.top_k <= 50:
             raise ValueError("top_k must be between 1 and 50")
-        object.__setattr__(self, "vector", MappingProxyType(dict(self.vector)))
 
 
 @dataclass(frozen=True, slots=True)
