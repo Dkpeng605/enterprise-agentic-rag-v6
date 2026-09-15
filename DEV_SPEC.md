@@ -1699,7 +1699,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 | M7 | Vue3/TypeScript 公共端与管理端 | 8 | 完成 |
 | M8 | 2GB VPS 首次公网发布 | 6 | 进行中 |
 | M9 | 企业扩展与二次发布 | 6 | 未开始 |
-| 合计 | 完整 v6.1.0 交付 | 64 | 55/64 完成 |
+| 合计 | 完整 v6.1.0 交付 | 64 | 56/64 完成 |
 
 ### M1：规格与工程基座
 
@@ -3277,10 +3277,21 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   ObjectStore、Root/Leaf、Trace 或 Milvus revision；Compose 回滚只切换 immutable image tag，不在主机上删除持久卷；
 - PR：组合根已在 PR #93 中完成并 squash merge；Compose/Caddy 本 Slice 待独立 PR，必须先创建 PR、required checks 全绿后再 squash merge。
 
-#### M8-03 GHCR
+#### M8-03 GHCR（已完成）
 
-- main 构建 immutable image；
-- 验收：commit SHA 可拉取并含版本信息。
+- workflow：`.github/workflows/images.yml` 只响应 `main` push，授予 `contents: read` 与 `packages: write`，规范化
+  GHCR namespace 后登录 `ghcr.io`，对 backend/frontend 分别以 `linux/amd64` 构建并推送；tag 只使用 `${GITHUB_SHA}`，
+  不生成 `latest` 或其他可漂移 tag；缓存只使用 GitHub Actions cache，不把 secret 写入镜像层；
+- 镜像身份：两张 Dockerfile 接受 `VCS_REF`/`IMAGE_VERSION` build args，并写入 OCI revision/version/source label；
+  workflow 同时显式传入 commit revision。部署清单必须使用同一 commit 的完整 backend/frontend 引用，rollback 通过切换
+  immutable SHA tag，不在 registry 覆盖历史 tag；
+- EDD 验收：workflow 契约测试证明触发分支、GHCR 登录、`linux/amd64`、两次 build/push、commit tag 和无 `latest`；
+  image contract 测试证明两张 runtime image 具有 revision/version label。合并前继续通过 backend Ruff、strict Mypy、
+  全量 Pytest、前端测试/typecheck/build、OpenAPI drift、quality gate 和 Browser E2E；真实 GHCR 拉取在 main push
+  后由 Actions 完成；
+- 回滚：删除或停用 workflow 不影响已有镜像；部署只切换 `BACKEND_IMAGE`/`FRONTEND_IMAGE` 到上一个已验证 SHA，不删除
+  PostgreSQL、ObjectStore、Root/Leaf、Trace、Milvus 或 registry 历史镜像；
+- PR：本 Slice 待独立 PR，必须先创建 PR、required checks 全绿后再 squash merge。
 
 #### M8-04 Deploy/Rollback
 

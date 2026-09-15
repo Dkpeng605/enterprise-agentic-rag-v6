@@ -371,6 +371,23 @@ docker compose --env-file infra/production/.env.production \
   -f infra/production/compose.yml down
 ```
 
+### M8-03 GHCR immutable images
+
+`.github/workflows/images.yml` runs only for pushes to `main`, uses `GITHUB_TOKEN` to publish both `linux/amd64` images to
+GHCR, and creates only a `${commit_sha}` tag—never a drifting `latest` tag. The Dockerfiles also set
+`org.opencontainers.image.revision`, `org.opencontainers.image.version`, and `org.opencontainers.image.source`, so a deployment
+manifest can be audited and rolled back by exact commit:
+
+```bash
+docker pull ghcr.io/<owner>/enterprise-agentic-rag-backend:<commit-sha>
+docker pull ghcr.io/<owner>/enterprise-agentic-rag-frontend:<commit-sha>
+docker image inspect ghcr.io/<owner>/enterprise-agentic-rag-backend:<commit-sha> \
+  --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
+```
+
+Compose `BACKEND_IMAGE`/`FRONTEND_IMAGE` should use the complete references for the same commit. GHCR publication alone does
+not mean SSH deployment or public acceptance has completed.
+
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
 To stop PostgreSQL only:
 
@@ -673,7 +690,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M8-01 production images: complete
 - Production API composition root (M8-02 prerequisite): complete
 - M8-02 production Compose/Caddy: complete (not publicly released)
-- Next: M8-03 GHCR immutable images
+- M8-03 GHCR immutable images: complete
+- Next: M8-04 Deploy/Rollback
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 

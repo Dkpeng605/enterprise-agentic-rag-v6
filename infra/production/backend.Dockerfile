@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
+ARG VCS_REF=unknown
+ARG IMAGE_VERSION=0.1.0
+
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS build
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
@@ -14,6 +17,13 @@ COPY README.md /build/backend/README.md
 RUN uv sync --project /build/backend --frozen --no-dev
 
 FROM python:3.12-slim-bookworm
+
+ARG VCS_REF
+ARG IMAGE_VERSION
+LABEL org.opencontainers.image.title="enterprise-agentic-rag-backend" \
+      org.opencontainers.image.version="$IMAGE_VERSION" \
+      org.opencontainers.image.revision="$VCS_REF" \
+      org.opencontainers.image.source="https://github.com/Dkpeng605/enterprise-agentic-rag-v6"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
