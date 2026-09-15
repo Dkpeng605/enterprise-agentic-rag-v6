@@ -164,6 +164,7 @@ from enterprise_rag.services.standard_graph import (
     StandardQueryResult,
 )
 from enterprise_rag.services.traces import TraceService, build_persistent_tracing
+from enterprise_rag.services.worker import IngestionWorker
 from enterprise_rag.services.workspace import JobListItem, JobPage, WorkspaceService
 
 __all__ = [
@@ -216,6 +217,7 @@ __all__ = [
     "HealthService",
     "HealthStatus",
     "IngestionPipeline",
+    "IngestionWorker",
     "IngestionTraceBatch",
     "IngestionTraceStage",
     "IngestionTraceView",

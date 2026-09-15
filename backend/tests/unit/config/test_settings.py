@@ -248,13 +248,51 @@ def test_nested_environment_can_override_numeric_setting() -> None:
 
 def test_cost_guard_defaults_and_nested_token_budget_override() -> None:
     settings = load_settings(
-        environ={"ENTERPRISE_RAG__SECURITY__ANONYMOUS_DAILY_INPUT_TOKENS": "123456"}
+        environ={
+            "ENTERPRISE_RAG__SECURITY__ANONYMOUS_DAILY_INPUT_TOKENS": "123456",
+            "ENTERPRISE_RAG__COST_GUARD__ANSWER_MAX_OUTPUT_TOKENS": "7000",
+        }
     )
 
     assert settings.cost_guard.query_timeout_seconds == 90
     assert settings.cost_guard.provider_max_retries == 2
+    assert settings.cost_guard.answer_max_output_tokens == 7000
     assert settings.cost_guard.deep_reserved_llm_calls == 18
     assert settings.security.anonymous_daily_input_tokens == 123_456
+
+
+def test_worker_defaults_and_environment_overrides_are_bounded() -> None:
+    settings = load_settings(
+        environ={
+            "WORKER_POLL_INTERVAL_SECONDS": "0.25",
+            "WORKER_RECOVERY_INTERVAL_SECONDS": "12",
+            "WORKER_RECOVERY_LIMIT": "25",
+            "WORKER_LEASE_SECONDS": "180",
+        }
+    )
+
+    assert settings.worker.poll_interval_seconds == 0.25
+    assert settings.worker.recovery_interval_seconds == 12
+    assert settings.worker.recovery_limit == 25
+    assert settings.worker.lease_seconds == 180
+
+
+@pytest.mark.parametrize(
+    "worker_config",
+    [
+        {"poll_interval_seconds": 0},
+        {"recovery_interval_seconds": 3_601},
+        {"recovery_limit": 0},
+        {"lease_seconds": 0},
+    ],
+)
+def test_worker_configuration_rejects_unbounded_values(
+    worker_config: dict[str, object],
+) -> None:
+    with pytest.raises(SettingsError) as raised:
+        load_settings(environ={}, overrides={"worker": worker_config})
+
+    assert raised.value.code is SettingsErrorCode.CONFIG_VALUE_INVALID
 
 
 @pytest.mark.parametrize(
@@ -264,6 +302,8 @@ def test_cost_guard_defaults_and_nested_token_budget_override() -> None:
         {"provider_timeout_seconds": 301},
         {"provider_max_retries": 11},
         {"provider_retry_backoff_seconds": -1},
+        {"answer_max_output_tokens": 0},
+        {"answer_max_output_tokens": 12_001},
         {"standard_reserved_llm_calls": 0},
     ],
 )

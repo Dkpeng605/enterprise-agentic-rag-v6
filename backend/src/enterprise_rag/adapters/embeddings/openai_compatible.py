@@ -67,6 +67,7 @@ class OpenAICompatibleEmbedding:
         self._client = client or httpx.AsyncClient()
         self._owns_client = client is None
         self._sleeper = sleeper
+        self._health = ProviderHealth.UNKNOWN
         self._closed = False
 
     @property
@@ -95,7 +96,7 @@ class OpenAICompatibleEmbedding:
                 {"documents", "query", "normalized", "retry", "batch", "estimated_tokens"}
             ),
             is_remote=True,
-            health=ProviderHealth.UNAVAILABLE if self._closed else ProviderHealth.UNKNOWN,
+            health=ProviderHealth.UNAVAILABLE if self._closed else self._health,
         )
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
@@ -133,6 +134,7 @@ class OpenAICompatibleEmbedding:
                 )
             except httpx.TransportError as error:
                 if attempt >= self._max_retries:
+                    self._health = ProviderHealth.UNAVAILABLE
                     raise EmbeddingError(
                         ErrorCode.EMBEDDING_UNAVAILABLE,
                         "The remote embedding Provider is unavailable.",
@@ -143,18 +145,26 @@ class OpenAICompatibleEmbedding:
                 if attempt < self._max_retries:
                     await self._sleeper(0.25 * (2**attempt))
                     continue
+                self._health = ProviderHealth.UNAVAILABLE
                 raise EmbeddingError(
                     ErrorCode.EMBEDDING_UNAVAILABLE,
                     "The remote embedding Provider exhausted bounded retries.",
                     {"status_code": response.status_code},
                 )
             if response.status_code >= 400:
+                self._health = ProviderHealth.UNAVAILABLE
                 raise EmbeddingError(
                     ErrorCode.EMBEDDING_UNAVAILABLE,
                     "The remote embedding Provider rejected the request.",
                     {"status_code": response.status_code},
                 )
-            return self._parse_response(response, len(texts))
+            try:
+                result = self._parse_response(response, len(texts))
+            except EmbeddingError:
+                self._health = ProviderHealth.DEGRADED
+                raise
+            self._health = ProviderHealth.HEALTHY
+            return result
         raise AssertionError("retry loop did not terminate")
 
     def _parse_response(self, response: httpx.Response, expected_count: int) -> list[list[float]]:

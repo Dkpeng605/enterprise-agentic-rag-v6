@@ -140,6 +140,41 @@ async def test_structured_answer_is_verified_and_invalid_first_draft_is_repaired
     assert authored.llm_calls == 2
     assert author.repair_usage.llm_calls == 2
     assert len(author.model_requests) == 2
+    assert "chain of thought" in author.model_requests[0].system_prompt
+    assert "at most 4 short paragraphs" in author.model_requests[0].system_prompt
+
+
+@pytest.mark.anyio
+async def test_answer_author_receives_selected_leaf_evidence_not_full_root() -> None:
+    valid = {
+        "paragraphs": [{"text": "有效期限为三年。[1]", "citation_ids": [1]}],
+        "citations": [
+            {"id": 1, "root_id": ROOT_ID, "leaf_ids": [LEAF_ID], "quote": "有效期限为三年"}
+        ],
+        "covered_requirements": ["定义", "期限"],
+    }
+    selected_root = RootContext(
+        ROOT_ID,
+        DOCUMENT_ID,
+        VERSION_ID,
+        "policy.pdf",
+        "Policy",
+        "Acme",
+        "application/pdf",
+        {"page": 2},
+        "完整 Root 原文，不应重复发送给 Answer Author。",
+        (LEAF_ID,),
+        0.9,
+        False,
+        "有效期限为三年",
+    )
+    model = ScriptedLanguageModel([json.dumps(valid, ensure_ascii=False)])
+    author = LanguageModelAnswerAuthor(model)
+
+    await author.draft(plan=plan(), roots=(selected_root,))
+
+    assert "有效期限为三年" in author.model_requests[0].user_prompt
+    assert "完整 Root 原文" not in author.model_requests[0].user_prompt
 
 
 @pytest.mark.anyio

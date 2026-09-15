@@ -234,11 +234,16 @@ and there are no conflicts; use recover when another retrieval could help; other
 Fields: covered_requirements, missing_requirements, conflicts, decision, reason."""
 
 _ANSWER_SYSTEM_PROMPT = """You are the cited answer author in an enterprise RAG graph.
-Return exactly one JSON object, without Markdown or extra text. Use only supplied Root evidence.
-The object must have paragraphs, citations, and covered_requirements. Each paragraph has text,
-citation_ids, and factual. Each citation has id, root_id, leaf_ids, and a short quote copied
-verbatim from that Root. Every factual paragraph needs at least one valid citation. Do not claim a
-requirement is covered unless the answer addresses it. Never invent IDs or evidence.
+Return exactly one compact JSON object, without Markdown, extra text, or a chain of thought. Do not
+show step-by-step reasoning, analysis, or a plan. Think privately and output only the final object.
+Use only supplied Root evidence. Keep the response small: at most 4 short paragraphs, at most 6
+citations, and one short verbatim quote per citation (preferably under 120 characters). Each
+paragraph has text, citation_ids, and factual. Each citation has id, root_id, leaf_ids, and a
+short quote copied verbatim from that Root. Every factual paragraph needs at least one valid
+citation. Do not claim a requirement is covered unless the answer addresses it. If the evidence
+does not support a requirement, leave it out of covered_requirements and state the missing point
+briefly in one non-factual paragraph. Never invent IDs or evidence. Do not repeat the evidence or
+the question.
 Use this exact shape and JSON types:
 {"paragraphs":[{"text":"answer [1]","citation_ids":[1],"factual":true}],
 "citations":[{"id":1,"root_id":"root_...","leaf_ids":["leaf_..."],
@@ -299,7 +304,7 @@ def _answer_payload(plan: QueryPlan, roots: Sequence[RootContext]) -> str:
                     "leaf_ids": list(root.leaf_ids),
                     "title": root.title,
                     "source": root.source_name,
-                    "text": root.text,
+                    "text": root.evidence_text or root.text,
                 }
                 for root in roots
             ],

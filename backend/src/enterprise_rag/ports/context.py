@@ -51,6 +51,7 @@ class StoredLeafEvidence:
     document_id: UUID
     version_id: UUID
     retrieval_text: str
+    text: str | None = None
 
     def __post_init__(self) -> None:
         if not self.leaf_id.startswith("leaf_") or not self.root_id.startswith("root_"):
@@ -58,6 +59,8 @@ class StoredLeafEvidence:
         require_uuid7(self.document_id, "document_id")
         require_uuid7(self.version_id, "version_id")
         require_non_empty(self.retrieval_text, "retrieval_text")
+        if self.text is not None:
+            require_non_empty(self.text, "text")
 
 
 @dataclass(frozen=True, slots=True)

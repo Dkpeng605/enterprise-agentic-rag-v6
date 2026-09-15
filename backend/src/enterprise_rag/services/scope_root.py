@@ -31,6 +31,7 @@ class RootContext:
     leaf_ids: tuple[str, ...]
     score: float
     truncated: bool
+    evidence_text: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_locator", MappingProxyType(dict(self.source_locator)))
@@ -82,6 +83,11 @@ class ScopeRootService:
         if any(not hit.selected for hit in selected_hits):
             raise ValueError("Root recovery accepts only selected hits")
         unique_root_ids = tuple(dict.fromkeys(hit.root_id for hit in selected_hits))
+        selected_leaf_ids = tuple(dict.fromkeys(hit.leaf_id for hit in selected_hits))
+        stored_leaves = await self._repository.load_leaves(scope, selected_leaf_ids)
+        leaf_text_by_id = {
+            item.leaf_id: item.text or item.retrieval_text for item in stored_leaves
+        }
         stored = await self._repository.load_roots(scope, unique_root_ids)
         by_id = {item.root_id: item for item in stored}
         leaf_ids: dict[str, list[str]] = {}
@@ -101,10 +107,18 @@ class ScopeRootService:
             remaining = self._max_parent_chars - used_chars
             if remaining <= 0:
                 break
-            text = root.text[:remaining]
-            truncated = len(text) < len(root.text)
+            # Keep the complete clean Root for deterministic citation verification.  The
+            # parent-character budget is a recovery/context accounting limit; it must not
+            # turn a valid quote from a later Leaf into a false ``quote_not_found`` result.
+            text = root.text
+            truncated = len(root.text) > remaining
             if truncated:
                 truncated_count += 1
+            evidence_text = "\n\n".join(
+                leaf_text_by_id[leaf_id]
+                for leaf_id in leaf_ids[root_id]
+                if leaf_id in leaf_text_by_id
+            ) or None
             roots.append(
                 RootContext(
                     root.root_id,
@@ -119,9 +133,10 @@ class ScopeRootService:
                     tuple(leaf_ids[root_id]),
                     scores[root_id],
                     truncated,
+                    evidence_text,
                 )
             )
-            used_chars += len(text)
+            used_chars += min(len(root.text), remaining)
         return RecoveredContext(
             tuple(roots),
             used_chars,

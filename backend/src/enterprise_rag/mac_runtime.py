@@ -1,9 +1,7 @@
 """Real-provider, single-process composition root for a local macOS demo."""
 
 import asyncio
-import hashlib
-import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import cast
 
 from fastapi import FastAPI
@@ -43,6 +41,7 @@ from enterprise_rag.services import (
     DualSearchService,
     ImageEnricher,
     IngestionPipeline,
+    IngestionWorker,
     KnowledgeApplication,
     ManualLlmCleaningService,
     McpApplicationService,
@@ -53,6 +52,7 @@ from enterprise_rag.services import (
     SemanticQueryRunner,
     build_persistent_tracing,
 )
+from enterprise_rag.services.index_revision import index_revision
 from enterprise_rag.services.provider_catalog import (
     SILICONFLOW_BASE_URL,
     SILICONFLOW_EMBEDDING_MODEL,
@@ -65,7 +65,6 @@ from enterprise_rag.services.provider_catalog import (
 from enterprise_rag.services.vision_provider import build_vision_provider
 from enterprise_rag.services.workspace import WorkspaceService
 
-LOGGER = logging.getLogger(__name__)
 DEFAULT_RERANKER_MODEL = "jinaai/jina-reranker-v2-base-multilingual"
 
 
@@ -273,7 +272,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         vector_store=vector_store,
         temporary_root=runtime_root.parent / "ingestion-temporary",
         index_revision=index_revision,
-        lease_for=timedelta(minutes=2),
+        lease_for=timedelta(seconds=active.worker.lease_seconds),
         retry_delay=timedelta(seconds=1),
         tracer_provider=tracer_provider,
         trace_recorder=trace_service,
@@ -294,6 +293,7 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         selected_leaf_k=retrieval.selected_leaf_k,
         rrf_k=retrieval.rrf_k,
         max_parent_chars=retrieval.max_parent_chars,
+        max_output_tokens=active.cost_guard.answer_max_output_tokens,
         planner=query_planner,
     )
     manual_llm_cleaning = ManualLlmCleaningService(
@@ -398,30 +398,24 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         http_mounted_endpoint=f"{mcp_base_url}/mcp",
     )
 
+    async def recover_expired(now: datetime, limit: int) -> int:
+        async with database.session() as session:
+            retry_count, failed_count = await IngestionJobRepository(session).recover_expired(
+                now=now, limit=limit
+            )
+        return retry_count + failed_count
+
+    ingestion_worker = IngestionWorker(
+        pipeline,
+        recover_expired,
+        owner="mac-local-worker",
+        poll_interval_seconds=active.worker.poll_interval_seconds,
+        recovery_interval_seconds=active.worker.recovery_interval_seconds,
+        recovery_limit=active.worker.recovery_limit,
+    )
+
     async def worker() -> None:
-        loop = asyncio.get_running_loop()
-        next_recovery = 0.0
-        while True:
-            try:
-                now = loop.time()
-                if now >= next_recovery:
-                    async with database.session() as session:
-                        await IngestionJobRepository(session).recover_expired(
-                            now=datetime.now(UTC), limit=10
-                        )
-                    next_recovery = now + 5.0
-                result = await pipeline.run_once(owner="mac-local-worker")
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                LOGGER.exception(
-                    "rag.mac_worker.poll_failed",
-                    extra={"event_code": "MAC_WORKER_POLL_FAILED", "outcome": "error"},
-                )
-                await asyncio.sleep(1)
-                continue
-            if result is None:
-                await asyncio.sleep(0.2)
+        await ingestion_worker.run_forever(asyncio.Event())
 
     async def close_tracer() -> None:
         await asyncio.to_thread(tracer_provider.shutdown)
@@ -457,9 +451,12 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
 def _index_revision(
     embedding_model: str, *, sparse_provider: str, sparse_version: str
 ) -> str:
-    contract = f"{embedding_model}\0{sparse_provider}\0{sparse_version}"
-    digest = hashlib.sha256(contract.encode("utf-8")).hexdigest()[:12]
-    return f"mac-semantic-{digest}"
+    return index_revision(
+        embedding_model,
+        sparse_provider=sparse_provider,
+        sparse_version=sparse_version,
+        prefix="mac-semantic",
+    )
 
 
 settings = load_settings()

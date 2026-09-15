@@ -186,11 +186,23 @@ Mac QueryRunner 会先调用同一个受 timeout/retry 保护的 OpenAI-compatib
 QueryPlan：把依赖会话的问题改写为独立检索问题，并按复杂度生成 1～4 条不重复子查询；简单事实问题保留
 1 条精确子查询，比较、多条件和多跳问题才拆成多条，不能为了展示而无意义扩增。后端继续严格校验字段、
 数量、UUID 与 Scope；坏 JSON、越权 Scope 或 Provider 故障会整体降级为确定性改写/拆分。
+由于 `requirements` 会直接驱动回答核验，简单单段 factual 问题的最终 requirement 固定为用户原问题；模型仍负责
+改写和子查询，但不能凭空追加“如有区分还要比较导入/导出”等条件，避免明明有证据却被回答核验误判为缺项。
 完成问答后到“Query Trace”可查看本次改写、子查询、Planner Provider/降级、Planner token、每个分支的
 Dense/Sparse 返回量、交集、RRF 去重与淘汰、权限过滤、Rerank、Root 恢复、Deep 证据评估/恢复轮次、
 回答生成、引用核验/修复及各自 token。Planner、Assessor、回答与 Repair 调用都会计入查询 usage；即使
 没有召回结果，已发生的 Planner 调用仍会如实计费。这里的运行计数
 不是 Recall@K；带 gold 的质量指标只在“评测中心”计算。
+
+本机真实 LLM smoke 还会区分“模型请求失败”和“结构化回答未通过校验”。回答 Author 允许一次 schema
+regeneration，结构有效但引用或 requirement 校验失败时再允许一次 Repair；Root 恢复仍保留完整 clean text
+用于确定性核验，但发给 Answer/Assessor 的上下文只包含本轮已授权、已重排 Leaf 的原文片段，避免把整篇
+长文档重复送入 reasoning 模型。Answer Author 的系统契约还明确禁止输出 chain-of-thought，限制为最多 4 个短段落、
+6 条引用和短 quote；证据不足时只简洁标明缺口。所有尝试都使用同一授权 Root，失败返回安全拒答而不透传模型自由文本。
+若 TokenHub/MiniMax-M3 的回答含较长 `<think>` 推理，优先在
+`config/macos.example.yaml` 或 `.env` 的 `ENTERPRISE_RAG__COST_GUARD__ANSWER_MAX_OUTPUT_TOKENS`
+中调整本机输出上限，并观察 Trace 的 `answer_generation` usage；不要通过关闭 `response_format`、删除
+Citation Verify 或把 answer error 标成 answered 来掩盖问题。
 
 若旧版本曾让测试库与应用共用，先停止后端，再做只读检查；确认后才应用删除。命令按
 `tenant/version/index_revision` 对 PostgreSQL 事实和 Milvus 投影进行对账。新写入投影会携带 revision 标记，
@@ -207,6 +219,18 @@ Milvus Lite 只允许单进程打开；运行以上命令时后端必须处于�
 存在的投影会报告 `unknown_vector_revision` 并保持不变；这是有意的安全策略，不能仅凭 collection 或当前
 Provider 猜测归属。带有 revision 标记的 stale projection 会报告 `orphan_vector`，`--apply` 只删除该
 tenant/version/revision。
+
+### 本机单进程 Worker 与生产 Worker 范围
+
+当前本机入口由 `mac_runtime` 在同一个 FastAPI 进程内启动轮询 Worker，复用真实 Loader、Cleaner、Splitter、
+Embedding、Sparse、Vision、Projection、Milvus 和持久化 Trace；上传后的任务会通过 PostgreSQL lease、heartbeat、
+过期恢复和最大重试完成摄取。启动本机服务只需要执行上面的 `./scripts/mac-backend.sh`，不要额外启动第二个
+进程打开同一个 Milvus Lite `vectors.db`。
+
+独立生产 Worker 暂缓，不属于本次本机验收，也不宣称已经完成公网多副本部署。当前 Milvus Lite `.db` 只支持
+单进程打开；未来 M8 必须先接入支持跨进程访问的 Milvus Adapter/Standalone Milvus，或用受保护的 Projection RPC
+让唯一持有 Lite 的进程执行投影，之后才能恢复独立 Worker、镜像、Compose 和服务器部署工作。Worker 专用实现若
+在工作树中存在，只作为未提交的实验代码保留，不是当前仓库启动契约。
 
 停止后端/前端用 `Ctrl+C`；保留 PostgreSQL 和模型缓存便于下次启动。只停止 PostgreSQL：
 
@@ -563,7 +587,7 @@ staging/activation 的真实 VectorStore 批次；失败任务只展示稳定错
 Dataset、Mode、Case 集、Index、Prompt 与 Provider 快照完整且一致的成功 Run 才计算 Candidate −
 Base，否则页面展示后端返回的具体不可比较原因。报告可导出 JSON 或 Markdown。
 
-Cost Guard 在 QueryRunner 进入任何 Provider 逻辑前，通过 PostgreSQL 条件 UPSERT 原子预留分钟 Query 名额和最坏调用/token 额度。分钟限额按匿名 session 隔离，UTC 日额度由所有匿名 session 共享；Standard/Deep 使用不同权重。成功后按可信 usage 退回未使用额度，异常或无法验证的 usage 保守扣除预留，429 同时返回 `Retry-After`。LLM 装饰器提供可配置单次超时、仅瞬时错误的有界重试和 retry count。新增数据库表需要先执行 README 上方的 `alembic upgrade head`。
+Cost Guard 在 QueryRunner 进入任何 Provider 逻辑前，通过 PostgreSQL 条件 UPSERT 原子预留分钟 Query 名额和最坏调用/token 额度。分钟限额按匿名 session 隔离，UTC 日额度由所有匿名 session 共享；Standard/Deep 使用不同权重。成功后按可信 usage 退回未使用额度，异常或无法验证的 usage 保守扣除预留，429 同时返回 `Retry-After`。LLM 装饰器提供可配置单次超时、仅瞬时错误的有界重试和 retry count；`cost_guard.answer_max_output_tokens` 单独控制回答 Author/Schema regeneration/Repair 每次请求的 `max_tokens`。MiniMax-M3 等 reasoning 模型会把隐藏推理计入 completion，因此 macOS 示例默认为 6000，避免结构化 JSON 在回答前被截断；这不会绕过 Citation Verify 或增加证据范围。新增数据库表需要先执行 README 上方的 `alembic upgrade head`。
 
 `KnowledgeApplication` 现已成为 HTTP、MCP 与后续 CLI 的唯一查询用例入口，统一负责服务端身份绑定、Query ID、同步执行和 SSE 流。stdio Adapter 基于官方 MCP SDK v2 暴露 6 个只读 Tool，以及 collection/document/section Resource；所有身份均由进程端绑定。Tool 同时返回人类可读内容和结构化结果，错误经过净化。入口强制 stdout 只承载 JSON-RPC，并由真实 SDK 客户端子进程测试覆盖 list/call/read 与缓冲输出隔离。
 
@@ -707,9 +731,9 @@ Reranker 端口提供本地 FastEmbed CrossEncoder、HTTP 和显式 Noop 三种�
   tests/contract/test_reranker_providers.py -m model)
 ```
 
-Scope/Root 服务把服务端授权边界与用户的 metadata 条件解析为 PostgreSQL 中当前明确的 ready document ID 集合。匿名用户仍拥有 demo tenant 全部业务权限，但不能通过请求覆盖 tenant；受限身份按获准 Collection/Document 取并集。title、organization、media type、active version UUID 和 section 均在事实源中校验，显式矛盾返回不泄露资源存在性的 `QUERY_SCOPE_CONFLICT`。召回 Leaf 在进入 Reranker 前、selected Root 在进入上下文前都会再次联表检查 tenant、active collection、ready document 和 indexed active version，因此旧向量、删除中或未授权内容会被丢弃。恢复内容默认严格限制为 18,000 字符，同 Root 合并 Leaf 引用并记录确定性截断。
+Scope/Root 服务把服务端授权边界与用户的 metadata 条件解析为 PostgreSQL 中当前明确的 ready document ID 集合。匿名用户仍拥有 demo tenant 全部业务权限，但不能通过请求覆盖 tenant；受限身份按获准 Collection/Document 取并集。title、organization、media type、active version UUID 和 section 均在事实源中校验，显式矛盾返回不泄露资源存在性的 `QUERY_SCOPE_CONFLICT`。召回 Leaf 在进入 Reranker 前、selected Root 在进入上下文前都会再次联表检查 tenant、active collection、ready document 和 indexed active version，因此旧向量、删除中或未授权内容会被丢弃。Root 恢复的 18,000 字符上限用于上下文预算计量并记录确定性截断；`RootContext` 仍保留完整 clean text 用于 citation quote 核验，Answer/Assessor 只接收本轮授权且被选中的 Leaf 原文片段，避免把合法的后半段 quote 误判为不存在。
 
-Query Planning Service 将结构化 Planner 输出视为不可信输入，严格校验字段、intent、子查询/需求数量、UUID 和 Scope 收窄关系。模型不能改变 Standard/Deep mode，不能凭空加入 Collection/Document ID，也不能覆盖调用方显式 metadata。Mac 组合通过当前 OpenAI-compatible LLM 执行查询改写与 1～4 路分解，并独立记录 Planner token/call；任何坏响应或 Provider 故障都会整体降级为确定性计划：保留原 Scope，识别中英文比较、流程和总结意图，拆分多条件，并使用最近一条 user 历史补足指代。Planner 的供应商异常不会进入 QueryPlan。
+Query Planning Service 将结构化 Planner 输出视为不可信输入，严格校验字段、intent、子查询/需求数量、UUID 和 Scope 收窄关系。模型不能改变 Standard/Deep mode，不能凭空加入 Collection/Document ID，也不能覆盖调用方显式 metadata。Mac 组合通过当前 OpenAI-compatible LLM 执行查询改写与 1～4 路分解，并独立记录 Planner token/call；简单、单段 factual 问题的 requirement 会确定性收敛为用户原问题，防止模型添加未提问的条件导致错误拒答；比较、多条件、流程和总结问题保留结构化 requirements。任何坏响应或 Provider 故障都会整体降级为确定性计划：保留原 Scope，识别中英文比较、流程和总结意图，拆分多条件，并使用最近一条 user 历史补足指代。Planner 的供应商异常不会进入 QueryPlan。
 
 Standard Query Graph 使用显式状态机串联 Plan → Search → RRF → PostgreSQL Authorize → Rerank → Root Recover → Answer。每次运行返回真实状态转移；RRF、授权 Leaf 或二次校验 Root 为空都会进入 NoResults 并跳过答案模型。Standard 固定把 Planner 尝试计为第 1 次 LLM 调用、最终答案计为第 2 次并执行硬上限；Planner 降级不触发额外调用。未分类故障进入带净化错误码的 Failed 状态，不把异常文本交给客户端。
 

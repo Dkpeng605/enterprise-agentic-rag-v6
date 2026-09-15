@@ -102,6 +102,36 @@ async def test_valid_structured_plan_is_parsed_and_cannot_override_mode() -> Non
 
 
 @pytest.mark.anyio
+async def test_simple_factual_plan_does_not_add_unasked_requirements() -> None:
+    payload = valid_payload()
+    payload.update(
+        {
+            "rewritten_query": "系统支持哪些文档格式？",
+            "intent": "factual",
+            "sub_queries": ["系统支持哪些文档格式？"],
+            "requirements": ["如有区分，需说明支持导入与导出的格式"],
+            "scope": {
+                "collection_ids": [],
+                "document_ids": [],
+                "titles": [],
+                "organizations": [],
+                "doc_types": [],
+                "versions": [],
+                "sections": [],
+            },
+        }
+    )
+    request = PlannerRequest("系统支持哪些文档格式？", (), QueryScope(), QueryMode.STANDARD)
+
+    outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
+
+    assert outcome.degraded is False
+    assert outcome.plan.rewritten_query == "系统支持哪些文档格式？"
+    assert outcome.plan.sub_queries == ("系统支持哪些文档格式？",)
+    assert outcome.plan.requirements == ("系统支持哪些文档格式？",)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("invalid", ["expanded_scope", "bad_uuid", "unknown_field", "duplicate"])
 async def test_invalid_structured_output_falls_back_without_scope_expansion(invalid: str) -> None:
     payload = valid_payload()

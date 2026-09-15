@@ -245,6 +245,7 @@ async def test_siliconflow_bge_m3_uses_official_embedding_contract_and_declared_
     assert provider.input_token_limit == 8192
     assert provider.tokenizer_name == "estimated-tokenizer:BAAI/bge-m3"
     assert provider.info().name == "siliconflow"
+    assert provider.info().health.value == "healthy"
     assert "estimated_tokens" in provider.info().capabilities
 
 

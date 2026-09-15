@@ -151,6 +151,30 @@ describe('workspace overview browser states', () => {
     expect(wrapper.text()).toContain('42')
   })
 
+  it('distinguishes unprobed remote providers from a degraded provider', async () => {
+    vi.mocked(overviewApi.load).mockResolvedValue({
+      ...snapshot,
+      health: {
+        status: 'degraded',
+        ready: true,
+        checks: [
+          { name: 'llm:openai_compatible', kind: 'provider', required: true, status: 'degraded', latency_ms: 0, code: null },
+        ],
+        providers: [
+          { ...snapshot.health.providers[0]!, health: 'healthy' },
+          { kind: 'llm', name: 'openai_compatible', version: 'MiniMax-M3', capabilities: ['chat'], is_remote: true, health: 'unknown' },
+        ],
+      },
+    })
+    const wrapper = mountOverview()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('服务运行中 · 远程 Provider 待探测')
+    expect(wrapper.get('.degraded-banner').text()).toContain('远程 Provider 尚未探测')
+    expect(wrapper.get('.provider-card--unknown').text()).toContain('待探测')
+    expect(wrapper.text()).not.toContain('服务处于降级态')
+  })
+
   it('surfaces the request id and retries after a load error', async () => {
     vi.mocked(overviewApi.load)
       .mockRejectedValueOnce(new ApiError('upstream timeout', 503, 'UPSTREAM_ERROR', 'request-m7-03'))

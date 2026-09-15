@@ -689,6 +689,7 @@ cost_guard:
   provider_timeout_seconds: 30.0
   provider_max_retries: 2
   provider_retry_backoff_seconds: 0.25
+  answer_max_output_tokens: 6000
   standard_reserved_llm_calls: 6
   standard_reserved_input_tokens: 120000
   standard_reserved_output_tokens: 12000
@@ -886,6 +887,7 @@ Planner 输入问题、模式、授权集合目录和有限历史，输出严格
 - 原始问题不得丢失；
 - 最多 6 个 sub-query；
 - comparison/multi-condition 必须拆 requirements；
+- 简单、单段 factual 问题的最终 requirement 必须确定性使用原始问题本身；Planner 不得追加用户未提问的条件，否则会把可回答问题误判为证据缺失；
 - Scope 只能引用目录中存在且调用方有权访问的值；
 - LLM 返回非法 Scope 时丢弃非法值并记录诊断；
 - Planner 故障时使用原问题、空 Scope、单 sub-query 的确定性计划。
@@ -1903,7 +1905,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - 事实源：Scope 首先解析为 PostgreSQL 当前明确的 document ID 集合，不使用“空 ID 列表代表全部”的歧义约定；解析联表强制 tenant、active collection、ready document、active version 与 indexed version；
 - 二次校验：召回后的每个 Leaf 在进入 Reranker 前重新联表核验上述状态、授权 document 集合、Root/Leaf tenant/document/version 一致性和 section；缺失、身份错配、旧版本、删除中、跨租户及未授权候选只计为 rejected，不进入重排；
 - Root 恢复：只接受 `selected=true` 的重排结果，按结果顺序对 Root 去重，同一 Root 合并有序 Leaf ID，score 取该 Root 最佳 rerank score（无重排时用 fused score）；再次从 PostgreSQL 联表核验后读取 clean text、来源、title、organization、media type 和 locator；
-- 预算：恢复结果严格不超过默认 18,000 字符；按 Root 排名顺序填充，最后一个 Root 可确定性截断并标记 `truncated`，其余超预算或状态失效 Root 计入 rejected；
+- 预算：Root 恢复的上下文预算计量默认不超过 18,000 字符；按 Root 排名顺序填充，最后一个 Root 可确定性标记 `truncated`，其余超预算或状态失效 Root 计入 rejected。内部 `RootContext` 必须保留完整 clean text 供 citation quote 确定性核验，不能用预算截断后的前缀替代事实源；Answer Author/Assessor 只接收当前授权且被重排选中的 Leaf 原文片段；
 - 验收：单元测试覆盖候选顺序、缺失/错配 Leaf、Root 合并、同 Root 最佳分数、稳定截断与未 selected 拒绝；真实 PostgreSQL 覆盖 metadata 全组合、collection 权限、跨 tenant/删除中文档排除、显式冲突、Root 元数据，以及 Scope 解析后文档转 deleting 时的二次拦截。
 
 #### M4-05 QueryPlan
@@ -1912,6 +1914,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 - Provider：可插拔 `QueryPlannerProvider` 返回不可信结构化 mapping，必须精确包含 rewritten_query、intent、sub_queries、requirements、scope、language，禁止未知字段；intent 只接受领域枚举，sub-query 为 1～4 个、requirements 为 0～8 个非空且不重复字符串；
 - Scope：collection/document 必须是 UUID。Planner 只能在调用方已提供的 ID 集合内继续收窄，调用方未提供 ID 时禁止模型凭空加入；调用方显式 metadata 不能被替换，未显式设置的 title、organization、media type、active version UUID 与 section 可由 Planner 提取，最终仍由 M4-04 PostgreSQL 事实源校验；
 - 输出：生成不可变 `QueryPlan`，original query 保持原样、mode 固定沿用请求；Provider 名、是否降级及稳定错误码单独保存在 `PlannerOutcome`，不把供应商异常文本放入计划；
+- Requirement 安全边界：当原问题由确定性意图识别为单段 factual 且只生成一个 sub-query 时，忽略 Provider 追加的 requirement，使用原始问题作为唯一 requirement；comparison、multi-condition、procedural、summary 或多 sub-query 请求保留 Provider requirements，并继续执行数量与非空校验；
 - 降级：Provider 不可用、未知/缺失字段、坏枚举、重复/超量列表、非法 UUID 或 Scope 扩大均整体丢弃模型结果，使用确定性 fallback；fallback 保留调用方 Scope，根据中英文模式识别 factual/comparison/procedural/summary，根据分隔条件生成最多 4 个子查询，并用最近 user 历史为中英文指代补充上下文；
 - 验收：覆盖合法比较计划、Deep mode 不可覆盖、Collection 越权扩张、非法 UUID、未知字段、重复子查询、Provider 安全降级，以及比较 + 多条件 + 指代的确定性结果。
 
@@ -2731,7 +2734,10 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   但与 Deep 共用下面的结构化答案与核验链路；
 - Answer Author Adapter：LLM 必须返回 `paragraphs`、`citations`、`covered_requirements`。每个事实段落显式
   列 citation IDs；每条 citation 列正整数 ID、当前 Root ID、该 Root 的 Leaf IDs，以及从 Root clean text
-  连续复制的非空 quote。JSON 类型、重复项和领域值在进入 Verifier 前校验；首次坏 JSON/schema 可在
+  连续复制的非空 quote。Root recovery 保留完整 clean text 给确定性 Verifier，但 Answer Author 与 Evidence
+  Assessor 的输入只包含当前授权并被 Rerank 选中的 Leaf 原文片段；Leaf ID 仍必须属于完整 Root，quote
+ 仍必须是 Root 正文连续子串。Answer Author 系统约束禁止输出 chain-of-thought，只允许最多 4 个短段落、6 条
+ citation 和短 quote；证据不足时仅简洁说明缺口，不重复问题或证据。JSON 类型、重复项和领域值在进入 Verifier 前校验；首次坏 JSON/schema 可在
   同一证据上执行一次 schema regeneration，仍失败才净化为 `LLM_INVALID_RESPONSE` 并安全拒答；
 - Citation Verify：确定性服务核对 Citation ID 唯一性、Root 属于本次授权上下文、Leaf 属于 Root、quote
   是 Root 正文连续子串、事实段落有有效引用、引用 ID 存在，并覆盖 QueryPlan 全部 requirements。Evidence
@@ -2742,8 +2748,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   核验。第二次失败、Repair 异常或 evidence conflict 都返回 `abstained`、空 citations 和有边界中文说明；
 - Usage/Cost Guard：`QueryExecution.usage` 精确累加 Planner、每轮 Assessor（含 retry）、初次 Answer、
   一次 schema regeneration 和一次 Repair 的 call/input/output token；生成结构异常也从已净化 AppError
-  detail 回收实际 usage。Answer 单次输出上限为 3,000 token，避免 reasoning 模型在最终 JSON 前耗尽旧的
-  1,000 token 上限；Mac 配置使用 `standard_reserved_llm_calls=6`、`deep_reserved_llm_calls=18` 及对应
+  detail 回收实际 usage。`cost_guard.answer_max_output_tokens` 控制 Answer Author、schema regeneration 与
+  Repair 每次发送的 `max_tokens`；默认和 Mac 配置为 6,000，以容纳 MiniMax-M3 的 reasoning completion，
+  同时保留严格 JSON、引用核验和现有匿名预算边界。Mac 配置使用 `standard_reserved_llm_calls=6`、`deep_reserved_llm_calls=18` 及对应
   12k/36k output reservation 覆盖最坏调用数量，无需放宽匿名日限额；
 - Trace/UI：`rag.deep_recovery.assess` 保存 evidence/covered/missing、decision、provider、usage、degraded；
   `rag.deep_recovery.round` 保存 route、Dense-only/Sparse-only/Hybrid、目标、返回、新增与重复；
@@ -3099,6 +3106,40 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - PR：`fix/m7-r12-revision-aware-reconcile`。
 
 ### M8：首次公网发布
+
+#### M8-00 独立摄取 Worker 前置 Slice（暂缓，不属于当前本机验收）
+
+- 状态：`WON'T NOW / 暂缓`；当前优先保证 M7-R1 Mac 单进程 API+Worker 可启动、可上传、可摄取、可查询，M8-01～M8-06 不进入本次本机 PR；
+- 范围边界：本节保留未来生产 Worker 的详细契约，当前不得把工作树中的实验实现、Worker 单测或 console script 当作已合并启动能力，也不得以本机单进程 Worker 宣称公网多副本生产完成；
+- 目标：把 M3 的真实摄取 Pipeline 从 API 组合根中抽出为可独立启动、可优雅停止、可恢复的进程入口，
+  为后续镜像、Compose 和部署提供明确的 Job Worker 边界；不得用静态成功状态或空处理器替代真实 Loader、
+  Cleaner、Splitter、Embedding、Sparse、Projection 和 Trace；
+- 任务协调：Worker 只领取 `type=ingest` 的 queued/retry_wait Job；PostgreSQL `FOR UPDATE SKIP LOCKED`
+  保证多个进程不会领取同一行，`lease_owner`/`lease_until`/heartbeat 绑定所有状态变更，过期 leased/running
+  Job 按 `max_attempts` 回收到 retry_wait 或 failed；每个进程同一时刻只运行一个 Pipeline；轮询、恢复批量、
+  lease 时长和 owner 必须来自已校验配置，不能把不受界的环境变量直接传入数据库；
+- 生命周期：启动时组合真实资源，收到 SIGINT/SIGTERM 后停止继续领取任务，等待当前有界的 Pipeline 返回，再逆序
+  关闭 Tracer、Provider、Milvus、ObjectStore 和 Database；取消必须传播，轮询异常只能记录净化后的结构化事件并
+  继续轮询；无任务时使用可被 stop event 唤醒的有界等待；
+- 未来配置与入口：待恢复 M8 时新增 `enterprise-rag-worker` console script 及
+  `WORKER_POLL_INTERVAL_SECONDS`、`WORKER_RECOVERY_INTERVAL_SECONDS`、`WORKER_RECOVERY_LIMIT`、
+  `WORKER_LEASE_SECONDS`；`config/development.example.yaml`、`config/macos.example.yaml`、`.env.example`、
+  中英文 README 必须同步启动命令、默认值、资源边界和停止方式；不提交 `.env`、密钥、模型权重、对象文件或
+  Milvus `.db`；
+- 关键限制：当前 VectorStore 是 Milvus Lite 单进程 `.db` Adapter。PostgreSQL lease 只解决 Job 领取，不能
+  解决两个进程同时打开同一个 Lite 文件；因此独立 Worker 与 API 不能在当前组合中持续共享同一个
+  `vectors.db`。M7 的 `mac_runtime`/离线 E2E 继续使用单进程 API+Worker；独立 Worker 仅可在 API 停止时做
+  前置验证。本 Slice 不得把“多个 Worker 能协调 Job”描述为“API+Worker 已可多副本生产运行”；
+- M8 后续阻塞项：在 `M8-02 Production Compose/Caddy` 之前，必须新增支持跨进程访问的 Milvus Adapter/Standalone
+  Milvus，或实现受认证保护的 Projection RPC，使唯一持有 Lite 的进程执行投影。该选择需有 ADR、失败/恢复
+  测试、健康检查和备份恢复验证；在此之前禁止为同一个 Lite 文件配置 API+独立 Worker 多进程部署；
+- EDD 验收：Worker 单测覆盖首次过期恢复、恢复间隔、单进程串行执行、轮询异常继续、cooperative stop 和资源
+  关闭幂等；Settings 测试覆盖四个边界变量和非法值；Runtime 测试证明真实 Pipeline composition、生产环境
+  禁止本地 Embedding、owner 生成与二次关闭；后端 Ruff、strict Mypy、全量 Pytest、前端测试/typecheck/build、
+  OpenAPI drift、quality gate 和 Browser E2E 仍是合并前 required checks；
+- 回滚：移除 console script、Worker composition 和新增配置即可恢复 API 内嵌 Worker；不删除 PostgreSQL Job、
+  ObjectStore、Root/Leaf、Trace 或 Milvus 文件；若独立 Worker 已停止，未完成 lease 由现有过期恢复流程处理；
+- PR：待提交，建议分支 `feat/m8-production-worker`；完成后必须先创建 PR，required checks 全绿，再 squash merge。
 
 #### M8-01 Images
 
