@@ -35,6 +35,7 @@ from enterprise_rag.ports.object_store import ObjectStore
 from enterprise_rag.ports.splitter import Splitter
 from enterprise_rag.ports.traces import TraceCompletion, TraceRecorder
 from enterprise_rag.ports.vector_store import VectorStore
+from enterprise_rag.ports.vision import CaptionStatus
 from enterprise_rag.services.images import EnrichedImage, ImageEnricher
 from enterprise_rag.services.projection import ProjectionRequest, ProjectionService
 
@@ -421,6 +422,17 @@ class IngestionPipeline:
                 "images": images,
                 "image_captions": captions,
                 "vision_degraded": result.degraded,
+                "vision_provider": result.vision_provider,
+                "vision_model": result.vision_model,
+                "vision_remote": result.vision_remote,
+                "vision_image_count": len(result.images),
+                "vision_caption_count": result.caption_count,
+                "vision_caption_status_counts": {
+                    status.value: sum(
+                        image.caption_status is status for image in result.images
+                    )
+                    for status in CaptionStatus
+                },
             }
         )
         return replace(root, metadata=metadata)

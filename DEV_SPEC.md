@@ -2977,6 +2977,75 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   revision 定向删除。禁止通过删除 Milvus 文件回滚，也不回滚 PostgreSQL migration（本切片无 schema 变更）。
 - PR：`fix/m7-r10-provider-failure-paths`。
 
+##### M7-R11 真实 OpenAI-compatible Vision Provider 与可视化选择（已完成）
+
+- 目标：关闭 M3-06 只有 `NoopVisionProvider` 的真实能力缺口。Loader 提取的 PDF/DOCX 图片必须先持久化，
+  然后由可插拔 Vision Port 决定是否生成 caption；代码、Provider Registry、Pipeline Inspector 和管理员目录
+  必须能证明实际使用的是 `none` 还是远程 OpenAI-compatible Vision，不能用前端静态节点或“已启用”文案冒充
+  一次真实模型调用。本 Slice 只增加图片描述，不把 caption 当作可靠的表格/图表 OCR 或结构化事实抽取。
+- 输入契约：`VisionProvider.caption(VisionImage)` 只接受已通过领域校验的名称、`image/*` MIME、SHA-256、
+  正尺寸和非空 bytes。远程 Adapter 再执行 MIME 前缀校验和 `max_image_bytes` 上限（默认 10 MiB）；不合格
+  输入在网络调用前以 `VISION_INPUT_INVALID` 失败，details 只包含稳定上限，不包含图片正文、密钥或请求头。
+  base URL 必须去尾斜杠后拼接 `/chat/completions`，API key 只进入 `Authorization: Bearer`，不得进入日志、
+  exception string、Trace、Provider catalog 或前端响应。
+- 多模态请求：请求必须是非流式 Chat Completions，`model` 使用配置模型，`temperature=0`，默认
+  `max_tokens=256`，并发送一个 user message；`messages[0].content` 必须按顺序包含固定 text 指令和
+  `image_url.url=data:<原始 MIME>;base64,<ASCII base64>`。不得把本地对象键、Root 正文、租户 ID 或原始文档
+  文本拼到图片 prompt。响应必须是恰好一个 choice、`message.content` 非空字符串；数组 content、空字符串、
+  缺字段、坏 JSON 和多 choice 均以 `VISION_INVALID_RESPONSE` 拒绝，不尝试从供应商错误正文猜测 caption。
+- 重试和健康：仅对 `httpx.TransportError`、HTTP 429 与 HTTP 5xx 按 `0.25 * 2^attempt` 退避并执行配置范围
+  内的最多 10 次重试；4xx（429 除外）不重试。最终传输/服务失败返回 `VISION_UNAVAILABLE`，状态码可作为
+  稳定 detail；协议或结构解析失败返回 `VISION_INVALID_RESPONSE`。健康从 unknown 转 healthy/unavailable/
+  degraded，关闭后报告 unavailable；`aclose()` 幂等，外部注入的 HTTP client 不由 Adapter 重复关闭。
+- 配置：`ProviderSettings.vision` 允许 `none` 与 `openai_compatible`；`CredentialSettings` 增加
+  `VISION_BASE_URL`、`VISION_API_KEY`、`VISION_MODEL`，环境变量优先级保持 defaults < YAML < env < override。
+  development/test 可继续使用 `none`；production 选择 `openai_compatible` 时三项必须同时存在，缺失列表按
+  稳定字段名返回，禁止把 `LLM_*` 或 `SILICONFLOW_*` 凭证隐式当作 Vision 凭证。未知 Provider 在启动前拒绝。
+- Composition Root：`build_vision_provider()` 只根据已验证设置和 restart-bound `vision_provider` 选择构造
+  Noop 或真实 Adapter；Mac runtime 默认仍为 none，显式配置或管理员保存后重启才启用远程能力。Vision 实例
+  必须注册到同一个 `ProviderRegistry`，ImageEnricher 使用同一实例，关闭顺序由应用生命周期统一管理；不能
+  在 ingestion 方法内部读取环境或自行创建 HTTP client。Vision 切换不改变 Embedding/Sparse index revision，
+  也不触发向量重建。
+- Provider Catalog：`GET /api/v1/admin/providers` 的真实 registry 必须包含 Vision kind/name/version/
+  capabilities/health/remote；options 必须包含 `none` 和 `openai_compatible`，后者只有三项 Vision 凭证都
+  配置时 available。`POST /api/v1/admin/providers/select` 接受 `kind=vision`，只原子写入
+  `vision_provider`，并返回 current 与 `pending_vision_provider`；重启后的 current 必须来自实际注册实例，
+  已应用选择不能继续显示 pending。API 和 `frontend/src/api/schema.d.ts` 必须由 OpenAPI 重新生成，密钥和
+  endpoint token 不返回。
+- 前端：管理员 `/admin/providers` 与现有 Embedding/Reranker/Sparse 选择并列显示 Vision 当前卡片、健康、
+  版本、capabilities、LOCAL/REMOTE，以及 none/openai profile 的可用性和 restart-bound 文案。选项的 disabled/
+  unavailable 状态必须来自 backend catalog，不使用前端环境判断；匿名用户只能看总览的公开 Provider 状态，
+  不能读写系统 Provider 目录。切换 Vision 不得误导用户需要 Embedding 重建。Pipeline Inspector 的
+  `IMAGE ENRICHMENT` 面板必须从当前 Root metadata 展示图片数量、page/ordinal/name、MIME、宽高、SHA-256、
+  object key、caption、caption status/error code、实际 Vision provider/model 与计数，并以持久化 Leaf
+  `retrieval_text` 的实际包含关系展示 Caption 是否进入检索；无图片时也要显示明确的“无提取图片”，不能
+  预览未授权原始图片或依据当前配置补造历史。
+- Ingestion 证据：ImageEnricher 先以内容寻址 key 写入 ObjectStore，再调用 caption；成功/跳过/降级分别为
+  `created`/`skipped`/`degraded`，失败固定记录 `VISION_CAPTION_FAILED` 并继续保留图片。Root metadata 至少
+  保存图片 ordinal/page/name/MIME/width/height/SHA-256/object key/caption/caption status/error code、实际
+  Vision provider/model、图片总数、caption 数和 degraded 标志；caption 只有非空时才进入 `image_captions`
+  与检索增强文本。ObjectStore 写失败仍中止摄取，不能以 caption 降级掩盖持久化失败。
+- 可观测性与隐私：通用日志/Trace 只保存实际 Provider 名、模型版本、图片数量、成功/跳过/降级计数和稳定
+  错误码；不保存 base64、图片正文、caption 原文、Prompt、Authorization、对象绝对路径或供应商响应正文。
+  Pipeline Inspector 只从 PostgreSQL Root metadata 展示事实，不能根据当前运行配置补造历史；图片预览若后续
+  增加，必须先做 tenant/document/version 校验后按 object key 读取，禁止暴露任意对象键或无签名公共路径。
+- EDD 红灯顺序：先添加并确认失败的 Vision contract，覆盖准确 endpoint、请求字段顺序、data URI/base64、
+  成功 caption、429/5xx/transport bounded retry、4xx no retry、空/坏/数组 content、输入限制、错误净化和
+  close 幂等；再实现 Adapter。随后以配置测试证明 env 加载、SecretStr masking、production 三字段必填和
+  unknown Provider；以工厂测试证明 none/remote/缺凭证；以 catalog/API 测试证明真实 registry、available、
+  selection 文件、pending/current、vision kind schema；Vitest 证明管理员可以选择 Vision profile。每次独立
+  PR 的 required checks 都必须通过：后端 Pytest（含 `TEST_DATABASE_URL` 时的集成集）、Ruff、strict Mypy、
+  frontend Vitest/typecheck/build、OpenAPI drift、30 Case quality gate 与 Browser E2E。
+- 运行验收：在 Mac 配置 `VISION_*` 后，上传包含内嵌图片的 PDF/DOCX；必须能在 Pipeline Inspector 看到真实
+  图片 MIME/尺寸/hash/object key、caption 状态和 caption 进入 retrieval text 的证据。远程服务返回 429/坏 JSON
+  时，图片仍存在、Root/Job 状态符合既有降级语义、前端只显示稳定错误；重启后 Provider doctor/catalog 与
+  `/admin/providers` 反映实际 current。默认 none 的离线 Compose 不得访问公网且原有 Browser E2E 保持通过。
+- 回滚：停止正在运行的摄取任务或等待当前 Root 结束，选择/恢复 `vision=none` 并重启 Mac runtime；已有图片、
+  Root/Leaf、向量 revision 和 metadata 不删除，caption 降级不会影响旧索引。回滚代码不需要 migration，不得
+  删除整个 ObjectStore 或 Milvus 文件；远程 key 只从本机 `.env` 移除或轮换。
+- PR：`feat/m7-r11-real-vision-provider`、`feat/m7-r11-vision-config`、`feat/m7-r11-vision-runtime`，以及
+  本 Slice 的 Provider catalog/UI PR。
+
 ### M8：首次公网发布
 
 #### M8-01 Images

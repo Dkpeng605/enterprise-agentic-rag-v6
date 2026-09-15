@@ -367,6 +367,11 @@ async def test_pipeline_runs_registered_object_to_ready_postgres_and_milvus(
         assert detail.leaves[0].token_count > 0
         assert detail.leaves[0].metadata["token_budget"] == 28
         assert detail.leaves[0].metadata["hard_cut"] is False
+        assert detail.metadata["vision_provider"] == "none"
+        assert detail.metadata["vision_model"] == "1"
+        assert detail.metadata["vision_remote"] is False
+        assert detail.metadata["vision_image_count"] == 0
+        assert detail.metadata["vision_caption_count"] == 0
         assert any(leaf.overlap_chars > 0 for leaf in detail.leaves[1:])
         with pytest.raises(AppError) as hidden_document:
             await workspace.inspect_document_pipeline(

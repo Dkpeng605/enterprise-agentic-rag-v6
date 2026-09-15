@@ -40,6 +40,13 @@ class EnrichedImage:
 class ImageEnrichmentResult:
     images: tuple[EnrichedImage, ...]
     degraded: bool
+    vision_provider: str
+    vision_model: str
+    vision_remote: bool
+
+    @property
+    def caption_count(self) -> int:
+        return sum(image.caption_status is CaptionStatus.CREATED for image in self.images)
 
     def __post_init__(self) -> None:
         if self.degraded != any(
@@ -95,9 +102,13 @@ class ImageEnricher:
                 )
             )
         result = tuple(enriched)
+        provider = self._vision.info()
         return ImageEnrichmentResult(
             result,
             any(image.caption_status is CaptionStatus.DEGRADED for image in result),
+            provider.name,
+            provider.version,
+            provider.is_remote,
         )
 
     @staticmethod

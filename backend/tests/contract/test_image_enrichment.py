@@ -70,6 +70,10 @@ async def test_images_are_content_addressed_and_captioned(tmp_path: Path) -> Non
     result = await ImageEnricher(store, vision).enrich((image, loaded_image(ordinal=1)))
 
     assert not result.degraded
+    assert result.vision_provider == "fake"
+    assert result.vision_model == "1"
+    assert result.vision_remote is False
+    assert result.caption_count == 2
     assert [item.caption_status for item in result.images] == [
         CaptionStatus.CREATED,
         CaptionStatus.CREATED,
@@ -87,6 +91,9 @@ async def test_noop_vision_skips_caption_without_failing_ingestion(tmp_path: Pat
     ).enrich((loaded_image(),))
 
     assert not result.degraded
+    assert result.vision_provider == "none"
+    assert result.vision_model == "1"
+    assert result.caption_count == 0
     assert result.images[0].caption is None
     assert result.images[0].caption_status is CaptionStatus.SKIPPED
     assert result.images[0].caption_error_code is None
@@ -98,6 +105,8 @@ async def test_vision_failure_is_sanitized_and_preserves_stored_image(tmp_path: 
     result = await ImageEnricher(store, FakeVision(fail=True)).enrich((loaded_image(),))
 
     assert result.degraded
+    assert result.vision_provider == "fake"
+    assert result.caption_count == 0
     assert result.images[0].caption_status is CaptionStatus.DEGRADED
     assert result.images[0].caption_error_code == "VISION_CAPTION_FAILED"
     assert "secret" not in repr(result.images[0])

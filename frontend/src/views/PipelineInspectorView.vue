@@ -28,6 +28,120 @@ const confirmOpen = ref(false)
 const remoteConfirmed = ref(false)
 const cleaning = ref(false)
 
+type ImageFact = {
+  page: number | null
+  ordinal: number
+  name: string
+  mediaType: string
+  width: number | null
+  height: number | null
+  sha256: string
+  objectKey: string
+  caption: string | null
+  captionStatus: string
+  captionErrorCode: string | null
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function textValue(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+function nullableTextValue(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function nullableNumberValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function normalizeImage(value: unknown, index: number): ImageFact | undefined {
+  const item = recordValue(value)
+  if (!item) return undefined
+  return {
+    page: nullableNumberValue(item.page),
+    ordinal: nullableNumberValue(item.ordinal) ?? index,
+    name: textValue(item.name, `image-${index + 1}`),
+    mediaType: textValue(item.media_type, '未知 MIME'),
+    width: nullableNumberValue(item.width),
+    height: nullableNumberValue(item.height),
+    sha256: textValue(item.sha256, '未记录'),
+    objectKey: textValue(item.object_key, '未记录'),
+    caption: nullableTextValue(item.caption),
+    captionStatus: textValue(item.caption_status, 'unknown'),
+    captionErrorCode: nullableTextValue(item.caption_error_code),
+  }
+}
+
+const imageFacts = computed<ImageFact[]>(() => {
+  const value = rootDetail.value?.metadata.images
+  return Array.isArray(value)
+    ? value.map((item, index) => normalizeImage(item, index)).filter((item): item is ImageFact => item !== undefined)
+    : []
+})
+
+const hasImageMetadata = computed(() => {
+  const metadata = rootDetail.value?.metadata
+  return Boolean(metadata && (
+    Object.prototype.hasOwnProperty.call(metadata, 'images')
+    || Object.prototype.hasOwnProperty.call(metadata, 'vision_image_count')
+  ))
+})
+
+const visionFacts = computed(() => {
+  const metadata = rootDetail.value?.metadata ?? {}
+  const counts = recordValue(metadata.vision_caption_status_counts)
+  const count = (status: string): number => {
+    const value = counts?.[status]
+    return typeof value === 'number' && Number.isFinite(value) ? value : imageFacts.value.filter((image) => image.captionStatus === status).length
+  }
+  return {
+    provider: textValue(metadata.vision_provider, '未记录'),
+    model: textValue(metadata.vision_model, '未记录'),
+    remote: metadata.vision_remote === true,
+    degraded: metadata.vision_degraded === true || imageFacts.value.some((image) => image.captionStatus === 'degraded'),
+    imageCount: typeof metadata.vision_image_count === 'number' ? metadata.vision_image_count : imageFacts.value.length,
+    captionCount: typeof metadata.vision_caption_count === 'number' ? metadata.vision_caption_count : count('created'),
+    createdCount: count('created'),
+    skippedCount: count('skipped'),
+    degradedCount: count('degraded'),
+  }
+})
+
+const retrievalCaptions = computed(() => {
+  const leaves = rootDetail.value?.leaves ?? []
+  return imageFacts.value
+    .filter((image) => image.caption)
+    .map((image) => ({ image, included: leaves.some((leaf) => leaf.retrieval_text.includes(image.caption as string)) }))
+})
+
+const includedCaptionCount = computed(() => retrievalCaptions.value.filter((item) => item.included).length)
+
+function imageStatusLabel(status: string): string {
+  return { created: 'created · 已生成', skipped: 'skipped · 未启用', degraded: 'degraded · 已降级' }[status] ?? `${status} · 未知状态`
+}
+
+function imageStatusClass(status: string): string {
+  return `image-status--${status}`
+}
+
+function imageDimension(image: ImageFact): string {
+  return image.width !== null && image.height !== null ? `${image.width} × ${image.height}` : '尺寸未记录'
+}
+
+function shortHash(value: string): string {
+  return value.length > 16 ? `${value.slice(0, 12)}…${value.slice(-4)}` : value
+}
+
+function pageLabel(page: number | null): string {
+  return page === null ? '页码未记录' : `第 ${page} 页`
+}
+
 const llmAudit = computed(() => pipeline.value?.llm_cleaning ?? {})
 const selectedLlmAudit = computed(() => {
   const value = rootDetail.value?.metadata.llm_cleaning
@@ -236,6 +350,33 @@ onMounted(loadPipeline)
               <div><p class="section-kicker">ROOT #{{ rootDetail.summary.ordinal + 1 }}</p><h2>{{ rootDetail.summary.kind }}</h2><code>{{ rootDetail.summary.id }}</code></div>
               <dl><div><dt>原始字符</dt><dd>{{ rootDetail.summary.raw_chars }}</dd></div><div><dt>清洗后</dt><dd>{{ rootDetail.summary.clean_chars }}</dd></div><div><dt>变化</dt><dd>{{ deltaLabel(rootDetail.summary.raw_chars, rootDetail.summary.clean_chars) }}</dd></div><div><dt>Leaf</dt><dd>{{ rootDetail.leaves.length }}</dd></div></dl>
             </header>
+
+            <section v-if="hasImageMetadata" class="image-enrichment-panel" data-testid="image-enrichment">
+              <div class="trace-section-head">
+                <div><p class="section-kicker">IMAGE ENRICHMENT</p><h3>图片提取与 Caption 事实</h3></div>
+                <span>{{ visionFacts.imageCount }} 张图片 · {{ visionFacts.captionCount }} 个有效 Caption</span>
+              </div>
+              <div class="image-enrichment-summary">
+                <div><span>VISION PROVIDER / MODEL</span><strong>{{ visionFacts.provider }} / {{ visionFacts.model }}</strong><small>{{ visionFacts.remote ? '远程 Vision · 已记录' : '本地或关闭 · 已记录' }}</small></div>
+                <div><span>CAPTION STATUS</span><strong>created {{ visionFacts.createdCount }} · skipped {{ visionFacts.skippedCount }} · degraded {{ visionFacts.degradedCount }}</strong><small :class="{ 'image-fact-warning': visionFacts.degraded }">{{ visionFacts.degraded ? '至少一张图片未生成 Caption' : '本 Root 无 Caption 降级' }}</small></div>
+                <div><span>RETRIEVAL INCLUSION</span><strong>{{ includedCaptionCount }}/{{ retrievalCaptions.length }} 个 Caption</strong><small>{{ includedCaptionCount ? 'Caption 已进入首个 Leaf 的 retrieval_text' : retrievalCaptions.length ? 'Caption 未出现在已持久化 retrieval_text' : '没有可进入检索的 Caption' }}</small></div>
+              </div>
+              <div v-if="imageFacts.length" class="image-fact-list">
+                <article v-for="image in imageFacts" :key="`${image.ordinal}-${image.sha256}`" class="image-fact-card">
+                  <header><strong>IMAGE {{ image.ordinal + 1 }}</strong><b>{{ image.name }}</b><span :class="['image-status', imageStatusClass(image.captionStatus)]">{{ imageStatusLabel(image.captionStatus) }}</span></header>
+                  <dl>
+                    <div><dt>来源</dt><dd>{{ pageLabel(image.page) }} · {{ imageDimension(image) }} · {{ image.mediaType }}</dd></div>
+                    <div><dt>SHA-256</dt><dd :title="image.sha256">{{ shortHash(image.sha256) }}</dd></div>
+                    <div><dt>Object key</dt><dd :title="image.objectKey">{{ image.objectKey }}</dd></div>
+                    <div><dt>检索状态</dt><dd>{{ image.caption ? (retrievalCaptions.find((item) => item.image === image)?.included ? 'Caption 已进入 retrieval_text' : 'Caption 未进入 retrieval_text') : '无 Caption' }}</dd></div>
+                  </dl>
+                  <p v-if="image.caption" class="image-caption">{{ image.caption }}</p>
+                  <p v-else class="image-caption image-caption--empty">{{ image.captionErrorCode ? `未生成 Caption · ${image.captionErrorCode}` : '未生成 Caption' }}</p>
+                </article>
+              </div>
+              <p v-else class="trace-inline-empty">当前 Root 没有 Loader 提取的图片；此结论来自 PostgreSQL Root metadata，而非当前运行配置。</p>
+              <p class="metric-disclaimer">以上内容全部来自当前 Root 持久化的 metadata 和 Leaf retrieval_text：图片原文不在页面中回显，Caption 是否进入检索以已保存 Leaf 文本为准。</p>
+            </section>
 
             <section class="cleaning-audit">
               <div class="trace-section-head"><div><p class="section-kicker">CLEANING AUDIT</p><h3>清洗规则执行记录</h3></div><span>{{ rootDetail.summary.cleaning_audit.length }} 条规则发生变更</span></div>

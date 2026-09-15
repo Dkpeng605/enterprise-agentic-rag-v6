@@ -89,6 +89,48 @@ const detail: PipelineRoot = {
   ],
 }
 
+const imageDetail: PipelineRoot = {
+  ...detail,
+  metadata: {
+    images: [{
+      page: 2,
+      ordinal: 0,
+      name: 'architecture.png',
+      media_type: 'image/png',
+      width: 1024,
+      height: 640,
+      sha256: 'c'.repeat(64),
+      object_key: 'sha256/cc/dd/architecture-object',
+      caption: '系统由 API、检索服务和向量库组成。',
+      caption_status: 'created',
+      caption_error_code: null,
+    }, {
+      page: 3,
+      ordinal: 1,
+      name: 'scan.png',
+      media_type: 'image/png',
+      width: 800,
+      height: 600,
+      sha256: 'd'.repeat(64),
+      object_key: 'sha256/dd/ee/scan-object',
+      caption: null,
+      caption_status: 'degraded',
+      caption_error_code: 'VISION_CAPTION_FAILED',
+    }],
+    image_captions: ['系统由 API、检索服务和向量库组成。'],
+    vision_degraded: true,
+    vision_provider: 'openai_compatible',
+    vision_model: 'minimax-m3',
+    vision_remote: true,
+    vision_image_count: 2,
+    vision_caption_count: 1,
+    vision_caption_status_counts: { created: 1, skipped: 0, degraded: 1 },
+  },
+  leaves: detail.leaves.map((leaf, index) => index === 0
+    ? { ...leaf, retrieval_text: `${leaf.text}\n\n系统由 API、检索服务和向量库组成。` }
+    : leaf),
+}
+
 async function mountView() {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -183,5 +225,44 @@ describe('document pipeline inspector', () => {
     expect(wrapper.get('.root-llm-audit').text()).toContain('模型保守原样返回')
     expect(wrapper.get('.root-llm-audit').text()).toContain('1234567890abcdef → 1234567890abcdef')
     expect(wrapper.get('.root-llm-audit').text()).toContain('20 in / 12 out')
+  })
+
+  it('shows persisted image facts, caption status, provider and retrieval inclusion', async () => {
+    vi.mocked(workspaceApi.getPipelineRoot).mockResolvedValue(imageDetail)
+    const wrapper = await mountView()
+    await flushPromises()
+
+    const panel = wrapper.get('.image-enrichment-panel')
+    expect(panel.text()).toContain('2 张图片')
+    expect(panel.text()).toContain('openai_compatible / minimax-m3')
+    expect(panel.text()).toContain('远程 Vision · 已记录')
+    expect(panel.text()).toContain('architecture.png')
+    expect(panel.text()).toContain('第 2 页 · 1024 × 640 · image/png')
+    expect(panel.text()).toContain('c'.repeat(12))
+    expect(panel.text()).toContain('系统由 API、检索服务和向量库组成。')
+    expect(panel.text()).toContain('Caption 已进入首个 Leaf 的 retrieval_text')
+    expect(panel.text()).toContain('scan.png')
+    expect(panel.text()).toContain('degraded · 已降级')
+    expect(panel.text()).toContain('VISION_CAPTION_FAILED')
+    expect(panel.text()).toContain('created 1 · skipped 0 · degraded 1')
+  })
+
+  it('states when a persisted Root contains no extracted images', async () => {
+    vi.mocked(workspaceApi.getPipelineRoot).mockResolvedValue({
+      ...detail,
+      metadata: {
+        images: [],
+        vision_image_count: 0,
+        vision_caption_count: 0,
+        vision_caption_status_counts: { created: 0, skipped: 0, degraded: 0 },
+        vision_provider: 'none',
+        vision_model: '1',
+        vision_remote: false,
+      },
+    })
+    const wrapper = await mountView()
+    await flushPromises()
+
+    expect(wrapper.get('.image-enrichment-panel').text()).toContain('当前 Root 没有 Loader 提取的图片')
   })
 })
