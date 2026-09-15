@@ -439,6 +439,35 @@ PostgreSQL, ObjectStore, Root/Leaf, Trace, Milvus, or volumes and never performs
 must therefore remain backward-compatible. Until a pre-production host completes one successful deploy and rollback drill,
 the system must not be described as publicly released.
 
+### M8-05 Backup and restore
+
+`scripts/production-backup.sh` and `.github/workflows/backup.yml` provide a manually confirmed production backup and
+isolated restore drill. A backup contains a PostgreSQL custom-format dump, an ObjectStore archive, the Milvus backup-hook
+reference, runtime Provider/index fingerprints, Compose/Caddy manifests, and SHA-256 checksums. It never contains
+`.env.production`, secrets, or model files. Production backups require `BACKUP_AGE_RECIPIENT`; encrypted restore requires
+`BACKUP_AGE_IDENTITY`. Plaintext is allowed only when the development/drill operator explicitly sets
+`BACKUP_ALLOW_PLAINTEXT=1`.
+
+Before restore, the script verifies the backup directory name, the metadata-to-commit/image binding, every checksum, and
+the Milvus hook. The target must be an absolute path and must not be `DEPLOY_PATH` or one of its descendants. The script
+never runs `docker compose down --volumes`, deletes the whole Milvus file, or overwrites the live environment file.
+`restore-drill` is the isolated restore entrypoint: it runs migration, restores ObjectStore/Milvus, runs revision-aware
+reconcile, and reports success only after HTTPS `/health/live`, anonymous workspace, and query smoke checks pass:
+
+```bash
+gh workflow run backup.yml --ref main \
+  -f action=backup -f confirmation=BACKUP
+gh workflow run backup.yml --ref main \
+  -f action=restore-drill -f confirmation=RESTORE-DRILL \\
+  -f backup_path=/absolute/path/to/release-backup
+gh run watch
+```
+
+The workflow is manual, restricted to `main`, and bound to the `production` Environment. The restore target, Age
+identity, Milvus hook, and SSH host key must be configured through that Environment. The repository now has static
+contract coverage for the script and workflow, but does not claim a real production restore from static checks; M8-05
+remains pending until one empty-target restore drill succeeds on a non-live host.
+
 Stop the backend and frontend with `Ctrl+C`; keep PostgreSQL and the model cache for quicker restarts.
 To stop PostgreSQL only:
 
@@ -743,7 +772,8 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M8-02 production Compose/Caddy: complete (not publicly released)
 - M8-03 GHCR immutable images: complete
 - M8-04 Deploy/Rollback: implemented, awaiting the pre-production host drill
-- Next: M8-05 Backup/Restore
+- M8-05 Backup/Restore: implemented, awaiting an isolated non-live restore drill
+- Next: M8-06 public release
 
 The query application layer now exposes synchronous REST and streaming SSE APIs over one shared `QueryRunner` contract. Anonymous sessions may run Standard or Deep queries, while tenant and actor identities remain server-bound. SSE uses a stable accepted/progress/heartbeat/completed/error protocol; disconnects cancel execution, errors are sanitized, and an unconfigured runner returns 503 before stream headers are sent.
 

@@ -1,0 +1,199 @@
+name: Production backup and restore drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Create a backup or restore it into an isolated target root
+        required: true
+        default: backup
+        type: choice
+        options:
+          - backup
+          - restore-drill
+      backup_path:
+        description: Absolute backup directory on the host (restore-drill only; otherwise use the Environment variable)
+        required: false
+        type: string
+      confirmation:
+        description: Type BACKUP or RESTORE-DRILL to confirm the selected operation
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: production-backup-restore
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: backup-or-restore-drill
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_BASE_URL }}
+    env:
+      BACKUP_ACTION: ${{ inputs.action }}
+      BACKUP_SOURCE_INPUT: ${{ inputs.backup_path }}
+      BACKUP_CONFIRMATION: ${{ inputs.confirmation }}
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_REGISTRY_USERNAME: ${{ secrets.DEPLOY_REGISTRY_USERNAME }}
+      DEPLOY_REGISTRY_TOKEN: ${{ secrets.DEPLOY_REGISTRY_TOKEN }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/enterprise-agentic-rag-v6' }}
+      BACKUP_OUTPUT_DIR: ${{ vars.BACKUP_OUTPUT_DIR || '/opt/enterprise-agentic-rag-v6/backups/archives' }}
+      BACKUP_SOURCE_DIR: ${{ vars.BACKUP_SOURCE_DIR || '' }}
+      BACKUP_RESTORE_PATH: ${{ vars.BACKUP_RESTORE_PATH || '' }}
+      BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT || '' }}
+      BACKUP_AGE_IDENTITY: ${{ vars.BACKUP_AGE_IDENTITY_PATH || '' }}
+      MILVUS_BACKUP_HOOK: ${{ vars.MILVUS_BACKUP_HOOK || '' }}
+      RESTORE_SMOKE_PORT: ${{ vars.RESTORE_SMOKE_PORT || '18443' }}
+    steps:
+      - name: Check out selected main revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Validate backup contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "Backup and restore drills must be dispatched from main." >&2
+            exit 1
+          }
+          [[ "$BACKUP_ACTION" == backup || "$BACKUP_ACTION" == restore-drill ]] || {
+            echo "Unknown backup action." >&2
+            exit 1
+          }
+          expected_confirmation="${BACKUP_ACTION^^}"
+          [[ "$BACKUP_CONFIRMATION" == "$expected_confirmation" ]] || {
+            echo "The confirmation text does not match the selected action." >&2
+            exit 1
+          }
+          for required_name in \
+            DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_PRIVATE_KEY DEPLOY_KNOWN_HOSTS \
+            DEPLOY_REGISTRY_USERNAME DEPLOY_REGISTRY_TOKEN BACKUP_AGE_RECIPIENT \
+            MILVUS_BACKUP_HOOK; do
+            [[ -n "${!required_name}" ]] || {
+              echo "Missing GitHub Environment value: ${required_name}" >&2
+              exit 1
+            }
+          done
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9._:-]+$ ]] || {
+            echo "DEPLOY_HOST contains unsupported characters." >&2
+            exit 1
+          }
+          [[ "$DEPLOY_USER" =~ ^[A-Za-z0-9._-]+$ ]] || {
+            echo "DEPLOY_USER contains unsupported characters." >&2
+            exit 1
+          }
+          [[ "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]] && (( DEPLOY_PORT >= 1 && DEPLOY_PORT <= 65535 )) || {
+            echo "DEPLOY_PORT must be between 1 and 65535." >&2
+            exit 1
+          }
+          for path_value in DEPLOY_PATH BACKUP_OUTPUT_DIR MILVUS_BACKUP_HOOK; do
+            value="${!path_value}"
+            [[ "$value" == /* && "$value" != *[!a-zA-Z0-9_./-]* ]] || {
+              echo "${path_value} must be an absolute path without shell metacharacters." >&2
+              exit 1
+            }
+          done
+          [[ "$BACKUP_AGE_RECIPIENT" =~ ^age1[a-z0-9]+$ ]] || {
+            echo "BACKUP_AGE_RECIPIENT must be an age recipient." >&2
+            exit 1
+          }
+          if [[ "$BACKUP_ACTION" == restore-drill ]]; then
+            backup_source="${BACKUP_SOURCE_INPUT:-$BACKUP_SOURCE_DIR}"
+            [[ "$backup_source" == /* && "$backup_source" != *[!a-zA-Z0-9_./-]* ]] || {
+              echo "A safe absolute backup source is required for restore-drill." >&2
+              exit 1
+            }
+            [[ -n "$BACKUP_RESTORE_PATH" ]] || {
+              echo "BACKUP_RESTORE_PATH is required for restore-drill." >&2
+              exit 1
+            }
+            [[ "$BACKUP_RESTORE_PATH" == /* && "$BACKUP_RESTORE_PATH" != *[!a-zA-Z0-9_./-]* ]] || {
+              echo "BACKUP_RESTORE_PATH must be an absolute path without shell metacharacters." >&2
+              exit 1
+            }
+            [[ "$BACKUP_RESTORE_PATH" != "$DEPLOY_PATH" && "$BACKUP_RESTORE_PATH" != "$DEPLOY_PATH"/* ]] || {
+              echo "RESTORE_PATH must differ from DEPLOY_PATH." >&2
+              exit 1
+            }
+            [[ -n "$BACKUP_AGE_IDENTITY" && "$BACKUP_AGE_IDENTITY" == /* \
+              && "$BACKUP_AGE_IDENTITY" != *[!a-zA-Z0-9_./-]* ]] || {
+              echo "BACKUP_AGE_IDENTITY_PATH must be a safe absolute host path." >&2
+              exit 1
+            }
+            printf 'BACKUP_SOURCE=%s\n' "$backup_source" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run backup or restore drill over verified SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_dir="${RUNNER_TEMP}/enterprise-rag-backup-ssh"
+          install -d -m 700 "$ssh_dir"
+          ssh_key="${ssh_dir}/backup_key"
+          known_hosts="${ssh_dir}/known_hosts"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$ssh_key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$known_hosts"
+          chmod 600 "$ssh_key" "$known_hosts"
+
+          target="${DEPLOY_USER}@${DEPLOY_HOST}"
+          ssh_options=(
+            -i "$ssh_key"
+            -o "Port=${DEPLOY_PORT}"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o "UserKnownHostsFile=${known_hosts}"
+          )
+          scp_options=(
+            -i "$ssh_key"
+            -P "$DEPLOY_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o "UserKnownHostsFile=${known_hosts}"
+          )
+
+          printf '%s' "$DEPLOY_REGISTRY_TOKEN" | ssh "${ssh_options[@]}" "$target" \
+            "docker login ghcr.io --username '${DEPLOY_REGISTRY_USERNAME}' --password-stdin"
+          ssh "${ssh_options[@]}" "$target" \
+            "mkdir -p -- '${DEPLOY_PATH}/infra/production'"
+          scp "${scp_options[@]}" \
+            infra/production/compose.yml infra/production/gateway.Caddyfile \
+            scripts/production-backup.sh \
+            "$target:${DEPLOY_PATH}/"
+          ssh "${ssh_options[@]}" "$target" \
+            "mv -- '${DEPLOY_PATH}/compose.yml' '${DEPLOY_PATH}/infra/production/compose.yml' && \
+             mv -- '${DEPLOY_PATH}/gateway.Caddyfile' '${DEPLOY_PATH}/infra/production/gateway.Caddyfile' && \
+             chmod 700 '${DEPLOY_PATH}/production-backup.sh'"
+
+          if [[ "$BACKUP_ACTION" == backup ]]; then
+            ssh "${ssh_options[@]}" "$target" \
+              "DEPLOY_PATH='${DEPLOY_PATH}' BACKUP_AGE_RECIPIENT='${BACKUP_AGE_RECIPIENT}' \
+               MILVUS_BACKUP_HOOK='${MILVUS_BACKUP_HOOK}' BACKUP_OUTPUT_DIR='${BACKUP_OUTPUT_DIR}' \
+               '${DEPLOY_PATH}/production-backup.sh' backup '${BACKUP_OUTPUT_DIR}'"
+          else
+            ssh "${ssh_options[@]}" "$target" \
+              "DEPLOY_PATH='${BACKUP_RESTORE_PATH}' LIVE_DEPLOY_PATH='${DEPLOY_PATH}' \
+               BACKUP_AGE_RECIPIENT='${BACKUP_AGE_RECIPIENT}' BACKUP_AGE_IDENTITY='${BACKUP_AGE_IDENTITY}' \
+               MILVUS_BACKUP_HOOK='${MILVUS_BACKUP_HOOK}' SMOKE_HTTPS_PORT='${RESTORE_SMOKE_PORT}' \
+               '${DEPLOY_PATH}/production-backup.sh' restore-drill '${BACKUP_SOURCE}' '${BACKUP_RESTORE_PATH}'"
+          fi
+
+      - name: Report backup completion
+        if: success() && env.BACKUP_ACTION == 'backup'
+        run: echo "Encrypted production backup completed on the host."
+
+      - name: Report restore drill completion
+        if: success() && env.BACKUP_ACTION == 'restore-drill'
+        run: echo "Isolated restore drill and query smoke completed."
