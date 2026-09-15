@@ -27,6 +27,7 @@ const cleaningResult = ref<LlmCleaningResult>()
 const confirmOpen = ref(false)
 const remoteConfirmed = ref(false)
 const cleaning = ref(false)
+const imagePreviewErrors = ref<Record<string, boolean>>({})
 
 type ImageFact = {
   page: number | null
@@ -140,6 +141,14 @@ function shortHash(value: string): string {
 
 function pageLabel(page: number | null): string {
   return page === null ? '页码未记录' : `第 ${page} 页`
+}
+
+function imageUrl(image: ImageFact): string {
+  return workspaceApi.getDocumentImageUrl(documentId.value, image.sha256)
+}
+
+function markImagePreviewError(sha256: string): void {
+  imagePreviewErrors.value = { ...imagePreviewErrors.value, [sha256]: true }
 }
 
 const llmAudit = computed(() => pipeline.value?.llm_cleaning ?? {})
@@ -370,12 +379,23 @@ onMounted(loadPipeline)
                     <div><dt>Object key</dt><dd :title="image.objectKey">{{ image.objectKey }}</dd></div>
                     <div><dt>检索状态</dt><dd>{{ image.caption ? (retrievalCaptions.find((item) => item.image === image)?.included ? 'Caption 已进入 retrieval_text' : 'Caption 未进入 retrieval_text') : '无 Caption' }}</dd></div>
                   </dl>
+                  <div v-if="image.sha256 !== '未记录'" class="image-preview-wrap">
+                    <img
+                      v-if="!imagePreviewErrors[image.sha256]"
+                      class="image-preview"
+                      :src="imageUrl(image)"
+                      :alt="`${image.name} 原图预览`"
+                      loading="lazy"
+                      @error="markImagePreviewError(image.sha256)"
+                    >
+                    <p v-if="imagePreviewErrors[image.sha256]" class="image-preview-error" role="status">图片预览加载失败；metadata 与 Caption 仍可用。</p>
+                  </div>
                   <p v-if="image.caption" class="image-caption">{{ image.caption }}</p>
                   <p v-else class="image-caption image-caption--empty">{{ image.captionErrorCode ? `未生成 Caption · ${image.captionErrorCode}` : '未生成 Caption' }}</p>
                 </article>
               </div>
               <p v-else class="trace-inline-empty">当前 Root 没有 Loader 提取的图片；此结论来自 PostgreSQL Root metadata，而非当前运行配置。</p>
-              <p class="metric-disclaimer">以上内容全部来自当前 Root 持久化的 metadata 和 Leaf retrieval_text：图片原文不在页面中回显，Caption 是否进入检索以已保存 Leaf 文本为准。</p>
+              <p class="metric-disclaimer">图片预览通过当前租户、文档 active version 和 SHA-256 校验后的受保护接口读取；以上 metadata 与 Caption 来自 Root 持久化事实源，Caption 是否进入检索以已保存 Leaf 文本为准。</p>
             </section>
 
             <section class="cleaning-audit">

@@ -3,7 +3,7 @@
 import base64
 import binascii
 import json
-from collections.abc import AsyncIterable, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -27,7 +27,12 @@ from enterprise_rag.domain.common import new_uuid7, require_utc
 from enterprise_rag.domain.documents import DocumentVisibility
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.jobs import JobSnapshot
-from enterprise_rag.ports.object_store import ObjectStore
+from enterprise_rag.ports.object_store import (
+    ObjectStore,
+    object_key_for_sha256,
+    validate_object_key,
+    validate_sha256,
+)
 from enterprise_rag.services.documents import DocumentRegistrationService, RegisterDocument
 
 
@@ -125,6 +130,15 @@ class PipelineRootDetail:
     clean_text: str
     metadata: Mapping[str, object]
     leaves: tuple[PipelineLeafSnapshot, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentImage:
+    """A tenant-authorized image object from the active indexed version."""
+
+    sha256: str
+    object_key: str
+    media_type: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -652,6 +666,61 @@ class WorkspaceService:
             tuple(projected),
         )
 
+    async def get_document_image(
+        self, tenant_id: UUID, document_id: UUID, sha256: str
+    ) -> DocumentImage:
+        """Resolve an image only through the current tenant-owned active version.
+
+        Image metadata is persisted inside Root JSONB, so the object key supplied by
+        a caller is never trusted. The key is derived from the validated digest and
+        is served only when that digest belongs to an indexed active version.
+        """
+
+        try:
+            digest = validate_sha256(sha256)
+        except ValueError as error:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "The image digest is invalid.") from error
+
+        async with self._database.session() as session:
+            row = (
+                await session.execute(
+                    select(DocumentModel, DocumentVersionModel)
+                    .join(
+                        DocumentVersionModel,
+                        DocumentVersionModel.id == DocumentModel.active_version_id,
+                    )
+                    .where(
+                        DocumentModel.id == document_id,
+                        DocumentModel.tenant_id == tenant_id,
+                        DocumentModel.status == "ready",
+                        DocumentVersionModel.status == "indexed",
+                    )
+                )
+            ).one_or_none()
+            if row is None:
+                raise self._not_found("document", document_id)
+
+            document, version = row
+            roots = await session.scalars(
+                select(RootModel.metadata_json).where(
+                    RootModel.tenant_id == tenant_id,
+                    RootModel.document_id == document.id,
+                    RootModel.version_id == version.id,
+                )
+            )
+            image = _find_image(tuple(roots), digest)
+
+        if image is None:
+            raise self._not_found("image", digest)
+        if not await self._object_store.exists(image.object_key):
+            raise self._not_found("image", digest)
+        return image
+
+    def read_document_image(self, image: DocumentImage) -> AsyncIterator[bytes]:
+        """Stream a previously authorized image without exposing the store adapter."""
+
+        return self._object_store.read(image.object_key)
+
     async def _document_version(
         self, session: AsyncSession, tenant_id: UUID, document_id: UUID
     ) -> tuple[DocumentModel, DocumentVersionModel]:
@@ -830,6 +899,40 @@ def _text(value: object) -> str | None:
 
 def _integer(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _find_image(
+    metadata_values: tuple[Mapping[str, object], ...], digest: str
+) -> DocumentImage | None:
+    expected_key = object_key_for_sha256(digest)
+    for metadata in metadata_values:
+        images = metadata.get("images")
+        if not isinstance(images, list):
+            continue
+        for value in images:
+            image = _mapping(value)
+            if image.get("sha256") != digest:
+                continue
+            object_key = image.get("object_key")
+            if not isinstance(object_key, str):
+                continue
+            try:
+                validate_object_key(object_key)
+            except ValueError:
+                continue
+            if object_key != expected_key:
+                continue
+            media_type = image.get("media_type")
+            if (
+                not isinstance(media_type, str)
+                or not media_type.strip()
+                or not media_type.strip().lower().startswith("image/")
+                or "\r" in media_type
+                or "\n" in media_type
+            ):
+                media_type = "application/octet-stream"
+            return DocumentImage(digest, object_key, media_type.strip())
+    return None
 
 
 def _cleaning_audit(metadata: Mapping[str, object]) -> tuple[CleaningAuditSnapshot, ...]:

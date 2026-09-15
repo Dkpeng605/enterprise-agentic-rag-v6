@@ -658,6 +658,30 @@ def create_api_router(
         )
 
     @router.get(
+        "/documents/{document_id}/images/{sha256}",
+        response_class=StreamingResponse,
+        tags=["documents"],
+    )
+    async def get_document_image(
+        document_id: UUID,
+        sha256: str,
+        principal: Annotated[Principal, Depends(reader)],
+    ) -> StreamingResponse:
+        image = await _workspace().get_document_image(
+            principal.tenant_id, document_id, sha256
+        )
+        return StreamingResponse(
+            _workspace().read_document_image(image),
+            media_type=image.media_type,
+            headers={
+                "Cache-Control": "private, max-age=300",
+                "ETag": f'"{image.sha256}"',
+                "X-Content-SHA256": image.sha256,
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @router.get(
         "/documents/{document_id}/llm-cleaning/preflight",
         response_model=LlmCleaningPreflightResponse,
         tags=["documents"],

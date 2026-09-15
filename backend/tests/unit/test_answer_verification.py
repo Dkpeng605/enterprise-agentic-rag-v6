@@ -69,6 +69,23 @@ def test_runtime_fallback_uses_original_question_not_rewritten_query() -> None:
     assert effective.requirements == ("原始用户问题",)
 
 
+def test_runtime_boundary_discards_provider_requirements_even_when_non_empty() -> None:
+    unsafe_plan = QueryPlan(
+        "原始用户问题",
+        "改写后的检索路径",
+        QueryIntent.FACTUAL,
+        ("路径一", "路径二", "路径三", "路径四"),
+        ("要求一", "要求二", "要求三", "要求四"),
+        QueryScope(),
+        "zh",
+        QueryMode.STANDARD,
+    )
+
+    effective = _effective_plan(unsafe_plan)
+
+    assert effective.requirements == ("原始用户问题",)
+
+
 def valid_draft() -> AnswerDraft:
     return AnswerDraft(
         (DraftParagraph("政策定义明确，有效期三年。[1]", (1,)),),

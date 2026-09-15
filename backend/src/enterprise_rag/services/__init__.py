@@ -165,7 +165,12 @@ from enterprise_rag.services.standard_graph import (
 )
 from enterprise_rag.services.traces import TraceService, build_persistent_tracing
 from enterprise_rag.services.worker import IngestionWorker
-from enterprise_rag.services.workspace import JobListItem, JobPage, WorkspaceService
+from enterprise_rag.services.workspace import (
+    DocumentImage,
+    JobListItem,
+    JobPage,
+    WorkspaceService,
+)
 
 __all__ = [
     "AnswerDraft",
@@ -178,6 +183,7 @@ __all__ = [
     "DeletionResult",
     "DeletionStep",
     "DocumentDeletionService",
+    "DocumentImage",
     "DocumentRegistrationService",
     "EvaluationBudgetExceeded",
     "EvaluationCatalog",
