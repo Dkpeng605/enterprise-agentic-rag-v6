@@ -720,16 +720,18 @@ def _requirements_for_queries(
 
 
 def _effective_plan(plan: QueryPlan) -> QueryPlan:
-    """Restore the runtime invariant for an injected planner with no requirements.
+    """Restore the runtime invariant for every injected planner.
 
     The normal planning service already fills this field. The runner still protects
-    the boundary for custom or test planners: the fallback is the original user
-    question, never rewritten retrieval text.
+    the boundary for custom or test planners: provider requirements are untrusted
+    and can never become answer obligations. The only requirement is the original
+    user question, never rewritten retrieval text or a sub-query.
     """
 
-    if plan.requirements:
+    requirement = plan.original_query.strip()
+    if plan.requirements == (requirement,):
         return plan
-    return replace(plan, requirements=(plan.original_query,))
+    return replace(plan, requirements=(requirement,))
 
 
 def _answer_root_limit(mode: QueryMode, plan: QueryPlan) -> int:
