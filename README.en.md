@@ -803,6 +803,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R15 protected image preview in the Pipeline Inspector: complete
 - M7-R16 Provider selection dimension state consistency: complete
 - M7-R17 unified sub-query and requirement semantics across query graphs: complete
+- M7-R18 retrieval-switch execution boundary regression: complete
 - M8-00 standalone ingestion Worker prerequisite: complete
 - M8-01 production images: complete
 - Production API composition root (M8-02 prerequisite): complete
