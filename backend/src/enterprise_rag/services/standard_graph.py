@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol
 from uuid import UUID
@@ -162,6 +162,7 @@ class StandardQueryGraph:
             planner_degraded = planned.degraded
 
             transitions.append(StageTransition(QueryGraphStage.SEARCH))
+            search_scope = _authorized_search_scope(plan.scope, request.authorization)
 
             async def search_all() -> list[DualSearchResult]:
                 return await asyncio.gather(
@@ -170,7 +171,7 @@ class StandardQueryGraph:
                             query=query,
                             tenant_id=request.authorization.tenant_id,
                             index_revision=request.index_revision,
-                            scope=plan.scope,
+                            scope=search_scope,
                         )
                         for query in plan.sub_queries
                     )
@@ -300,6 +301,20 @@ class StandardQueryGraph:
                 reranker_degraded,
                 error.code if isinstance(error, AppError) else ErrorCode.INTERNAL_ERROR,
             )
+
+
+def _authorized_search_scope(
+    scope: QueryScope, authorization: ScopeAuthorization
+) -> QueryScope:
+    """Push transport authorization into search without making it an explicit filter."""
+
+    if authorization.full_tenant_access:
+        return scope
+    return replace(
+        scope,
+        collection_ids=scope.collection_ids or authorization.collection_ids,
+        document_ids=scope.document_ids or authorization.document_ids,
+    )
 
 
 def _answer_prompt(plan: QueryPlan, roots: tuple[RootContext, ...]) -> str:

@@ -99,7 +99,11 @@ async def _smoke(
             queried = await client.call_tool(
                 "query_knowledge_base", {"question": query, "mode": "standard"}
             )
-            query_status = str((queried.structured_content or {}).get("status"))
+            payload = queried.structured_content or {}
+            value = payload.get("status")
+            query_status = value if isinstance(value, str) else None
+            if queried.is_error:
+                query_status = f"error:{_error_code(payload) or 'unknown'}"
         return {
             "endpoint": endpoint,
             "tool_count": len(tools.tools),

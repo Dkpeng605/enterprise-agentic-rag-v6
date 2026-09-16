@@ -36,6 +36,7 @@ from enterprise_rag.mcp.catalog import (
     SECTION_RESOURCE,
     VERIFY_ANSWER_TOOL,
 )
+from enterprise_rag.ports.context import ScopeAuthorization
 from enterprise_rag.services.auth import Principal
 from enterprise_rag.services.knowledge import KnowledgeQuery, McpApplicationService
 
@@ -142,11 +143,24 @@ def build_mcp_server(
 
         try:
             current = access(QUERY_EXECUTE_SCOPE)
-            allowed_collections = current.constrain_collections(_uuids(collection_ids or ()))
-            scope = QueryScope(collection_ids=allowed_collections)
+            requested_collections = tuple(_uuids(collection_ids or ()))
+            current.constrain_collections(requested_collections)
+            # A token allowlist is authorization, not an explicit user filter.
+            # Keeping the two separate lets a token cover an empty collection
+            # without making the whole query a scope conflict.
+            scope = QueryScope(collection_ids=requested_collections)
             execution = await application.query_knowledge_base(
                 current.principal,
-                KnowledgeQuery(question.strip(), QueryMode(mode), scope),
+                KnowledgeQuery(
+                    question.strip(),
+                    QueryMode(mode),
+                    scope,
+                    authorization=ScopeAuthorization(
+                        current.principal.tenant_id,
+                        current.collection_ids is None,
+                        collection_ids=current.collection_ids or (),
+                    ),
+                ),
             )
             payload = execution.to_dict()
             return _result(execution.answer, payload)

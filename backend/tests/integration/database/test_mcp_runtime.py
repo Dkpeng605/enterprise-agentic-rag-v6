@@ -253,7 +253,10 @@ async def test_real_mounted_runtime_supports_catalog_search_resources_verify_and
         assert verified.structured_content["valid"] is True
         assert queried.structured_content["answer"] == "共享 KnowledgeApplication 已执行。"
         assert runner.commands[0].tenant_id == TENANT_ID
-        assert runner.commands[0].scope.collection_ids == (COLLECTION_ID,)
+        assert runner.commands[0].scope.collection_ids == ()
+        assert runner.commands[0].authorization is not None
+        assert runner.commands[0].authorization.full_tenant_access is False
+        assert runner.commands[0].authorization.collection_ids == (COLLECTION_ID,)
         assert denied.is_error is True
         assert denied.structured_content["error"]["code"] == "FORBIDDEN"
     finally:

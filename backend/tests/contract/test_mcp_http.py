@@ -299,7 +299,10 @@ async def test_scopes_collection_bounds_and_long_request_use_official_client(
     assert outside_scope.is_error is True
     assert outside_scope.structured_content["error"]["code"] == "FORBIDDEN"
     assert runner.commands[0].tenant_id == TENANT_ID
-    assert runner.commands[0].scope.collection_ids == (ALLOWED_COLLECTION_ID,)
+    assert runner.commands[0].scope.collection_ids == ()
+    assert runner.commands[0].authorization is not None
+    assert runner.commands[0].authorization.full_tenant_access is False
+    assert runner.commands[0].authorization.collection_ids == (ALLOWED_COLLECTION_ID,)
     assert catalog.seen_collection_scopes == [(ALLOWED_COLLECTION_ID,)]
     assert all(len(value) == 64 for value in store.seen_hashes)
     assert FULL_TOKEN not in repr(store.seen_hashes)
