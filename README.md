@@ -215,7 +215,7 @@ Recovery Controller：有证据时由当前 OpenAI-compatible LLM 逐项判断 r
 - `/health/live` 返回 200；未携带 Bearer Token 访问 `/mcp` 返回 401。使用官方 MCP SDK 和一次性本地 Token 完成了 Tool 发现、Resource 读取、引用验证和真实知识查询，随后撤销了 Token。
 - 对无可靠证据的问题执行 Deep 查询时，持久化 Trace 记录了 2 轮 Recovery、4 次 LLM 调用，`assessor_degraded=false`，且 Planner Provider 为 `openai_compatible_query_planner`；Recovery 确实接入当前 LLM。
 - 对一个 Demo 文档执行了一次人工远程 LLM 清洗：`openai_compatible / MiniMax-M3` 实际调用 1 次，1 个 Root 发生变化，Leaf 数量由 1 保持为 1；重新读取 Pipeline Inspector 的 PostgreSQL 事实时可见 LLM audit 和 2 条清洗 audit，重复执行已被拒绝。
-- 当前 Provider 目录与运行时一致：本地 384 维 Embedding、Jina 多语 Reranker、Milvus 原生 BM25、Vision `none`。SiliconFlow BGE-M3 Embedding 与 BGE Reranker 的本次真实请求均返回 HTTP 402；TokenHub 当前模型目录未发现可确认的 Vision 模型，因此 Vision 仍不能宣称已完成真实 Caption 验收。
+- 当前 Provider 目录与运行时一致：本地 384 维 Embedding、Jina 多语 Reranker、Milvus 原生 BM25，以及 `openai_compatible / MiniMax-M3` Vision。真实 TokenHub Vision 调用已用图片完成验收：MiniMax-M3 将图片转换为 caption，caption 写入 Root metadata 和 Leaf `retrieval_text`，随后进入 Embedding 检索；真实图片查询返回 `answered`，并通过引用校验。SiliconFlow BGE-M3 Embedding 与 BGE Reranker 的本次真实请求仍返回 HTTP 402。
 
 Standard 与 Deep 的回答都不再直接信任自由文本：LLM 必须返回段落、引用 ID、Root/Leaf ID、Root 原文
 连续 quote 和覆盖唯一原始问题 requirement 的结构化草稿。后端确定性核验每个事实段落、引用归属、quote 与覆盖率；
