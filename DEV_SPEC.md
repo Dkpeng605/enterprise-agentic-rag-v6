@@ -3204,7 +3204,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 回滚：移除图片 endpoint 和 Inspector `<img>` 预览即可回到 metadata-only 展示；不得删除 ObjectStore
   图片、Root/Leaf、向量、历史 Caption 或 Milvus 文件，不需要数据库 migration。已存在的图片事实继续由
   metadata 展示。
-- PR：待提交，建议分支 `feat/m7-r15-protected-image-preview`。
+- PR：`feat/m7-r15-protected-image-preview`，已在 PR #88 创建并于 required checks 全绿后 squash merge。
 
 ##### M7-R16 Provider 选择维度状态一致性（已完成）
 
