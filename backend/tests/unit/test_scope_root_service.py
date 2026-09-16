@@ -143,7 +143,7 @@ async def test_recover_merges_leaf_ids_preserves_root_order_and_enforces_char_bu
 
 
 @pytest.mark.anyio
-async def test_recover_exposes_only_selected_leaf_text_as_model_evidence() -> None:
+async def test_recover_exposes_selected_leaf_retrieval_text_as_model_evidence() -> None:
     selected = hit("a", "1", selected=True, score=0.2)
     repository = FakeContextRepository(
         leaves=(
@@ -173,7 +173,7 @@ async def test_recover_exposes_only_selected_leaf_text_as_model_evidence() -> No
     result = await ScopeRootService(repository).recover(repository.scope, (selected,))
 
     assert result.roots[0].text == "full Root source text"
-    assert result.roots[0].evidence_text == "exact Leaf source text"
+    assert result.roots[0].evidence_text == "retrieval-only text"
 
 
 @pytest.mark.anyio
@@ -212,7 +212,7 @@ async def test_recover_budgets_model_evidence_not_the_complete_root() -> None:
                 first.root_id,
                 DOCUMENT_ID,
                 VERSION_ID,
-                "first retrieval text",
+                "retrieval A",
                 "short evidence A",
             ),
             StoredLeafEvidence(
@@ -220,7 +220,7 @@ async def test_recover_budgets_model_evidence_not_the_complete_root() -> None:
                 second.root_id,
                 DOCUMENT_ID,
                 VERSION_ID,
-                "second retrieval text",
+                "retrieval B",
                 "short evidence B",
             ),
         ),
@@ -254,11 +254,11 @@ async def test_recover_budgets_model_evidence_not_the_complete_root() -> None:
 
     assert [root.root_id for root in result.roots] == [first.root_id, second.root_id]
     assert [root.evidence_text for root in result.roots] == [
-        "short evidence A",
-        "short evidence B",
+        "retrieval A",
+        "retrieval B",
     ]
     assert [root.text for root in result.roots] == ["x" * 100, "y" * 100]
-    assert result.used_chars == len("short evidence A") + len("short evidence B")
+    assert result.used_chars == len("retrieval A") + len("retrieval B")
     assert result.truncated_count == 0
 
 

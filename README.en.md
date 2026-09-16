@@ -76,13 +76,30 @@ The first upload or query downloads these ONNX models into the ignored
 - Reranker: `jinaai/jina-reranker-v2-base-multilingual`;
 - LLM: `MiniMax-M3`, called through `LLM_BASE_URL` from `.env`.
 
-Image captioning is disabled by default (`vision=none`): extracted images remain in the local ObjectStore and
-do not leave the Mac. To demonstrate real image understanding, configure
-`ENTERPRISE_RAG__PROVIDERS__VISION=openai_compatible`, `VISION_BASE_URL`, `VISION_API_KEY`, and `VISION_MODEL`
-in `.env`. The adapter calls an OpenAI-compatible `/chat/completions` endpoint with text plus a base64 data URI.
-Only the image bytes are sent; no unauthorized document text is included. 429, 5xx, and transport failures use
-bounded retries. Administrators may select the disabled or enabled profile at `/admin/providers`; the selection
-is restart-bound and secrets are never returned to the frontend.
+The Mac example enables image understanding with `ENTERPRISE_RAG__PROVIDERS__VISION=openai_compatible`. The Mac
+composition explicitly reuses the configured `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` (verified with TokenHub's
+`MiniMax-M3`), so a second secret is not required. It sends the extracted image as a base64 data URI to the
+OpenAI-compatible `/chat/completions` endpoint, removes MiniMax's `<think>` wrapper, and stores the final caption in
+Root metadata and the first Leaf's `retrieval_text` before Embedding projection. Root recovery passes this authorized
+Leaf `retrieval_text` to the answer author, so the model can see and cite image text. Citation verification accepts a
+caption only when it occurs in the selected Leaf's persisted retrieval text; ordinary document quotes still must come
+from the complete clean Root. The original image remains in the local ObjectStore. Only image bytes are sent; no unauthorized document text is included. 429, 5xx, and transport
+failures use bounded retries; a Vision failure degrades only the caption and does not discard the document. A
+separate endpoint can still be configured with `VISION_BASE_URL`, `VISION_API_KEY`, and `VISION_MODEL`.
+Administrators may select the disabled or enabled profile at `/admin/providers`; the selection is restart-bound and
+secrets are never returned to the frontend.
+
+To verify the real Vision call and the retrieval boundary without writing a database document (the command prints only
+Provider/model/status/counts, never image text or secrets):
+
+```bash
+uv run --project backend --env-file .env python scripts/mac-vision-smoke.py
+```
+
+The smoke generates a valid in-memory PNG, calls TokenHub `MiniMax-M3`, verifies that the original image was staged,
+that `<think>` did not enter the caption, and that the caption reached the first Leaf's `retrieval_text`. For the full
+business acceptance, upload a PDF/DOCX with an embedded image in the UI, wait for the Job to succeed, and inspect the
+Pipeline Inspector for the actual protected image preview, caption, and retrieval inclusion.
 
 The MiniLM registry describes a 512-token input window, but the cached FastEmbed tokenizer on this Mac
 reports an actual limit of 128; the UI and Splitter use the runtime limit. The Provider administration page
@@ -986,9 +1003,18 @@ The deterministic Cleaner preserves both raw and cleaned text and records each e
 
 The structure-aware Splitter uses a versioned paragraph- and sentence-aware strategy: within each Root it preserves headings, paragraphs, lists, code fences, table rows, and complete sentences before applying target/max limits. New macOS ingestion creates disjoint Leaves; Root recovery restores the complete context after retrieval. It falls back to a token hard cut only when one structural unit itself exceeds the budget, and records `boundary=token_limit_hard_cut` and `hard_cut=true` in Leaf metadata. The real macOS runtime reuses the FastEmbed tokenizer and model input limit; the effective safe budget is the smaller of the configured cap and `model_input_limit - 1`. Each Root/Leaf records the actual tokenizer, budget, boundary, and hard-cut count for inspection. Continuation table chunks repeat headers and count them toward the token cap; Root/Leaf IDs remain stable for the same version, index revision, content, and order.
 
-Image enrichment writes the original image extracted by a Loader to the content-addressed ObjectStore before invoking the pluggable Vision port. The default `vision: none` keeps the image and skips captioning. `openai_compatible` sends text plus a `data:image/*;base64,...` payload to `/chat/completions`, requires exactly one non-empty string caption, and applies bounded retries for 429/5xx/transport failures. Root metadata records image dimensions, MIME, hash, object key, caption status, and sanitized error code so the Pipeline Inspector can show the actual result. A Vision failure degrades only the caption, without discarding the stored image or exposing provider errors. ObjectStore failure still aborts ingestion because image persistence is not optional data.
+Image enrichment writes the original image extracted by a Loader to the content-addressed ObjectStore before invoking the
+pluggable Vision port. The offline composition keeps `vision: none`, while the Mac composition explicitly enables
+`openai_compatible` and reuses the configured MiniMax-M3 LLM endpoint/key/model; a separate service may instead use
+complete `VISION_*` credentials. The adapter sends text plus a `data:image/*;base64,...` payload to `/chat/completions`,
+removes MiniMax's `<think>` wrapper before returning a caption, and applies bounded retries for 429/5xx/transport
+failures. Root metadata records image dimensions, MIME, hash, object key, caption status, and sanitized error code so the
+Pipeline Inspector can show the actual result. A non-empty caption is written to `image_captions` and appended to the
+first Leaf's `retrieval_text` before Embedding projection. A Vision failure degrades only the caption, without discarding
+the stored image or exposing provider errors. ObjectStore failure still aborts ingestion because image persistence is
+not optional data.
 
-The Pipeline Inspector's `IMAGE ENRICHMENT` panel reads persisted facts from the selected Root. It shows image count, page/ordinal/name, MIME, dimensions, SHA-256, ObjectStore key, caption text, `created/skipped/degraded` status, the actual Vision Provider/model, and status counts. It also checks each caption against the saved Leaf `retrieval_text` and explicitly marks whether it entered retrieval. Images can now be genuinely previewed in the panel through `GET /api/v1/documents/{document_id}/images/{sha256}`: the server permits only the current tenant's `ready` document, active indexed version, and a SHA-256 recorded in that version's Root metadata; the object key is derived from and revalidated against the digest, and the response includes `ETag`, the digest, and `nosniff`. This is not a public static path. A preview failure leaves metadata/caption facts visible and never fabricates historical results from the current configuration.
+The Pipeline Inspector's `IMAGE ENRICHMENT` panel reads persisted facts from the selected Root. It shows image count, page/ordinal/name, MIME, dimensions, SHA-256, ObjectStore key, caption text, `created/skipped/degraded` status, the actual Vision Provider/model, and status counts. It also checks each caption against the saved Leaf `retrieval_text` and explicitly marks whether it entered retrieval. Root recovery passes the same authorized Leaf `retrieval_text` to the answer author, so image text can be seen and cited; citation verification accepts a caption only when it occurs in the selected Leaf's persisted retrieval text, while ordinary document quotes still must come from the complete clean Root. Images can now be genuinely previewed in the panel through `GET /api/v1/documents/{document_id}/images/{sha256}`: the server permits only the current tenant's `ready` document, active indexed version, and a SHA-256 recorded in that version's Root metadata; the object key is derived from and revalidated against the digest, and the response includes `ETag`, the digest, and `nosniff`. This is not a public static path. A preview failure leaves metadata/caption facts visible and never fabricates historical results from the current configuration.
 
 The Embedding port has local multilingual and OpenAI-compatible implementations, with FastEmbed profiles selected by `EMBEDDING_MODEL`. The local default is `paraphrase-multilingual-MiniLM-L12-v2` (384 dimensions, mean pooling, and a registry description reporting 512 input tokens), which downloads approximately 0.22GB on first use. The runtime does not blindly trust the registry: it first reads the actual truncation limit; if a FastEmbed ONNX wrapper hides that field, it probes `token_count` with text beyond the registry limit and detects the tokenizer's capped runtime limit (the current cached model reports 128). The optional Chinese-focused `BAAI/bge-small-zh-v1.5` profile is verified at 512 dimensions and 512 input tokens; set `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512` when selecting it, and isolate the change in a new index revision. The Provider exposes the real tokenizer's `count_tokens` and limit, rejects an individual input at the model limit, and shares that counter with the Splitter. The remote adapter applies item/token batch limits plus bounded retries for timeouts, rate limits, and 5xx responses. The SiliconFlow `BAAI/bge-m3` profile validates 1,024-dimensional output and uses the provider's documented 8,192-token limit while explicitly labelling its local counter as a deterministic estimate because the HTTP API does not expose a tokenizer. Both validate count, order, dimension, and finite values and return L2-normalized vectors. Run the real-model check explicitly with:
 

@@ -96,8 +96,12 @@ class ScopeRootService:
         unique_root_ids = tuple(dict.fromkeys(hit.root_id for hit in selected_hits))
         selected_leaf_ids = tuple(dict.fromkeys(hit.leaf_id for hit in selected_hits))
         stored_leaves = await self._repository.load_leaves(scope, selected_leaf_ids)
+        # Retrieval evidence is the persisted text that was actually embedded
+        # and reranked. It may contain a Vision caption appended by the
+        # Splitter; using only ``text`` here would make an image retrievable but
+        # invisible to the answer author and citation verifier.
         leaf_text_by_id = {
-            item.leaf_id: item.text or item.retrieval_text for item in stored_leaves
+            item.leaf_id: item.retrieval_text for item in stored_leaves
         }
         stored = await self._repository.load_roots(scope, unique_root_ids)
         by_id = {item.root_id: item for item in stored}

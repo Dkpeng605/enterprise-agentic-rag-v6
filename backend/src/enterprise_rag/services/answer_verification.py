@@ -190,7 +190,7 @@ class AnswerVerificationService:
             if not set(citation.leaf_ids).issubset(root.leaf_ids):
                 _add_issue(issues, VerificationIssue.INVALID_LEAF)
                 continue
-            if _canonical_quote(root.text, citation.quote) is None:
+            if _quote_in_root(root, citation.quote) is None:
                 _add_issue(issues, VerificationIssue.QUOTE_NOT_FOUND)
                 continue
             valid_citation_ids.add(citation.id)
@@ -278,7 +278,7 @@ def _citation(draft: DraftCitation, root: RootContext) -> Citation:
         root.title,
         page,
         section,
-        _canonical_quote(root.text, draft.quote) or draft.quote,
+        _quote_in_root(root, draft.quote) or draft.quote,
         root.score,
     )
 
@@ -309,7 +309,7 @@ def _safe_partial_answer(
         if (
             root is None
             or not set(citation.leaf_ids).issubset(root.leaf_ids)
-            or _canonical_quote(root.text, citation.quote) is None
+            or _quote_in_root(root, citation.quote) is None
         ):
             continue
         valid[citation.id] = _citation(citation, root)
@@ -372,6 +372,21 @@ def _canonical_quote(source: str, quote: str) -> str | None:
         return None
     end = match + len(normalized_quote)
     return source[starts[match] : ends[end - 1]]
+
+
+def _quote_in_root(root: RootContext, quote: str) -> str | None:
+    """Validate a quote against authorized original or retrieval evidence.
+
+    Normal document quotes are canonicalized from the complete clean Root.
+    Vision captions are not part of that original text, so they are accepted
+    only when they occur in the selected, persisted Leaf ``retrieval_text``
+    already attached to this RootContext. This keeps caption citations bound to
+    the same tenant/document/version/Leaf authorization checks.
+    """
+
+    return _canonical_quote(root.text, quote) or _canonical_quote(
+        root.evidence_text or "", quote
+    )
 
 
 def _normalize_quote_text(value: str) -> tuple[str, list[int], list[int]]:

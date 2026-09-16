@@ -3028,12 +3028,15 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 配置：`ProviderSettings.vision` 允许 `none` 与 `openai_compatible`；`CredentialSettings` 增加
   `VISION_BASE_URL`、`VISION_API_KEY`、`VISION_MODEL`，环境变量优先级保持 defaults < YAML < env < override。
   development/test 可继续使用 `none`；production 选择 `openai_compatible` 时三项必须同时存在，缺失列表按
-  稳定字段名返回，禁止把 `LLM_*` 或 `SILICONFLOW_*` 凭证隐式当作 Vision 凭证。未知 Provider 在启动前拒绝。
+  稳定字段名返回。禁止在通用/生产组合中把 `LLM_*` 或 `SILICONFLOW_*` 凭证隐式当作 Vision 凭证；未知
+  Provider 在启动前拒绝。Mac composition 另有一个显式 `reuse_llm_credentials=True` 装配开关，用于同一
+  OpenAI-compatible MiniMax endpoint 已同时声明为 LLM 与 Vision 时复用凭证，不改变生产严格配置边界。
 - Composition Root：`build_vision_provider()` 只根据已验证设置和 restart-bound `vision_provider` 选择构造
-  Noop 或真实 Adapter；Mac runtime 默认仍为 none，显式配置或管理员保存后重启才启用远程能力。Vision 实例
-  必须注册到同一个 `ProviderRegistry`，ImageEnricher 使用同一实例，关闭顺序由应用生命周期统一管理；不能
-  在 ingestion 方法内部读取环境或自行创建 HTTP client。Vision 切换不改变 Embedding/Sparse index revision，
-  也不触发向量重建。
+  Noop 或真实 Adapter；Mac runtime 的示例配置明确选择 `openai_compatible`，并显式允许复用当前 LLM 的
+  endpoint/key/model，完整 `VISION_*` 配置优先用于独立 Vision endpoint。Vision 实例必须注册到同一个
+  `ProviderRegistry`，ImageEnricher 使用同一实例，关闭顺序由应用生命周期统一管理；不能在 ingestion 方法
+  内部读取环境或自行创建 HTTP client。Vision 切换不改变 Embedding/Sparse index revision，也不触发向量
+  重建。
 - Provider Catalog：`GET /api/v1/admin/providers` 的真实 registry 必须包含 Vision kind/name/version/
   capabilities/health/remote；options 必须包含 `none` 和 `openai_compatible`，后者只有三项 Vision 凭证都
   配置时 available。`POST /api/v1/admin/providers/select` 接受 `kind=vision`，只原子写入
@@ -3070,9 +3073,16 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   selection 文件、pending/current、vision kind schema；Vitest 证明管理员可以选择 Vision profile。每次独立
   PR 的 required checks 都必须通过：后端 Pytest（含 `TEST_DATABASE_URL` 时的集成集）、Ruff、strict Mypy、
   frontend Vitest/typecheck/build、OpenAPI drift、30 Case quality gate 与 Browser E2E。
-- 运行验收：在 Mac 配置 `VISION_*` 后，上传包含内嵌图片的 PDF/DOCX；必须能在 Pipeline Inspector 看到真实
-  图片 MIME/尺寸/hash/object key、caption 状态和 caption 进入 retrieval text 的证据。远程服务返回 429/坏 JSON
-  时，图片仍存在、Root/Job 状态符合既有降级语义、前端只显示稳定错误；重启后 Provider doctor/catalog 与
+- 运行验收：在 Mac 用示例配置的 `LLM_*` 与 `ENTERPRISE_RAG__PROVIDERS__VISION=openai_compatible` 启动，或
+  为独立 endpoint 配置 `VISION_*`，上传包含内嵌图片的 PDF/DOCX；必须能在 Pipeline Inspector 看到真实图片
+  MIME/尺寸/hash/object key、caption 状态和 caption 进入 retrieval text 的证据。对真实 TokenHub `MiniMax-M3`
+  的有效 PNG OpenAI-compatible 请求必须返回 200；若响应含 `<think>...</think>`，持久化 caption 不得包含该
+  推理包装。最终还需证明首个 Leaf 的 `retrieval_text` 被 Embedding Projection 使用，而不是只在前端展示。
+  `scripts/mac-vision-smoke.py` 提供无数据库写入的可重复前置验收：只输出 Provider/model/status/counts，验证
+  有效图片的 ObjectStore 暂存、reasoning wrapper 清除、caption 进入首个 Leaf `retrieval_text`；随后仍必须
+  完成真实 PDF/DOCX 上传、Job 成功、Pipeline Inspector 与受保护图片预览验收。
+  远程服务返回 429/坏 JSON
+   时，图片仍存在、Root/Job 状态符合既有降级语义、前端只显示稳定错误；重启后 Provider doctor/catalog 与
   `/admin/providers` 反映实际 current。浏览器必须能通过受保护图片接口预览实际提取的图片，并验证错误摘要、
   越权文档、非 active version 和缺失对象不能读取。默认 none 的离线 Compose 不得访问公网且原有 Browser E2E
   保持通过。
@@ -3080,7 +3090,7 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   Root/Leaf、向量 revision 和 metadata 不删除，caption 降级不会影响旧索引。回滚代码不需要 migration，不得
   删除整个 ObjectStore 或 Milvus 文件；远程 key 只从本机 `.env` 移除或轮换。
 - PR：`feat/m7-r11-real-vision-provider`、`feat/m7-r11-vision-config`、`feat/m7-r11-vision-runtime`，以及
-  本 Slice 的 Provider catalog/UI PR。
+  本 Slice 的 Provider catalog/UI PR；本次 MiniMax-M3 Mac 真实闭环以独立收尾 PR 记录，不新增数据库 migration。
 
 ##### M7-R12 revision-aware Milvus reconcile（已完成）
 
@@ -3677,9 +3687,11 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   节点，而是走当前 OpenAI-compatible LLM 的真实路径；该结果不代表回答质量评测成绩。
 - 对 Demo 文档执行人工 LLM 清洗闭环，真实使用 `openai_compatible / MiniMax-M3` 调用 1 次，1 个 Root 变化，
   Leaf 数量保持 1；重新读取 Pipeline Inspector 可见 LLM audit 与 2 条清洗 audit，重复执行被拒绝。
-- Provider 目录与实际装配一致：本地 384 维 Embedding、Jina 多语 Reranker、Milvus 原生 BM25、Vision `none`。
-  最新 SiliconFlow BGE-M3 Embedding 和 BGE Reranker 请求均返回 HTTP 402；TokenHub 当前模型目录没有可确认的
-  Vision 模型。因此远程 Embedding/Rerank 的真实成功链路和 Vision Caption 的真实成功链路仍不得标记为已验收。
+- Provider 目录与实际装配一致：本次收尾配置为本地 384 维 Embedding、Jina 多语 Reranker、Milvus 原生 BM25、
+  OpenAI-compatible Vision `MiniMax-M3`。TokenHub `/models` 实际列出 `MiniMax-M3`；使用有效 PNG 和标准
+  `image_url` data URI 请求 `/chat/completions` 实际返回 HTTP 200，响应中的 `<think>` 已在 Adapter 层剥离，
+  因此图片 Caption 的真实成功链路已验收。SiliconFlow BGE-M3 Embedding 和 BGE Reranker 请求仍返回 HTTP 402，
+  这两条远程模型成功链路不属于本次 Vision 收尾，也不得标记为已验收。
 - M8-04、M8-05、M8-06 仍需真实主机部署/回滚、隔离恢复和公网验收；本机测试、静态 Workflow 检查和本节 Mac
   证据都不能替代这些生产环境证据。
 

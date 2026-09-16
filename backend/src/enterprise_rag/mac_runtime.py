@@ -244,7 +244,14 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         if active.providers.vision == "openai_compatible"
         else selection.get("vision_provider", active.providers.vision)
     )
-    vision = build_vision_provider(active, provider_name=vision_provider_name)
+    vision = build_vision_provider(
+        active,
+        provider_name=vision_provider_name,
+        # MiniMax-M3 is the explicitly configured OpenAI-compatible LLM for
+        # this Mac composition and also provides multimodal image captioning.
+        # The production composition does not opt into this reuse.
+        reuse_llm_credentials=True,
+    )
     loaders = (
         PdfLoader(
             ocr,
@@ -360,10 +367,18 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
                 ("reranker", reranker_remote_key),
                 (
                     "vision",
-                    active.credentials.vision_base_url is not None
-                    and active.credentials.vision_api_key is not None
-                    and active.credentials.vision_model is not None
-                    and bool(active.credentials.vision_model.strip()),
+                    (
+                        active.credentials.vision_base_url is not None
+                        and active.credentials.vision_api_key is not None
+                        and active.credentials.vision_model is not None
+                        and bool(active.credentials.vision_model.strip())
+                    )
+                    or (
+                        active.credentials.llm_base_url is not None
+                        and active.credentials.llm_api_key is not None
+                        and active.credentials.llm_model is not None
+                        and bool(active.credentials.llm_model.strip())
+                    ),
                 ),
             )
             if configured
