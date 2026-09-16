@@ -3263,6 +3263,25 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   数据库、向量、Root/Leaf、索引 revision 或历史 Trace。
 - PR：`fix/unify-query-coverage-boundary`。
 
+##### M7-R18 检索开关执行边界回归（进行中）
+
+- 变更原因：M7-R17 已规定 `use_sub_queries=false` 的计划只能执行一条 rewritten route，但两个图执行器
+  之前仍直接遍历 `plan.sub_queries`。这依赖 Domain 构造器永远先于执行器拦截非法对象，无法把“只有 LLM
+  明确启用才启动多路”作为执行层自己的不变量。
+- 执行策略：新增共享 `retrieval_queries(plan)`。当 `use_sub_queries=false` 时，返回且只返回
+  `(plan.rewritten_query,)`；当 `true` 时才返回已通过 QueryPlan 结构校验的 2～4 条替代路径。Standard、
+  Semantic、Deep 初始检索和 Recovery 仍共享原有上下文、权限、RRF、Rerank、Root 恢复及索引边界；该函数
+  不改变 QueryPlan 的持久化字段，也不把 `requirements` 重新绑定到改写文本。
+- 覆盖验收：四条已启用路径中，只要一条经过当前授权链并提供足够可靠、可引用的证据，唯一的原始问题
+  requirement 就可以被 Evidence Assessor/Answer Verify 判定为 covered；其余路径无证据不会增加 missing
+  requirement，也不会要求逐路径回答。任何生成的覆盖文本仍必须通过 Root/Leaf 归属、连续 quote 和事实段落
+  引用校验。
+- EDD：新增 Standard 图“关闭开关只调用一条检索路径”测试，并保留 Query Planner 的显式开关、空列表、
+  Provider 失败单路 fallback、四路单 requirement、Deep 任一路覆盖和未知 provenance 测试；必须运行相关
+  Pytest、Ruff、strict Mypy、前端 Vitest/typecheck/build 与 OpenAPI drift。
+- 回滚：移除 `retrieval_queries()` 及两个执行图的调用即可回到仅依靠 QueryPlan 构造不变量的实现；不删除
+  数据库、向量、Trace、历史文档或索引 revision。
+
 ### M8：首次公网发布
 
 #### M8-00 独立摄取 Worker 前置 Slice（已完成）

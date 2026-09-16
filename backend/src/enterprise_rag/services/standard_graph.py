@@ -15,7 +15,11 @@ from enterprise_rag.ports.context import ResolvedQueryScope, ScopeAuthorization
 from enterprise_rag.ports.llm import CompletionRequest, LanguageModel
 from enterprise_rag.ports.planner import ConversationTurn, PlannerRequest
 from enterprise_rag.services.fusion import FusionResult
-from enterprise_rag.services.query_planner import PlannerOutcome, canonicalize_plan
+from enterprise_rag.services.query_planner import (
+    PlannerOutcome,
+    canonicalize_plan,
+    retrieval_queries,
+)
 from enterprise_rag.services.reranking import RerankItem, RerankOutcome
 from enterprise_rag.services.retrieval import DualSearchResult
 from enterprise_rag.services.scope_root import (
@@ -160,6 +164,7 @@ class StandardQueryGraph:
             )
             plan = canonicalize_plan(planned.plan, original_query=request.query)
             planner_degraded = planned.degraded
+            active_queries = retrieval_queries(plan)
 
             transitions.append(StageTransition(QueryGraphStage.SEARCH))
             search_scope = _authorized_search_scope(plan.scope, request.authorization)
@@ -173,14 +178,14 @@ class StandardQueryGraph:
                             index_revision=request.index_revision,
                             scope=search_scope,
                         )
-                        for query in plan.sub_queries
+                        for query in active_queries
                     )
                 )
 
             searched = await trace_async(
                 "rag.retrieval",
                 search_all(),
-                attributes={"rag.retrieval.sub_query_count": len(plan.sub_queries)},
+                attributes={"rag.retrieval.sub_query_count": len(active_queries)},
             )
             transitions.append(StageTransition(QueryGraphStage.FUSE))
             with start_span("rag.rrf_fusion") as stage_span:

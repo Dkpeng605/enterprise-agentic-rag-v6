@@ -3,6 +3,7 @@ from uuid import UUID
 
 from enterprise_rag.domain import QueryIntent, QueryMode, QueryPlan, QueryScope
 from enterprise_rag.ports import ScopeAuthorization
+from enterprise_rag.services.query_planner import retrieval_queries
 from enterprise_rag.services.scope_root import RootContext
 from enterprise_rag.services.semantic_query import (
     _answer_root_limit,
@@ -55,6 +56,24 @@ def test_decomposed_standard_plan_can_forward_five_roots() -> None:
         QueryMode.STANDARD,
         plan(requirement="原始问题", sub_queries=("a", "b")),
     ) == 5
+
+
+def test_retrieval_routes_require_explicit_subquery_opt_in() -> None:
+    rewritten = QueryPlan(
+        "原始问题",
+        "改写路径",
+        QueryIntent.FACTUAL,
+        ("改写路径",),
+        ("原始问题",),
+        QueryScope(),
+        "zh",
+        QueryMode.STANDARD,
+        False,
+    )
+    enabled = plan(requirement="原始问题", sub_queries=("路径一", "路径二"))
+
+    assert retrieval_queries(rewritten) == ("改写路径",)
+    assert retrieval_queries(enabled) == ("路径一", "路径二")
     assert _answer_root_limit(
         QueryMode.STANDARD,
         plan(requirement="a", sub_queries=("a",)),
