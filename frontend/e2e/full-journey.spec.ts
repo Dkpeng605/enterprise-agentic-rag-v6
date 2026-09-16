@@ -18,7 +18,7 @@ test('anonymous full journey and isolated administrator login', async ({ page })
   await expect(page.getByRole('status')).toHaveText('集合已创建，可立即上传文档。')
 
   await page.getByRole('button', { name: collectionName, exact: false }).first().click()
-  await page.getByRole('button', { name: '上传文档' }).click()
+  await page.getByRole('button', { name: '上传文档', exact: true }).click()
   const uploadDialog = page.getByRole('dialog')
   await uploadDialog.locator('input[type="file"]').setInputFiles(
     'e2e/fixtures/e2e-knowledge.md',
