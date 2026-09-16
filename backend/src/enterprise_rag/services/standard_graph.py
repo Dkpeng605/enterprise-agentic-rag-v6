@@ -15,7 +15,7 @@ from enterprise_rag.ports.context import ResolvedQueryScope, ScopeAuthorization
 from enterprise_rag.ports.llm import CompletionRequest, LanguageModel
 from enterprise_rag.ports.planner import ConversationTurn, PlannerRequest
 from enterprise_rag.services.fusion import FusionResult
-from enterprise_rag.services.query_planner import PlannerOutcome
+from enterprise_rag.services.query_planner import PlannerOutcome, canonicalize_plan
 from enterprise_rag.services.reranking import RerankItem, RerankOutcome
 from enterprise_rag.services.retrieval import DualSearchResult
 from enterprise_rag.services.scope_root import (
@@ -158,7 +158,7 @@ class StandardQueryGraph:
                     )
                 )
             )
-            plan = planned.plan
+            plan = canonicalize_plan(planned.plan, original_query=request.query)
             planner_degraded = planned.degraded
 
             transitions.append(StageTransition(QueryGraphStage.SEARCH))

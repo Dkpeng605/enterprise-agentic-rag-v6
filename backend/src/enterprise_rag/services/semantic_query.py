@@ -42,7 +42,10 @@ from enterprise_rag.services.query_api import (
     QueryProgressStage,
     QueryRunStatus,
 )
-from enterprise_rag.services.query_planner import QueryPlanningService
+from enterprise_rag.services.query_planner import (
+    QueryPlanningService,
+    canonicalize_plan,
+)
 from enterprise_rag.services.reranking import RerankingService
 from enterprise_rag.services.retrieval import (
     DualSearchResult,
@@ -766,10 +769,7 @@ def _effective_plan(plan: QueryPlan, *, original_query: str) -> QueryPlan:
     user question, never rewritten retrieval text or a sub-query.
     """
 
-    requirement = original_query.strip()
-    if plan.original_query.strip() == requirement and plan.requirements == (requirement,):
-        return plan
-    return replace(plan, original_query=requirement, requirements=(requirement,))
+    return canonicalize_plan(plan, original_query=original_query)
 
 
 def _answer_root_limit(mode: QueryMode, plan: QueryPlan) -> int:
