@@ -1,6 +1,5 @@
 """Deterministic answer/citation verification, one repair, and bounded abstention."""
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -335,13 +334,66 @@ def _safe_partial_answer(
     )
 
 
+_QUOTE_EQUIVALENTS = str.maketrans(
+    {
+        "“": '"',
+        "”": '"',
+        "„": '"',
+        "‟": '"',
+        "「": '"',
+        "」": '"',
+        "『": '"',
+        "』": '"',
+        "‘": "'",
+        "’": "'",
+        "‚": "'",
+        "‛": "'",
+    }
+)
+
+
 def _canonical_quote(source: str, quote: str) -> str | None:
-    """Return the source substring represented by a whitespace-normalized quote."""
+    """Return the exact source substring for an equivalent model quote.
+
+    Providers sometimes replace typographic quotation marks or line whitespace
+    while copying a citation.  The match is normalized, but the returned value
+    always comes from the original Root text, so citation verification never
+    accepts text that is absent from the source.
+    """
 
     if quote in source:
         return quote
-    parts = re.findall(r"\S+", quote.strip())
-    if not parts:
+    normalized_source, starts, ends = _normalize_quote_text(source)
+    normalized_quote, _, _ = _normalize_quote_text(quote.strip())
+    if not normalized_quote:
         return None
-    match = re.search(r"\s+".join(re.escape(part) for part in parts), source)
-    return match.group(0) if match is not None else None
+    match = normalized_source.find(normalized_quote)
+    if match < 0:
+        return None
+    end = match + len(normalized_quote)
+    return source[starts[match] : ends[end - 1]]
+
+
+def _normalize_quote_text(value: str) -> tuple[str, list[int], list[int]]:
+    normalized: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    whitespace_start: int | None = None
+    for index, character in enumerate(value.translate(_QUOTE_EQUIVALENTS)):
+        if character.isspace():
+            if whitespace_start is None:
+                whitespace_start = index
+            continue
+        if whitespace_start is not None:
+            normalized.append(" ")
+            starts.append(whitespace_start)
+            ends.append(index)
+            whitespace_start = None
+        normalized.append(character)
+        starts.append(index)
+        ends.append(index + 1)
+    if whitespace_start is not None:
+        normalized.append(" ")
+        starts.append(whitespace_start)
+        ends.append(len(value))
+    return "".join(normalized), starts, ends

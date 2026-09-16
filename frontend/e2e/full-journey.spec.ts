@@ -65,7 +65,12 @@ test('anonymous full journey and isolated administrator login', async ({ page })
   await expect(page.locator('[aria-labelledby="mcp-resources-title"]')).toContainText(
     'rag://documents/{document_id}',
   )
-  await expect(page.getByText('需要外部组合', { exact: true })).toBeVisible()
+  if (process.env.E2E_MAC_RUNTIME === '1') {
+    await expect(page.getByText('当前已挂载', { exact: true })).toBeVisible()
+    await expect(page.getByText('http://127.0.0.1:8000/mcp', { exact: true })).toBeVisible()
+  } else {
+    await expect(page.getByText('需要外部组合', { exact: true })).toBeVisible()
+  }
 
   await page.getByRole('link', { name: '评测中心' }).click()
   await page.getByLabel('最大 Case').fill('3')

@@ -1947,7 +1947,7 @@ Caddy 自动 TLS。设置 HSTS、X-Content-Type-Options、Referrer-Policy、fram
 #### M4-08 Verify/Repair/Abstain
 
 - 草稿：答案由有序 `DraftParagraph`、`DraftCitation` 和 covered requirements 组成；事实段落必须显式绑定一个或多个正整数 citation ID，非事实边界说明可不带引用；
-- 引用：citation ID 不得重复，Root ID 必须属于本轮 M4-04 恢复集合，Leaf ID 必须是该 Root 的命中 Leaf 且不得重复，quote 必须是该 Root clean text 中存在的连续原文片段；未知 Root/Leaf、伪造 quote、段落引用未知 ID、重复 citation 与无引用事实均产生稳定 issue；
+- 引用：citation ID 不得重复，Root ID 必须属于本轮 M4-04 恢复集合，Leaf ID 必须是该 Root 的命中 Leaf 且不得重复，quote 必须是该 Root clean text 中存在的连续原文片段；校验允许有限的等价排版引号和连续空白归一化，以兼容 Provider 复制时把中文引号/换行改成 ASCII 引号/普通空格，但最终 Citation quote 必须重新截取自 Root 原文连续子串；未知 Root/Leaf、伪造 quote、段落引用未知 ID、重复 citation 与无引用事实均产生稳定 issue；
 - Requirement：covered requirements 必须是 QueryPlan requirements 的子集；任何未覆盖 requirement 标记 `MISSING_REQUIREMENT`，禁止用模型新增的未知 requirement 冒充覆盖；
 - 冲突：M4-07 Evidence Assessment 已发现 conflict 时直接 Abstain，不调用 Repair，因为改写答案不能修复证据事实冲突；
 - Repair：结构或覆盖问题最多调用一次 `AnswerRepairer`，请求只包含原 QueryPlan、同一批 Root、被拒草稿、issue 和 missing requirements；修复结果再次执行全部确定性校验，不能引入新 Root/Leaf/quote；Repair 异常被净化；
