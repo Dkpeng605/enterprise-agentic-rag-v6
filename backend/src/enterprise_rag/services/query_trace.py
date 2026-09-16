@@ -46,6 +46,7 @@ class QueryRecoveryRound:
 class QueryDegradation:
     component: str
     provider: str | None
+    reason_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,33 +251,42 @@ def _recovery_rounds(spans: tuple[StoredSpan, ...]) -> tuple[QueryRecoveryRound,
 
 
 def _degradations(detail: TraceDetail) -> tuple[QueryDegradation, ...]:
-    values: list[QueryDegradation] = []
+    values: dict[str, QueryDegradation] = {}
     for key, value in detail.attributes.items():
         if not key.endswith("_degraded") or value is not True:
             continue
         component = key.removesuffix("_degraded")
         provider = _text(detail.attributes.get(f"{component}_provider"))
-        values.append(QueryDegradation(component, provider))
+        values[component] = QueryDegradation(
+            component,
+            provider,
+            _text(detail.attributes.get(f"{component}_degradation_code")),
+        )
     span_components = {
         "rag.query_planning": "planner",
         "rag.rerank": "reranker",
         "rag.deep_recovery.assess": "evidence_assessor",
         "rag.answer_generation": "answer_generation",
     }
-    existing = {item.component for item in values}
     for span in detail.spans:
         span_component = span_components.get(span.name)
-        if (
-            span_component is None
-            or span_component in existing
-            or not _bool(span.attributes.get("rag.degraded"))
-        ):
+        if span_component is None or not _bool(span.attributes.get("rag.degraded")):
             continue
-        values.append(
-            QueryDegradation(span_component, _text(span.attributes.get("provider.name")))
-        )
-        existing.add(span_component)
-    return tuple(sorted(values, key=lambda item: item.component))
+        reason_code = _text(span.attributes.get("rag.recovery.assessor_failure_code"))
+        current = values.get(span_component)
+        if current is None or (current.reason_code is None and reason_code is not None):
+            values[span_component] = QueryDegradation(
+                span_component,
+                _text(span.attributes.get("provider.name")),
+                reason_code,
+            )
+        elif current.provider is None:
+            values[span_component] = QueryDegradation(
+                current.component,
+                _text(span.attributes.get("provider.name")),
+                current.reason_code,
+            )
+    return tuple(sorted(values.values(), key=lambda item: item.component))
 
 
 def _plan(spans: tuple[StoredSpan, ...]) -> QueryPlanSnapshot | None:
@@ -438,18 +448,22 @@ def _stage_metrics(spans: tuple[StoredSpan, ...]) -> tuple[QueryStageMetric, ...
         elif span.name == "rag.deep_recovery.assess":
             evidence = _integer(values.get("rag.recovery.evidence_count")) or 0
             covered = _integer(values.get("rag.recovery.covered_count")) or 0
+            assessment_attributes: dict[str, int | float | str] = {
+                "llm_calls": _integer(values.get("rag.llm_calls")) or 0,
+                "input_tokens": _integer(values.get("rag.input_tokens")) or 0,
+                "output_tokens": _integer(values.get("rag.output_tokens")) or 0,
+                "decision": _text(values.get("rag.recovery.decision")) or "unknown",
+            }
+            failure_code = _text(values.get("rag.recovery.assessor_failure_code"))
+            if failure_code is not None:
+                assessment_attributes["failure_code"] = failure_code
             metrics.append(
                 QueryStageMetric(
                     "evidence_assessment",
                     evidence,
                     covered,
                     _integer(values.get("rag.recovery.missing_count")) or 0,
-                    {
-                        "llm_calls": _integer(values.get("rag.llm_calls")) or 0,
-                        "input_tokens": _integer(values.get("rag.input_tokens")) or 0,
-                        "output_tokens": _integer(values.get("rag.output_tokens")) or 0,
-                        "decision": _text(values.get("rag.recovery.decision")) or "unknown",
-                    },
+                    assessment_attributes,
                     covered_requirements=_texts(
                         values.get("rag.recovery.covered_requirements")
                     ),

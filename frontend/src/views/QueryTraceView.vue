@@ -149,6 +149,17 @@ function degradationLabel(value: string): string {
   }[value] ?? `${value} 降级`
 }
 
+function degradationReasonLabel(value: string): string {
+  return {
+    llm_unavailable: 'LLM 不可用', llm_error: 'LLM 错误',
+    invalid_json_or_schema: 'JSON 或 Schema 无效',
+    invalid_requirement_partition: 'Requirement 划分无效', invalid_decision: '决策字段无效',
+    conflict_ignored: '忽略了证据冲突', missing_requirement_answer: '缺失 Requirement 仍回答',
+    unknown_requirement: '返回未知 Requirement', overlapping_requirements: 'Requirement 重叠',
+    invalid_assessment: '评估结构无效', assessor_unexpected_error: '未分类评估错误',
+  }[value] ?? value
+}
+
 function metricStageLabel(value: string): string {
   return {
     query_planning: '查询改写',
@@ -165,7 +176,7 @@ function metricAttributeLabel(value: string): string {
     used_chars: '证据字符', llm_calls: 'LLM 调用', input_tokens: '输入 token',
     output_tokens: '输出 token', citations: '引用',
     sub_queries_with_candidates: '有候选的子查询', sub_queries_selected: '保留的子查询',
-    decision: '决策', status: '状态', issues: '问题', repairs: '修复次数',
+    decision: '决策', status: '状态', issues: '问题', repairs: '修复次数', failure_code: '降级原因',
   }[value] ?? value
 }
 
@@ -222,7 +233,7 @@ onMounted(() => loadTraces())
         <template v-else-if="detail">
           <header class="trace-detail-head"><div><p class="section-kicker">TRACE INSPECTOR</p><h2>{{ modeLabel(detail.summary.mode) }} · {{ statusLabel(detail.summary.status) }}</h2><code>{{ detail.summary.trace_id }}</code></div><dl><div><dt>耗时</dt><dd>{{ Math.round(detail.summary.duration_ms) }} ms</dd></div><div><dt>Span</dt><dd>{{ detail.stages.length }}</dd></div><div><dt>LLM calls</dt><dd>{{ detail.usage.llm_calls ?? '—' }}</dd></div></dl></header>
 
-          <div v-if="detail.degradations.length" class="trace-degraded" role="status"><span>DEGRADED</span><div><strong>本次查询触发了安全回退</strong><p v-for="item in detail.degradations" :key="item.component">{{ degradationLabel(item.component) }}<template v-if="item.provider"> · {{ item.provider }}</template></p></div></div>
+          <div v-if="detail.degradations.length" class="trace-degraded" role="status"><span>DEGRADED</span><div><strong>本次查询触发了安全回退</strong><p v-for="item in detail.degradations" :key="item.component">{{ degradationLabel(item.component) }}<template v-if="item.provider"> · {{ item.provider }}</template><template v-if="item.reason_code"> · 原因：{{ degradationReasonLabel(item.reason_code) }}</template></p></div></div>
 
           <section class="trace-section" data-testid="query-plan">
             <div class="trace-section-head"><div><p class="section-kicker">QUERY PLAN</p><h3>查询改写与子查询</h3></div><span v-if="detail.plan">{{ detail.plan.provider }} · {{ detail.plan.intent }} · {{ detail.plan.language }}</span></div>

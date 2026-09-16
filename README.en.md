@@ -805,6 +805,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R17 unified sub-query and requirement semantics across query graphs: complete
 - M7-R18 retrieval-switch execution boundary regression: complete
 - M7-R19 Sparse Provider current-state projection fix: complete
+- M7-R20 Evidence Assessor degradation diagnostics: complete
 - M8-00 standalone ingestion Worker prerequisite: complete
 - M8-01 production images: complete
 - Production API composition root (M8-02 prerequisite): complete
@@ -876,7 +877,7 @@ The Streamable HTTP adapter requires bearer authentication at `/mcp` and checks 
 
 The observability baseline combines task-local correlation context, JSON Lines logs, and OpenTelemetry spans. HTTP upstream trace context propagates through Query and RAG stages without leaking tenant/query/job context across async tasks. Standard and Ingestion major stages have dedicated child spans. Telemetry uses field allow-lists, rejects sensitive attributes, and does not automatically attach exception messages to spans.
 
-Traces now persist by tenant in `trace_runs`/`trace_spans`; synchronous Query, SSE Query, and Ingestion perform idempotent upserts after their root span ends. Bounded events preserve Dense/Sparse, RRF, and Rerank Leaf/Root ranks and scores, while the degradation summary is derived only from stable `*_degraded` fields. Anonymous users can read all traces in the demo tenant, and a cross-tenant trace ID always returns 404. Run `alembic upgrade head` as shown above after creating or updating an environment.
+Traces now persist by tenant in `trace_runs`/`trace_spans`; synchronous Query, SSE Query, and Ingestion perform idempotent upserts after their root span ends. Bounded events preserve Dense/Sparse, RRF, and Rerank Leaf/Root ranks and scores, while the degradation summary is derived only from stable `*_degraded` fields. When the Evidence Assessor takes a safe fallback, the trace also records a bounded `reason_code` such as `llm_unavailable` or `invalid_requirement_partition`; the UI shows only the sanitized reason and never persists Provider exception messages, prompts, or raw model output. Anonymous users can read all traces in the demo tenant, and a cross-tenant trace ID always returns 404. Run `alembic upgrade head` as shown above after creating or updating an environment.
 
 Prometheus metrics use an application-local Registry and cover HTTP, Query, Retrieval/Recovery, Provider/Token, Ingestion, Milvus, Evaluation, and Rate Limit activity. HTTP labels use route templates only, never raw paths or tenant/user/document/query IDs. `live` has no external dependency; `ready` returns 503 when required configuration, PostgreSQL, or a Provider is unavailable; `doctor` returns only stable status codes and public Provider metadata.
 

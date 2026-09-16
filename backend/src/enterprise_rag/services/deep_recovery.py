@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from enterprise_rag.domain.common import require_non_empty
+from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import QueryScope
 from enterprise_rag.observability import current_metrics, start_span
 
@@ -68,6 +69,7 @@ class EvidenceAssessment:
     input_tokens: int = 0
     output_tokens: int = 0
     degraded: bool = False
+    degradation_code: str | None = None
 
     def __post_init__(self) -> None:
         if not 0 <= self.score <= 1:
@@ -84,6 +86,8 @@ class EvidenceAssessment:
                 raise ValueError(f"{name} must contain unique non-empty values")
         if set(self.covered_requirements) & set(self.missing_requirements):
             raise ValueError("covered and missing requirements must not overlap")
+        if self.degraded != (self.degradation_code is not None):
+            raise ValueError("degradation_code must match degraded")
 
 
 @dataclass(frozen=True, slots=True)
@@ -327,6 +331,10 @@ class DeepRecoveryController:
                 assessment_span.set_attribute("rag.input_tokens", assessment.input_tokens)
                 assessment_span.set_attribute("rag.output_tokens", assessment.output_tokens)
                 assessment_span.set_attribute("rag.degraded", assessment.degraded)
+                if assessment.degradation_code is not None:
+                    assessment_span.set_attribute(
+                        "rag.recovery.assessor_failure_code", assessment.degradation_code
+                    )
             if used_assessor:
                 assessor_calls += max(1, assessment.llm_calls)
                 assessor_input_tokens += assessment.input_tokens
@@ -436,6 +444,7 @@ class DeepRecoveryController:
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
                         degraded=True,
+                        degradation_code=_assessor_failure_code(error),
                     ),
                     True,
                 )
@@ -561,3 +570,37 @@ def _error_usage(error: Exception) -> tuple[int, int, int]:
         )
     calls, input_tokens, output_tokens = values
     return max(1, calls), input_tokens, output_tokens
+
+
+def _assessor_failure_code(error: Exception) -> str:
+    """Return a stable, non-sensitive code for an assessor fallback."""
+
+    if isinstance(error, AppError):
+        if error.code is ErrorCode.LLM_UNAVAILABLE:
+            return "llm_unavailable"
+        if error.code is ErrorCode.LLM_INVALID_RESPONSE:
+            message = error.message.lower()
+            if "requirement partition" in message:
+                return "invalid_requirement_partition"
+            if "invalid decision" in message:
+                return "invalid_decision"
+            if "conflict" in message:
+                return "conflict_ignored"
+            if "missing requirements" in message:
+                return "missing_requirement_answer"
+            return "invalid_json_or_schema"
+        return "llm_error"
+    if isinstance(error, ValueError):
+        message = str(error).lower()
+        if "requirement partition" in message:
+            return "invalid_requirement_partition"
+        if "unknown covered" in message or "unknown missing" in message:
+            return "unknown_requirement"
+        if "overlapping requirements" in message:
+            return "overlapping_requirements"
+        if "missing requirements" in message:
+            return "missing_requirement_answer"
+        if "conflict" in message:
+            return "conflict_ignored"
+        return "invalid_assessment"
+    return "assessor_unexpected_error"

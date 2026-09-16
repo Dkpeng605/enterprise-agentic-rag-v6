@@ -250,6 +250,7 @@ def test_projects_evidence_assessment_answer_verification_and_span_degradation()
                 "rag.output_tokens": 50,
                 "rag.degraded": True,
                 "provider.name": "remote-assessor",
+                "rag.recovery.assessor_failure_code": "invalid_requirement_partition",
             },
         ),
         span(
@@ -296,5 +297,12 @@ def test_projects_evidence_assessment_answer_verification_and_span_degradation()
     assert projected.stage_metrics[1].attributes["repairs"] == 1
     assert projected.stage_metrics[1].missing_requirements == ("期限",)
     assert projected.stage_metrics[1].issues == ("missing_requirement",)
-    assert projected.degradations == (QueryDegradation("evidence_assessor", "remote-assessor"),)
+    assert projected.degradations == (
+        QueryDegradation(
+            "evidence_assessor",
+            "remote-assessor",
+            "invalid_requirement_partition",
+        ),
+    )
+    assert projected.stage_metrics[0].attributes["failure_code"] == "invalid_requirement_partition"
     assert projected.retrieval_branches == ()
