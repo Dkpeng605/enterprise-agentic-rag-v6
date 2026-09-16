@@ -757,6 +757,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R15 Pipeline Inspector 图片受保护预览：已完成
 - M7-R16 Provider 选择维度状态一致性：已完成
 - M7-R17 查询图统一的子查询与 requirement 语义：已完成
+- M7-R18 检索开关执行边界回归：已完成
 - M8-00 独立摄取 Worker 前置 Slice：已完成
 - M8-01 生产镜像：已完成
 - 生产 API 组合根（M8-02 前置）：已完成
