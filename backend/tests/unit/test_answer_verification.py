@@ -149,6 +149,23 @@ async def test_whitespace_normalized_quote_is_canonicalized_to_source_text() -> 
 
 
 @pytest.mark.anyio
+async def test_typographic_quote_is_canonicalized_to_the_exact_source_quote() -> None:
+    source_root = replace(root(), text='部署验证口令是“蓝鲸-7429”。')
+    draft = AnswerDraft(
+        (DraftParagraph('部署验证口令是"蓝鲸-7429"。[1]', (1,)),),
+        (DraftCitation(1, ROOT_ID, (LEAF_ID,), '部署验证口令是"蓝鲸-7429"'),),
+        ('政策是什么？',),
+    )
+
+    outcome = await AnswerVerificationService(FakeRepairer(RuntimeError("must not run"))).finalize(
+        plan=plan(), roots=(source_root,), draft=draft
+    )
+
+    assert outcome.status is AnswerStatus.ANSWERED
+    assert outcome.citations[0].quote == '部署验证口令是“蓝鲸-7429”'
+
+
+@pytest.mark.anyio
 async def test_bad_quote_is_repaired_once_using_the_same_roots() -> None:
     bad = AnswerDraft(
         (DraftParagraph("错误引用。[1]", (1,)),),

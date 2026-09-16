@@ -970,6 +970,7 @@ Deep Recovery 使用按 Leaf ID 跨轮去重的 Evidence Ledger，并给 Recover
 送入 Assessor 的有界证据窗口按置信度优先、原始顺序稳定打破平局；这只是避免可靠替代路径被上下文截断，不为每条 sub-query 预留覆盖名额。
 
 Answer Verification 要求每个事实段落绑定引用；引用 Root 必须来自本轮授权上下文、Leaf 必须属于该 Root，quote 必须是 Root clean text 中真实存在的连续片段，同时覆盖 QueryPlan 唯一的原始问题 requirement。结构或覆盖错误最多 Repair 一次，并使用完全相同的证据集合再次校验；Evidence conflict 不会通过改写掩盖，而是直接 Abstain。完整覆盖且验证通过时生成带 document/root/Leaf、page/section、quote 和 score 的领域 Citation；若最终仅缺 requirement 但仍有合法引用，状态为 `partial`，只返回已独立通过确定性校验的部分段落与引用并展示缺口；引用结构错误、证据冲突或没有可保留事实时才是 `abstained`，不泄露供应商错误。
+Provider 复制引用时可将中文/排版引号替换为 ASCII 等价引号，或把换行/空白改写为普通空格；核验只在这个有限规范化空间内匹配，最终返回的 quote 始终重新截取自 Root 原文连续子串，不能因此接受来源中不存在的内容。
 
 所有后续适配器都实现通用 `Provider` 生命周期契约，并由应用级注册表统一持有。Provider 键为 `(kind, name)`；重复注册、未知名称、能力缺失和资源关闭失败都会产生稳定且已净化的错误。
 
