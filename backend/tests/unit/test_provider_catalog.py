@@ -272,6 +272,77 @@ def test_runtime_provider_supports_direct_api_mode_and_ignores_stale_model_only_
     )
 
 
+def test_direct_api_mode_wins_over_stale_explicit_local_selection() -> None:
+    embedding_provider, embedding_model = resolve_runtime_provider(
+        {
+            "embedding_provider": "local_multilingual_minilm",
+            "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            "embedding_dimension": "384",
+        },
+        kind="embedding",
+        configured_provider="openai_compatible",
+        configured_model="BAAI/bge-m3",
+        default_model="unused",
+    )
+    reranker_provider, reranker_model = resolve_runtime_provider(
+        {
+            "reranker_provider": "local_cross_encoder",
+            "reranker_model": "jinaai/jina-reranker-v2-base-multilingual",
+        },
+        kind="reranker",
+        configured_provider="openai_compatible",
+        configured_model="BAAI/bge-reranker-v2-m3",
+        default_model="unused",
+    )
+
+    assert (embedding_provider, embedding_model) == (
+        "openai_compatible",
+        "BAAI/bge-m3",
+    )
+    assert (reranker_provider, reranker_model) == (
+        "openai_compatible",
+        "BAAI/bge-reranker-v2-m3",
+    )
+
+
+def test_environment_managed_api_profiles_do_not_report_stale_ui_selection(
+    tmp_path: Path,
+) -> None:
+    selection_path = tmp_path / "provider-selection.json"
+    selection_path.write_text(
+        '{"embedding_provider":"local_multilingual_minilm",'
+        '"embedding_model":"sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",'
+        '"embedding_dimension":"384",'
+        '"reranker_provider":"local_cross_encoder",'
+        '"reranker_model":"jinaai/jina-reranker-v2-base-multilingual"}\n',
+        encoding="utf-8",
+    )
+
+    catalog = RuntimeProviderCatalog(
+        registry=ProviderRegistry(),
+        selection_path=selection_path,
+        current_models={
+            "embedding": "BAAI/bge-m3",
+            "embedding_provider": "openai_compatible",
+            "reranker": "BAAI/bge-reranker-v2-m3",
+            "reranker_provider": "openai_compatible",
+        },
+        current_embedding_dimension=1024,
+        environment_managed_kinds=frozenset({"embedding", "reranker"}),
+        remote_credentials=frozenset({"embedding", "reranker"}),
+    )
+
+    selection = cast(dict[str, object], catalog.to_dict()["selection"])
+
+    assert selection["pending_restart"] is False
+    assert "pending_embedding_model" not in selection
+    assert "pending_embedding_dimension" not in selection
+    assert "pending_reranker_model" not in selection
+
+    with pytest.raises(ValueError, match="environment"):
+        catalog.select(kind="embedding", key=BGE_SMALL_ZH_MODEL)
+
+
 def test_runtime_provider_keeps_legacy_remote_model_selection_compatible() -> None:
     assert resolve_runtime_provider(
         {"embedding_model": SILICONFLOW_EMBEDDING_MODEL},

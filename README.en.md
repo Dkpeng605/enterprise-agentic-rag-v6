@@ -109,6 +109,13 @@ them as unsupported local selections. New UI selections persist `embedding_provi
 `reranker_provider`; older model-only selection files remain compatible, and current/pending state is
 reported from the Provider actually assembled after restart.
 
+When `.env` explicitly selects `openai_compatible` for Embedding or Reranker, that environment configuration and its
+model/dimension are the sole source of truth for direct API mode. A stale local selection file—including an explicit
+local Provider, legacy model name, or old dimension—cannot override it or leave the UI permanently reporting a false
+`pending_restart`. To switch back to a local model, change the Provider setting in `.env` and restart the backend;
+the UI selection applies only when the Provider is not environment-managed. Explicit OpenAI-compatible Vision follows
+the same precedence rule.
+
 Start the Vue 3 frontend in a second terminal:
 
 ```bash
@@ -806,6 +813,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R18 retrieval-switch execution boundary regression: complete
 - M7-R19 Sparse Provider current-state projection fix: complete
 - M7-R20 Evidence Assessor degradation diagnostics: complete
+- M7-R21 direct API Provider configuration precedence: complete
 - M8-00 standalone ingestion Worker prerequisite: complete
 - M8-01 production images: complete
 - Production API composition root (M8-02 prerequisite): complete
