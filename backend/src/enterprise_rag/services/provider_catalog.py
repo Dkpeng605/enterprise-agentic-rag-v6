@@ -274,25 +274,32 @@ class RuntimeProviderCatalog:
             "reranker": self._current_models.get("reranker_provider")
             or _default_runtime_provider("reranker", selected["reranker"]),
         }
-        pending = {
-            field: self._selection[field]
-            for field, kind in (
-                ("embedding_provider", "embedding"),
-                ("embedding_model", "embedding"),
-                ("reranker_provider", "reranker"),
-                ("reranker_model", "reranker"),
-                ("llm_model", "llm"),
-                ("vision_provider", "vision"),
-                ("sparse_encoder", "sparse_encoder"),
-            )
-            if field in self._selection
-            and self._selection[field]
-            != (
-                selected_provider[kind]
-                if field in {"embedding_provider", "reranker_provider"}
-                else selected[kind]
-            )
-        }
+        pending: dict[str, str] = {}
+        for field, kind in (
+            ("embedding_provider", "embedding"),
+            ("embedding_model", "embedding"),
+            ("embedding_dimension", "embedding"),
+            ("reranker_provider", "reranker"),
+            ("reranker_model", "reranker"),
+            ("llm_model", "llm"),
+            ("vision_provider", "vision"),
+            ("sparse_encoder", "sparse_encoder"),
+        ):
+            if field not in self._selection:
+                continue
+            if field == "embedding_dimension":
+                # A runtime without an inspected dimension cannot prove whether
+                # a persisted dimension is applicable.  Real compositions always
+                # provide this value; keep lightweight catalog fixtures honest.
+                if self._current_embedding_dimension is None:
+                    continue
+                current_value = str(self._current_embedding_dimension)
+            elif field in {"embedding_provider", "reranker_provider"}:
+                current_value = selected_provider[kind]
+            else:
+                current_value = selected[kind]
+            if self._selection[field] != current_value:
+                pending[field] = self._selection[field]
         return {
             "providers": [info.to_dict() for info in self._registry.list_info()],
             "options": [self._option_dict(option, selected=selected) for option in _OPTIONS],
@@ -313,6 +320,11 @@ class RuntimeProviderCatalog:
                 **(
                     {"pending_embedding_model": pending["embedding_model"]}
                     if "embedding_model" in pending
+                    else {}
+                ),
+                **(
+                    {"pending_embedding_dimension": pending["embedding_dimension"]}
+                    if "embedding_dimension" in pending
                     else {}
                 ),
                 **(

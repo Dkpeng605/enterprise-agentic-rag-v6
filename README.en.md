@@ -131,7 +131,9 @@ or database-swap failure leaves the old index intact. Changing only the Reranker
 Compatibility checks PostgreSQL Root revisions, the Leaf count, and the current-revision Milvus vector count
 together. A document is rebuilt rather than skipped when vectors are missing or mismatched even if its Roots
 already carry the current revision. Once a restart applies a saved Provider selection, the UI reports it only as
-the running profile instead of continuing to label the same model as pending.
+the running profile instead of continuing to label the same model as pending. The pending comparison also includes
+the Embedding dimension: even when the model name is unchanged, a persisted target dimension that differs from the
+inspected runtime dimension is exposed as `pending_embedding_dimension` instead of being reported as applied.
 The corresponding endpoints are `GET /api/v1/admin/providers/index-status` and
 `POST /api/v1/admin/providers/reindex`.
 
@@ -785,6 +787,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R13 abstention diagnosis and evidence-budget fixes: complete
 - M7-R14 partial-answer status and abstention-rate semantics: complete
 - M7-R15 protected image preview in the Pipeline Inspector: complete
+- M7-R16 Provider selection dimension state consistency: complete
 - M8-00 standalone ingestion Worker prerequisite: complete
 - M8-01 production images: complete
 - Production API composition root (M8-02 prerequisite): complete
