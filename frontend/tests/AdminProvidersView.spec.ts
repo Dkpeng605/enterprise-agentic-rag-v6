@@ -113,6 +113,17 @@ describe('Provider management', () => {
     expect(unavailable.attributes('disabled')).toBeDefined()
   })
 
+  it('marks the current Sparse profile from the backend sparse_encoder field', async () => {
+    const wrapper = mount(AdminProvidersView)
+    await flushPromises()
+
+    const current = wrapper.find('input[value="milvus_builtin_bm25"]').element as HTMLInputElement
+    const other = wrapper.find('input[value="hashing_lexical"]').element as HTMLInputElement
+    expect(current.checked).toBe(true)
+    expect(other.checked).toBe(false)
+    expect(wrapper.text()).toContain('当前：milvus_builtin_bm25')
+  })
+
   it('persists an available SiliconFlow reranker selection', async () => {
     const wrapper = mount(AdminProvidersView)
     await flushPromises()

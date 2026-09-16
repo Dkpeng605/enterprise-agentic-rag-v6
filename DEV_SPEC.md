@@ -3284,6 +3284,21 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   数据库、向量、Trace、历史文档或索引 revision。
 - PR：`fix/explicit-subquery-routing`。
 
+##### M7-R19 Sparse Provider 当前状态投影修复（已完成）
+
+- 缺陷事实：Provider 目录后端以 `selection.sparse_encoder` 返回当前 Sparse 实际装配值，但前端沿用
+  Embedding/Reranker 的模型字段映射读取 `sparse_encoder_provider`。因此本机真实运行
+  `milvus_builtin_bm25` 时，管理页会错误显示“未配置”，且当前 BM25 单选项不会被选中；这只是状态投影错误，
+  不代表 BM25 Provider、Milvus 索引或查询链路失效。
+- 修复边界：`/admin/providers` 对 Sparse 使用后端事实字段 `sparse_encoder` 与
+  `pending_sparse_encoder`，Vision 继续使用其独立的 Provider 字段，Embedding/Reranker 继续使用模型字段。
+  页面仍只展示后端返回的非敏感当前/待重启状态，不推断健康状态、不热切换 Provider、不暴露密钥。
+- EDD：新增 Vue 回归测试，注入真实 `milvus_builtin_bm25` 目录时必须显示当前值并只选中 BM25；同时运行前端
+  Vitest、strict TypeScript、build、OpenAPI drift，并保持 Provider catalog 后端契约与 Mac BM25 实际组合不变。
+- 回滚：移除字段映射与回归测试即可恢复旧页面投影；不修改 Provider selection 文件、Embedding/Reranker、
+  Milvus 向量、索引 revision、文档或数据库数据。
+- PR：`fix/sparse-provider-selection-display`。
+
 ### M8：首次公网发布
 
 #### M8-00 独立摄取 Worker 前置 Slice（已完成）

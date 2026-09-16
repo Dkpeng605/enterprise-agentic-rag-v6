@@ -62,9 +62,16 @@ function providerStatusClass(provider: ProviderDiagnostic): string {
 }
 
 function optionValue(kind: ProviderKind): string {
-  const providerKind = kind === 'sparse_encoder' || kind === 'vision'
-  const field = providerKind ? `${kind}_provider` : `${kind}_model`
-  const pendingField = providerKind ? `pending_${kind}_provider` : `pending_${kind}_model`
+  const field = kind === 'sparse_encoder'
+    ? 'sparse_encoder'
+    : kind === 'vision'
+      ? 'vision_provider'
+      : `${kind}_model`
+  const pendingField = kind === 'sparse_encoder'
+    ? 'pending_sparse_encoder'
+    : kind === 'vision'
+      ? 'pending_vision_provider'
+      : `pending_${kind}_model`
   const pending = catalog.value?.selection[pendingField]
   if (typeof pending === 'string') return pending
   const current = catalog.value?.selection[field]
