@@ -112,6 +112,40 @@ async def test_llm_evidence_assessor_reads_bounded_evidence_and_reports_usage() 
     assert model.requests[0].max_output_tokens == 2_000
 
 
+@pytest.mark.anyio
+async def test_llm_assessor_collapses_model_split_into_original_requirement() -> None:
+    original = "口令是什么？同时请说明回滚步骤。"
+    model = ScriptedLanguageModel(
+        [
+            json.dumps(
+                {
+                    # MiniMax and similar models may decompose a compound
+                    # sentence despite the prompt. These are not new
+                    # requirements and must not pass the service boundary.
+                    "covered_requirements": [],
+                    "missing_requirements": ["口令是什么？", "回滚步骤是什么？"],
+                    "conflicts": [],
+                    "decision": "abstain",
+                    "reason": "只覆盖了其中一部分",
+                },
+                ensure_ascii=False,
+            )
+        ]
+    )
+
+    result = await LanguageModelEvidenceAssessor(model).assess(
+        (original,),
+        (EvidenceItem(LEAF_ID, ROOT_ID, 0.9, (), 0, None, "部分证据"),),
+        0.27,
+    )
+
+    assert result.covered_requirements == ()
+    assert result.missing_requirements == (original,)
+    assert result.decision is EvidenceDecision.ABSTAIN
+    assert result.degraded is False
+    assert "byte-for-byte" in model.requests[0].system_prompt
+
+
 def test_bounded_assessor_evidence_prioritizes_the_best_alternative_route() -> None:
     items = tuple(
         EvidenceItem(
