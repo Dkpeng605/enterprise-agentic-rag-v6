@@ -217,6 +217,15 @@ reranking, and Root restoration. Scope repair may remove only a Planner-added co
 did not explicitly select. It cannot relax caller Collection or Document scope. Assessor failure is
 reported as degradation and continues only through bounded recovery before abstention.
 
+#### Latest local live acceptance record (2026-09-16)
+
+The following is evidence from the running Mac process, not a static fixture and not a public-release claim:
+
+- `/health/live` returned 200; an `/mcp` request without a Bearer token returned 401. The official MCP SDK, a one-time local token, and the live database completed tool discovery, resource reading, citation verification, and a real knowledge query; the token was revoked afterward.
+- A Deep query with no reliable evidence produced a persisted Trace with two Recovery rounds and four LLM calls, `assessor_degraded=false`, and Planner provider `openai_compatible_query_planner`; Recovery is therefore connected to the current LLM rather than being a static node.
+- One manual remote LLM-cleaning run completed against a Demo document through `openai_compatible / MiniMax-M3`: one call, one changed Root, and Leaf count unchanged at 1. Reloading the Pipeline Inspector from PostgreSQL shows the LLM audit and two cleaning audits; a second run was rejected.
+- The Provider catalog matches the assembled runtime: local 384-dimensional Embedding, Jina multilingual Reranker, native Milvus BM25, and Vision `none`. The latest real SiliconFlow BGE-M3 Embedding and BGE Reranker requests both returned HTTP 402. TokenHub's current model catalog has no confirmed Vision model, so real Vision Caption acceptance remains unclaimed.
+
 Neither mode trusts free-form answer text. The LLM must return structured paragraphs, citation IDs,
 Root and Leaf IDs, contiguous quotes copied from Root evidence, and coverage of that original requirement. The backend
 deterministically verifies factual paragraphs, ownership, quotes, and coverage. A rejected draft gets at
