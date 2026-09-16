@@ -110,9 +110,16 @@ class QueryPlanningService:
         rewritten = _required_text(payload["rewritten_query"])
         intent = QueryIntent(_required_text(payload["intent"]))
         use_sub_queries = _required_bool(payload["use_sub_queries"])
-        sub_queries = _text_tuple(
-            payload["sub_queries"], 2 if use_sub_queries else 1, self._max_sub_queries
-        )
+        sub_queries: tuple[str, ...]
+        if not use_sub_queries and payload["sub_queries"] == []:
+            # ``false`` is an explicit opt-out. Treat an empty optional route
+            # list as the canonical single rewritten route instead of turning
+            # an otherwise usable rewrite into a planner outage.
+            sub_queries = (rewritten,)
+        else:
+            sub_queries = _text_tuple(
+                payload["sub_queries"], 2 if use_sub_queries else 1, self._max_sub_queries
+            )
         sub_queries = _normalize_sub_queries(
             rewritten=rewritten,
             sub_queries=sub_queries,

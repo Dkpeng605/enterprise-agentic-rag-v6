@@ -3146,6 +3146,11 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   标点或连接词额外推断，也不把关闭开关下误填的多路变为运行分支。无论 factual、
   comparison、多条件、流程、总结还是多跳请求，`requirements` 始终收敛为用户
   原问题这一项。多路分支共享该 requirement，不要求每个分支分别覆盖；该规则只约束执行计划，不伪造 LLM 成功，也不放宽 Scope。
+- 运行时信任边界：QueryPlan 进入 SemanticQueryRunner 后，`original_query` 与唯一 requirement 必须重新绑定到
+  服务端收到的当前 query；Provider 返回对象不能替换用户原问题或借此创建新的回答义务。LLM 明确
+  `use_sub_queries=false` 且返回空 `sub_queries` 时，服务合成唯一 `rewritten_query` 路径；不得把空列表解释为
+  需要拆分，也不得因该安全归一化丢弃合法的查询改写。Leaf 的 `matched_queries` 只有与本次计划路径相交时
+  才能作为 provenance，未知路径不得贡献 requirement coverage。
 - Root evidence budget：`max_parent_chars` 只对发送给 Answer/Assessor 的已授权、已重排 Leaf 原文片段
   计量；一个 Root 的多个选中 Leaf 按稳定顺序连接，超限时只截断模型上下文。`RootContext.text` 始终
   保留完整 clean Root，供 quote 连续子串校验；因此长 Root 不会因为未发送的未选中正文挤掉后续有效 Root，
@@ -3163,6 +3168,9 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   typecheck、build 和 OpenAPI drift 全绿。真实 Mac smoke 应确认简单 factual 为 1 个 branch，多 Root 不被
   长正文独占预算，Trace 能分别显示 generation/assessor degraded；真实 smoke 不进入 CI，也不记录 token
   或回答正文。
+- 增量验收：单元测试必须证明 Provider 伪造 `original_query` 不能改变服务端 requirement；关闭多路且空列表
+  必须保留一条 rewritten route；4 条替代路径中只有一条合法 provenance 时，覆盖集合仍只有原始 requirement，
+  未知 provenance 不得增加覆盖或缺口。该测试不得要求每条替代路径分别命中。
 - 回滚：移除 Planner 归一化或恢复旧 Root budget 不需要 migration，但会恢复过度拆分和上下文挤占风险；Trace
   新字段保持 allow-list 向后兼容，旧记录缺失字段时页面显示 unavailable，不由浏览器补造。
 - PR：`fix/reduce-answer-abstentions`。

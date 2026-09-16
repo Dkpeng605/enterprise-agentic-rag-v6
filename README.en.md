@@ -237,6 +237,11 @@ Requirements are independent of retrieval branching: every QueryPlan has exactly
 original user question. A sub-query is only an alternative route to evidence for that same requirement; it creates
 no new answer obligation and does not need separate coverage. If any branch supplies sufficient reliable evidence,
 the assessor and final verifier may complete the single requirement even when other branches return no evidence.
+Before retrieval, the runner rebinds `original_query` and the single requirement to the server-received query, so a
+Provider cannot replace the user's question through a fabricated plan field. When the LLM explicitly disables
+branching and returns an empty `sub_queries` list, the backend synthesizes exactly one `rewritten_query` route.
+Leaf `matched_queries` is accepted only as provenance belonging to the current plan; it cannot create coverage by
+itself.
 Planner, Assessor, answer, and Repair calls all count toward query usage; a completed Planner call is still
 reported when retrieval finds no evidence. These runtime counts are not Recall@K; gold-labelled quality
 metrics remain in Evaluations.
