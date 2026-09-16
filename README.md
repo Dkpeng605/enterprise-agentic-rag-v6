@@ -759,6 +759,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R17 查询图统一的子查询与 requirement 语义：已完成
 - M7-R18 检索开关执行边界回归：已完成
 - M7-R19 Sparse Provider 当前状态投影修复：已完成
+- M7-R20 Evidence Assessor 降级原因可观测性：已完成
 - M8-00 独立摄取 Worker 前置 Slice：已完成
 - M8-01 生产镜像：已完成
 - 生产 API 组合根（M8-02 前置）：已完成
@@ -821,7 +822,7 @@ Streamable HTTP Adapter 在 `/mcp` 强制 Bearer Token，并在协议分发前�
 
 可观测性基线使用 task-local correlation context、JSON Lines 日志和 OpenTelemetry spans。HTTP 上游 trace context 会向 Query 与 RAG 阶段传播，异步并发不会串 tenant/query/job；Standard 与 Ingestion 的主要阶段均有独立子 span。遥测采用字段 allow-list，敏感属性会被拒绝，异常消息不会自动写入 span。
 
-Trace 现在以 `trace_runs`/`trace_spans` 按 tenant 持久化，同步 Query、SSE Query 和 Ingestion 在根 span 结束后以幂等 upsert 落库。Dense/Sparse、RRF 和 Rerank 候选以有界 event 保存，可重建 Leaf/Root 排名与分数变化；降级摘要只由稳定 `*_degraded` 字段派生。匿名用户可读取 demo tenant 全部 Trace，跨租户 trace ID 统一返回 404。新环境或旧环境更新后都需先执行上方 `alembic upgrade head`。
+Trace 现在以 `trace_runs`/`trace_spans` 按 tenant 持久化，同步 Query、SSE Query 和 Ingestion 在根 span 结束后以幂等 upsert 落库。Dense/Sparse、RRF 和 Rerank 候选以有界 event 保存，可重建 Leaf/Root 排名与分数变化；降级摘要只由稳定 `*_degraded` 字段派生。Evidence Assessor 发生安全回退时，Trace 额外记录有限枚举的 `reason_code`（例如 `llm_unavailable`、`invalid_requirement_partition`），前端只展示脱敏后的原因，不保存 Provider 异常消息、Prompt 或模型原始输出。匿名用户可读取 demo tenant 全部 Trace，跨租户 trace ID 统一返回 404。新环境或旧环境更新后都需先执行上方 `alembic upgrade head`。
 
 Prometheus 指标使用应用内独立 Registry，覆盖 HTTP、Query、Retrieval/Recovery、Provider/Token、Ingestion、Milvus、Evaluation 和 Rate Limit。HTTP label 只记录路由模板，不使用原始 path 或 tenant/user/document/query ID。`live` 不依赖外部服务；`ready` 的 required 配置、PostgreSQL 或 Provider 失败时返回 503；`doctor` 只返回稳定状态码和公开 Provider 元数据。
 

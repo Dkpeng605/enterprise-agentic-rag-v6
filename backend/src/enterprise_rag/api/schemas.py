@@ -409,6 +409,7 @@ class QueryRecoveryRoundResponse(ApiModel):
 class QueryDegradationResponse(ApiModel):
     component: str
     provider: str | None
+    reason_code: str | None = None
 
 
 class QueryPlanResponse(ApiModel):

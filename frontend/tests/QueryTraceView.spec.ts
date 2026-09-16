@@ -131,13 +131,14 @@ describe('query trace workspace', () => {
     vi.mocked(traceApi.getQuery).mockResolvedValue({
       ...standardDetail,
       summary: { ...summary, degraded: true },
-      degradations: [{ component: 'reranker', provider: 'bge-reranker' }],
+      degradations: [{ component: 'reranker', provider: 'bge-reranker', reason_code: 'llm_unavailable' }],
     })
     const wrapper = mountView()
     await flushPromises()
 
     expect(wrapper.get('.trace-degraded').text()).toContain('Reranker 回退')
     expect(wrapper.get('.trace-degraded').text()).toContain('bge-reranker')
+    expect(wrapper.get('.trace-degraded').text()).toContain('LLM 不可用')
     expect(wrapper.text()).not.toContain('stack trace')
   })
 

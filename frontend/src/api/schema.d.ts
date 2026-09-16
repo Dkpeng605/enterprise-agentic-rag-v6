@@ -1768,6 +1768,8 @@ export interface components {
             component: string;
             /** Provider */
             provider: string | null;
+            /** Reason Code */
+            reason_code?: string | null;
         };
         /** QueryHistoryTurn */
         QueryHistoryTurn: {

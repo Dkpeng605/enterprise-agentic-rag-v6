@@ -307,7 +307,11 @@ async def test_anonymous_trace_api_lists_own_tenant_and_hides_other_tenant(
                 "matched_queries": [],
             }
             assert query_view.json()["degradations"] == [
-                {"component": "planner", "provider": "fixture-planner"}
+                {
+                    "component": "planner",
+                    "provider": "fixture-planner",
+                    "reason_code": None,
+                }
             ]
             deep_view = await client.get(f"/api/v1/traces/query/{TRACE_A_2}")
             assert deep_view.json()["recovery_rounds"][0]["route"] == "hyde_dense"

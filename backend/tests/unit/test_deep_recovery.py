@@ -5,6 +5,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
 from enterprise_rag.domain import QueryScope
+from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.observability import BufferedSpanExporter, start_span
 from enterprise_rag.services import (
     DeepRecoveryController,
@@ -317,6 +318,36 @@ async def test_assessor_failure_does_not_recover_when_deterministic_coverage_is_
     assert result.actions == ()
     assert result.assessor_degraded is True
     assert result.assessment.degraded is True
+    assert result.assessment.degradation_code == "assessor_unexpected_error"
+
+
+@pytest.mark.anyio
+async def test_invalid_assessor_partition_has_a_stable_sanitized_failure_code() -> None:
+    class BrokenAssessor:
+        async def assess(
+            self,
+            requirements: tuple[str, ...],
+            evidence: tuple[EvidenceItem, ...],
+            score: float,
+        ) -> EvidenceAssessment:
+            del requirements, evidence, score
+            raise AppError(
+                ErrorCode.LLM_INVALID_RESPONSE,
+                "The evidence assessor returned an invalid requirement partition.",
+            )
+
+    request = DeepRecoveryRequest(
+        "问题",
+        ("需求",),
+        QueryScope(),
+        (evidence("a", confidence=0.5),),
+    )
+
+    result = await DeepRecoveryController(
+        assessor=BrokenAssessor(), executor=FakeExecutor(), always_assess=True
+    ).run(request)
+
+    assert result.assessment.degradation_code == "invalid_requirement_partition"
 
 
 @pytest.mark.anyio
