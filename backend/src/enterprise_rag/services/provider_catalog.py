@@ -250,6 +250,7 @@ class RuntimeProviderCatalog:
         current_models: dict[str, str],
         current_embedding_dimension: int | None = None,
         current_embedding_input_token_limit: int | None = None,
+        environment_managed_kinds: frozenset[str] = frozenset(),
         remote_credentials: frozenset[str] = frozenset(),
     ) -> None:
         self._registry = registry
@@ -257,6 +258,17 @@ class RuntimeProviderCatalog:
         self._current_models = dict(current_models)
         self._current_embedding_dimension = current_embedding_dimension
         self._current_embedding_input_token_limit = current_embedding_input_token_limit
+        selectable_kinds = frozenset(
+            {
+                ProviderKind.EMBEDDING.value,
+                ProviderKind.RERANKER.value,
+                ProviderKind.VISION.value,
+                ProviderKind.SPARSE_ENCODER.value,
+            }
+        )
+        if not environment_managed_kinds <= selectable_kinds:
+            raise ValueError("environment-managed Provider kinds are invalid")
+        self._environment_managed_kinds = environment_managed_kinds
         self._remote_credentials = remote_credentials
         self._selection = load_provider_selection(selection_path)
 
@@ -286,6 +298,11 @@ class RuntimeProviderCatalog:
             ("sparse_encoder", "sparse_encoder"),
         ):
             if field not in self._selection:
+                continue
+            # An explicit environment Provider is the source of truth for the
+            # direct API mode.  A selection persisted by an older local UI must
+            # not leave the catalog permanently stuck at pending_restart.
+            if kind in self._environment_managed_kinds:
                 continue
             if field == "embedding_dimension":
                 # A runtime without an inspected dimension cannot prove whether
@@ -381,6 +398,11 @@ class RuntimeProviderCatalog:
         return payload
 
     def select(self, *, kind: str, key: str) -> dict[str, object]:
+        if kind in self._environment_managed_kinds:
+            raise ValueError(
+                f"The {kind} Provider is managed by the backend environment; "
+                "change its configuration and restart the backend."
+            )
         option = next(
             (item for item in _OPTIONS if item.kind == kind and item.key == key),
             None,
@@ -468,8 +490,18 @@ def resolve_runtime_provider(
         raise ValueError(f"runtime Provider selection is unsupported for {kind}")
     model_field = f"{kind}_model"
     provider_field = f"{kind}_provider"
-    selected_model = selection.get(model_field)
     configured_model_value = configured_model.strip() if configured_model else ""
+    if configured_provider == "openai_compatible":
+        # Direct API mode is explicitly selected in the environment.  It must
+        # win over both legacy model-only files and newer local UI selections;
+        # otherwise changing .env can silently keep the process on a local
+        # adapter (or use the wrong remote model).
+        if not configured_model_value:
+            raise ValueError(
+                f"configured OpenAI-compatible {kind} Provider requires a model"
+            )
+        return configured_provider, configured_model_value
+    selected_model = selection.get(model_field)
     model = (selected_model or configured_model_value or default_model).strip()
     selected_provider = selection.get(provider_field)
     if selected_provider:
@@ -480,10 +512,6 @@ def resolve_runtime_provider(
         if selected_provider not in allowed:
             raise ValueError(f"runtime Provider selection is invalid for {kind}")
         return selected_provider, model
-    if configured_provider == "openai_compatible":
-        # A model-only file predates explicit Provider identity. Do not let a
-        # stale local model silently replace explicit API configuration.
-        return configured_provider, configured_model_value or model
     if selected_model in _REMOTE_PROFILE_MODELS[kind]:
         return "openai_compatible", model
     return configured_provider, model

@@ -138,11 +138,13 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
 
     database = Database(credentials.database_url.get_secret_value())
     object_store = LocalObjectStore(runtime_root)
+    # Direct API mode is environment-managed.  A stale local UI selection must
+    # not downgrade the configured remote model's dimension and make every
+    # embedding response fail protocol validation after restart.
     configured_embedding_dimension = (
-        selected_embedding_dimension(selection, active.ingestion.embedding_dimension)
-        if active.providers.embedding != "openai_compatible"
-        or "embedding_provider" in selection
-        else active.ingestion.embedding_dimension
+        active.ingestion.embedding_dimension
+        if active.providers.embedding == "openai_compatible"
+        else selected_embedding_dimension(selection, active.ingestion.embedding_dimension)
     )
     embedding: LocalMultilingualEmbedding | OpenAICompatibleEmbedding
     if embedding_provider == "openai_compatible":
@@ -237,9 +239,12 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
     )
     query_planner = QueryPlanningService(LanguageModelQueryPlanner(language_model))
     ocr = TesseractOcrEngine(languages=active.ingestion.pdf_ocr_languages)
-    vision = build_vision_provider(
-        active, provider_name=selection.get("vision_provider", active.providers.vision)
+    vision_provider_name = (
+        active.providers.vision
+        if active.providers.vision == "openai_compatible"
+        else selection.get("vision_provider", active.providers.vision)
     )
+    vision = build_vision_provider(active, provider_name=vision_provider_name)
     loaders = (
         PdfLoader(
             ocr,
@@ -339,6 +344,15 @@ def build_mac_runtime_app(settings: AppSettings | None = None) -> FastAPI:
         },
         current_embedding_dimension=embedding.dimension,
         current_embedding_input_token_limit=embedding.input_token_limit,
+        environment_managed_kinds=frozenset(
+            kind
+            for kind, configured in (
+                ("embedding", active.providers.embedding),
+                ("reranker", active.providers.reranker),
+                ("vision", active.providers.vision),
+            )
+            if configured == "openai_compatible"
+        ),
         remote_credentials=frozenset(
             kind
             for kind, configured in (

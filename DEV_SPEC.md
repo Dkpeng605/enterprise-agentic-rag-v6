@@ -3299,6 +3299,28 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   Milvus 向量、索引 revision、文档或数据库数据。
 - PR：`fix/sparse-provider-selection-display`。
 
+##### M7-R21 直接 API Provider 配置优先级（已完成）
+
+- 缺陷事实：Mac runtime 的 Provider selection 文件原本允许管理员在本机 UI 选择 local profile；当用户随后
+  在 `.env` 明确配置 `providers.embedding=openai_compatible` 或 `providers.reranker=openai_compatible` 时，
+  文件中旧的显式 local Provider、模型名或 Embedding 维度仍可能覆盖环境配置，导致进程装配错误的 Adapter，
+  远程接口返回的真实维度被错误声明，或页面永久显示虚假的 `pending_restart`。Vision 的显式远程配置也存在
+  selection 中 `none` 覆盖环境的同类风险。
+- 单一事实源：对于 environment-managed 的 `embedding`、`reranker` 或 `vision`，显式环境 Provider 与其
+  credentials/model/dimension 优先于任意本机 selection 文件；`resolve_runtime_provider` 必须同时忽略旧模型-only
+  文件和新版显式 local selection。远程 Embedding 的 `embedding_dimension` 必须来自环境配置，不能被 selection
+  中的旧维度覆盖。生产组合仍完全忽略本机 selection 文件。
+- UI/API：运行时 Provider catalog 必须接收 environment-managed kind；这些 kind 的陈旧 selection 不得生成
+  `pending_*` 或 `pending_restart`，尝试通过 UI 反向选择时返回稳定验证错误。current Provider、模型、维度和
+  input token limit 必须继续来自实际装配实例，不能从 profile 文案推断。
+- EDD：新增回归测试证明显式环境 API 模式胜过显式 local selection，远程 Embedding/Reranker 使用环境模型，
+  旧选择不产生待重启状态，环境托管 Provider 不能被 UI 反向写入；已有 legacy model-only selection、远程 profile
+  可选性、维度 pending 和密钥不出前端测试必须保持通过。后端 Ruff、strict Mypy、全量 Pytest、前端测试、
+  typecheck/build、OpenAPI drift、quality gate 和 Browser E2E 仍为合并门禁。
+- 回滚：移除环境托管优先级和对应回归测试即可恢复旧 selection 优先级；不删除 selection 文件、文档、Root/Leaf、
+  Milvus vector 或数据库事实。
+- PR：`fix/direct-api-provider-precedence`。
+
 ### M8：首次公网发布
 
 #### M8-00 独立摄取 Worker 前置 Slice（已完成）

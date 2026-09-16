@@ -105,6 +105,12 @@ current/pending 状态以实际装配的 Provider 为准。`pending_restart` 会
 Embedding 维度；即使模型名相同，只要持久化目标维度与当前运行 Provider 不同，也会显示
 `pending_embedding_dimension`，避免把错误索引契约误报为已生效。
 
+如果 `.env` 已明确把 Embedding 或 Reranker 设为 `openai_compatible`，该环境配置及其模型/维度是
+直接 API 模式的唯一事实源；本机旧的 Provider 选择文件（包括显式的 local Provider、旧模型名和旧维度）
+不会覆盖它，也不会让页面永久显示虚假的 `pending_restart`。需要从直接 API 模式切回本地模型时，先修改
+`.env` 的 Provider 配置，再重启 backend；页面选择只在 Provider 不是环境托管时生效。Vision 的显式
+OpenAI-compatible 配置遵循同样的优先级。
+
 在第二个终端启动 Vue 3 前端：
 
 ```bash
@@ -760,6 +766,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R18 检索开关执行边界回归：已完成
 - M7-R19 Sparse Provider 当前状态投影修复：已完成
 - M7-R20 Evidence Assessor 降级原因可观测性：已完成
+- M7-R21 直接 API Provider 配置优先级：已完成
 - M8-00 独立摄取 Worker 前置 Slice：已完成
 - M8-01 生产镜像：已完成
 - 生产 API 组合根（M8-02 前置）：已完成
