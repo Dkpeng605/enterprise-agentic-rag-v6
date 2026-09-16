@@ -306,3 +306,46 @@ def test_projects_evidence_assessment_answer_verification_and_span_degradation()
     )
     assert projected.stage_metrics[0].attributes["failure_code"] == "invalid_requirement_partition"
     assert projected.retrieval_branches == ()
+
+
+def test_coalesces_legacy_assessor_flag_with_evidence_assessor_span() -> None:
+    assessor_span = span(
+        1,
+        "rag.deep_recovery.assess",
+        {
+            "rag.degraded": True,
+            "provider.name": "openai_compatible",
+            "rag.recovery.assessor_failure_code": "invalid_requirement_partition",
+        },
+    )
+    summary = TraceSummary(
+        TRACE_ID,
+        "query",
+        QUERY_ID,
+        "deep",
+        "abstained",
+        NOW,
+        NOW + timedelta(milliseconds=2),
+        2.0,
+        1,
+        True,
+    )
+
+    projected = project_query_trace(
+        TraceDetail(
+            summary,
+            "anonymous",
+            None,
+            {},
+            {"assessor_degraded": True},
+            (assessor_span,),
+        )
+    )
+
+    assert projected.degradations == (
+        QueryDegradation(
+            "evidence_assessor",
+            "openai_compatible",
+            "invalid_requirement_partition",
+        ),
+    )

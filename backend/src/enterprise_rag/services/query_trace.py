@@ -256,6 +256,12 @@ def _degradations(detail: TraceDetail) -> tuple[QueryDegradation, ...]:
         if not key.endswith("_degraded") or value is not True:
             continue
         component = key.removesuffix("_degraded")
+        # The run-level diagnostic predates the span-level name
+        # ``evidence_assessor``.  Normalize it before merging so one assessor
+        # fallback is rendered once in the API/UI, while the span can still
+        # supply its provider and stable reason code.
+        if component == "assessor":
+            component = "evidence_assessor"
         provider = _text(detail.attributes.get(f"{component}_provider"))
         values[component] = QueryDegradation(
             component,
