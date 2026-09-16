@@ -814,6 +814,7 @@ Direct pushes and force pushes to `main` are prohibited by branch protection.
 - M7-R19 Sparse Provider current-state projection fix: complete
 - M7-R20 Evidence Assessor degradation diagnostics: complete
 - M7-R21 direct API Provider configuration precedence: complete
+- M7-R22 LLM Evidence Assessor single-original-requirement normalization: complete
 - M8-00 standalone ingestion Worker prerequisite: complete
 - M8-01 production images: complete
 - Production API composition root (M8-02 prerequisite): complete

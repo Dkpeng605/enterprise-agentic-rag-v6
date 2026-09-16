@@ -767,6 +767,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R19 Sparse Provider 当前状态投影修复：已完成
 - M7-R20 Evidence Assessor 降级原因可观测性：已完成
 - M7-R21 直接 API Provider 配置优先级：已完成
+- M7-R22 LLM Evidence Assessor 单一原始 requirement 规范化：已完成
 - M8-00 独立摄取 Worker 前置 Slice：已完成
 - M8-01 生产镜像：已完成
 - 生产 API 组合根（M8-02 前置）：已完成

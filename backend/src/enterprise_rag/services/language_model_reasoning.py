@@ -91,20 +91,22 @@ class LanguageModelEvidenceAssessor:
         payload, result = completion
         covered = _string_tuple(payload.get("covered_requirements"), "covered_requirements")
         missing = _string_tuple(payload.get("missing_requirements"), "missing_requirements")
+        covered, missing = _canonical_requirement_partition(
+            requirements, covered, missing
+        )
         conflicts = _string_tuple(payload.get("conflicts"), "conflicts")
-        requirement_set = set(requirements)
-        if set(covered) | set(missing) != requirement_set or set(covered) & set(missing):
-            raise _invalid(
-                "The evidence assessor returned an invalid requirement partition.", result
-            )
         try:
             decision = EvidenceDecision(_string(payload.get("decision"), "decision"))
         except ValueError as error:
             raise _invalid("The evidence assessor returned an invalid decision.", result) from error
+        # A model may still split a natural-language question into clauses even
+        # after being told that the server owns one requirement. Preserve the
+        # strict boundary: a non-exact partition is interpreted conservatively
+        # as the original question being uncovered, never as new obligations.
+        if missing and decision is EvidenceDecision.ANSWER:
+            decision = EvidenceDecision.ABSTAIN
         if conflicts and decision is EvidenceDecision.ANSWER:
             raise _invalid("The evidence assessor ignored an evidence conflict.", result)
-        if missing and decision is EvidenceDecision.ANSWER:
-            raise _invalid("The evidence assessor answered with missing requirements.", result)
         reason = _string(payload.get("reason"), "reason")
         confidence = max((item.confidence for item in evidence), default=0.0)
         assessed_score = 0.7 * (len(covered) / len(requirements)) + 0.3 * confidence
@@ -120,6 +122,39 @@ class LanguageModelEvidenceAssessor:
             usage.input_tokens,
             usage.output_tokens,
         )
+
+
+def _canonical_requirement_partition(
+    requirements: tuple[str, ...],
+    covered: tuple[str, ...],
+    missing: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Keep assessor output on the server-owned requirement boundary.
+
+    Query planning deliberately exposes only the original user question as an
+    answer obligation. LLMs sometimes split a compound sentence into clauses
+    in the assessor response anyway. With one requirement, exact coverage is
+    the only safe positive signal; any non-exact partition is therefore mapped
+    to the complete original question being missing.
+
+    Multi-requirement callers remain supported for older service contracts and
+    retain strict exact-set validation.
+    """
+
+    if len(requirements) != 1:
+        requirement_set = set(requirements)
+        if (
+            set(covered) | set(missing) != requirement_set
+            or set(covered) & set(missing)
+        ):
+            raise ValueError("The evidence assessor returned an invalid requirement partition.")
+        return covered, missing
+    requirement = requirements[0]
+    if requirement in missing or missing:
+        return (), (requirement,)
+    if requirement in covered:
+        return (requirement,), ()
+    return (), (requirement,)
 
 
 class LanguageModelAnswerAuthor:
@@ -227,11 +262,15 @@ class LanguageModelAnswerAuthor:
 
 _ASSESS_SYSTEM_PROMPT = """You are the evidence assessor in a Deep RAG graph.
 Return exactly one JSON object, without Markdown or extra text. Judge only the supplied evidence.
-The requirements list contains the original user-level question, not one requirement per retrieval
-sub-query. Evidence from any one sub-query may be sufficient; do not require every sub-query to
-produce a separate supporting item. Sub-query labels are retrieval provenance only: they never
-create, split, or strengthen a requirement. Partition every requirement into exactly one of
-covered_requirements or missing_requirements.
+The requirements list contains exactly one original user-level question, not one requirement per
+retrieval sub-query. Copy that requirement string byte-for-byte when placing it in
+covered_requirements or missing_requirements. Never split it by conjunction, punctuation, or
+sub-question, and never invent clause-level requirement strings. Evidence from any one sub-query
+may be sufficient; do not require every sub-query to produce a separate supporting item.
+Sub-query labels are retrieval provenance only: they never create, split, or strengthen a
+requirement. If any part of the original question is not reliably supported, place the complete
+original requirement string in missing_requirements. Partition the original requirement into
+exactly one of covered_requirements or missing_requirements.
 List concrete contradictions in conflicts. Use decision answer only when all requirements are
 covered
 and there are no conflicts; use recover when another retrieval could help; otherwise use abstain.

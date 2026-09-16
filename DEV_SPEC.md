@@ -3321,6 +3321,31 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   Milvus vector 或数据库事实。
 - PR：`fix/direct-api-provider-precedence`。
 
+##### M7-R22 LLM Evidence Assessor 单一原始 requirement 规范化（已完成）
+
+- 缺陷事实：查询规划和 Deep Recovery 的领域契约已经规定 requirement 只来自服务端收到的原始问题，
+  但真实 OpenAI-compatible LLM 可能把一个包含多个分句的自然语言问题重新拆成多个
+  `covered_requirements`/`missing_requirements` 字符串。若直接把该响应视为非法，系统虽然会安全降级，
+  但真实 Evidence Assessor 不能稳定参与 Recovery，且 Trace 会错误显示 `invalid_requirement_partition`。
+- 规范化边界：当 Assessor 输入恰有一个服务端 requirement 时，只接受原始字符串的精确副本作为完整覆盖；
+  模型拆出的任何子句、连接词分段或额外 requirement 都不会成为新的回答义务。只要输出包含非精确缺失分段，
+  就把整个原始问题保守标记为 `missing`；如果模型声称 `answer` 但该完整 requirement 未被精确覆盖，服务层
+  将决策收紧为 `abstain`，由 Deep Controller 在仍有预算时安排有限 Recovery。多 requirement 的旧服务契约
+  仍保持严格的 exact-set partition 校验。
+- Prompt 契约：Evidence Assessor 的系统提示明确要求复制 requirement 的原文，不按标点、连接词或子问题拆分；
+  子查询仍只是替代检索 provenance，不创建或加强 requirement。该提示不能替代服务端规范化，模型输出始终按不受信任
+  Provider 数据处理。
+- EDD：新增真实问题形态对应的单元测试，证明模型返回分裂子句时最终只保留一个原始 requirement、缺口不会被误判为
+  已覆盖，且不产生 degraded；相关 Deep Recovery、LLM reasoning、全量 Pytest、Ruff、strict Mypy、前端门禁和
+  OpenAPI drift 必须继续通过。Mac 真实验收要求同时观察一次 `assessor_degraded=false` 的 Deep 查询和持久化的
+  Recovery round（如果证据不足）。
+- 可观测性：Trace 继续记录原始 requirement、Assessor covered/missing、决策、Recovery route、轮次和 usage；不会记录
+  Prompt、模型原始输出、密钥或文档之外的隐藏推理。规范化后的字段只能来自原始 requirement，便于前端 Query Trace
+  解释“单一问题、替代路径、证据缺口”的关系。
+- 回滚：移除单 requirement 规范化和对应 Prompt/测试即可恢复旧的严格无容错解析；不修改数据库 schema、历史 Root/Leaf、
+  Milvus revision 或 Trace 数据。
+- PR：`fix/llm-assessor-single-requirement`。
+
 ### M8：首次公网发布
 
 #### M8-00 独立摄取 Worker 前置 Slice（已完成）
