@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import UUID
 
 from enterprise_rag.domain.errors import AppError, ErrorCode
@@ -179,6 +179,21 @@ class QueryPlanningService:
             request.mode,
             False,
         )
+
+
+def canonicalize_plan(plan: QueryPlan, *, original_query: str) -> QueryPlan:
+    """Bind a planner result to the query received by the server.
+
+    Planner output is provider data, including when a custom query graph injects
+    a ``QueryPlan`` object directly.  Retrieval routes may be rewritten or
+    decomposed, but the answer obligation must never come from that provider
+    data.  Keep exactly one requirement: the current user query.
+    """
+
+    requirement = _required_text(original_query)
+    if plan.original_query.strip() == requirement and plan.requirements == (requirement,):
+        return plan
+    return replace(plan, original_query=requirement, requirements=(requirement,))
 
 
 def _required_text(value: object) -> str:

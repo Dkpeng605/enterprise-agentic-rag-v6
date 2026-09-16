@@ -44,13 +44,13 @@ LEAF_ID = "leaf_" + "a" * 64
 ROOT_ID = "root_" + "b" * 64
 
 
-def query_plan() -> QueryPlan:
+def query_plan(*, original_query: str = "问题") -> QueryPlan:
     return QueryPlan(
-        "问题",
+        original_query,
         "改写问题",
         QueryIntent.FACTUAL,
         ("子问题一", "子问题二"),
-        ("问题",),
+        (original_query,),
         QueryScope(),
         "zh",
         QueryMode.STANDARD,
@@ -85,14 +85,17 @@ def dual(query: str) -> DualSearchResult:
 
 
 class FakePlannerService:
-    def __init__(self, *, degraded: bool = False) -> None:
+    def __init__(
+        self, *, degraded: bool = False, plan_value: QueryPlan | None = None
+    ) -> None:
         self.degraded = degraded
+        self.plan_value = plan_value or query_plan()
         self.calls = 0
 
     async def plan(self, request: PlannerRequest) -> PlannerOutcome:
         self.calls += 1
         assert request.mode is QueryMode.STANDARD
-        return PlannerOutcome(query_plan(), "planner", self.degraded)
+        return PlannerOutcome(self.plan_value, "planner", self.degraded)
 
 
 class FakeSearch:
@@ -212,7 +215,11 @@ def root_context() -> RootContext:
 
 
 def graph(
-    *, hits: tuple[RetrievalHit, ...], roots: tuple[RootContext, ...], degraded: bool = False
+    *,
+    hits: tuple[RetrievalHit, ...],
+    roots: tuple[RootContext, ...],
+    degraded: bool = False,
+    plan: QueryPlan | None = None,
 ) -> tuple[
     StandardQueryGraph,
     FakePlannerService,
@@ -221,7 +228,7 @@ def graph(
     FakeReranking,
     FakeLanguageModel,
 ]:
-    planner = FakePlannerService(degraded=degraded)
+    planner = FakePlannerService(degraded=degraded, plan_value=plan)
     search = FakeSearch()
     scope_root = FakeScopeRoot(roots=roots)
     reranking = FakeReranking()
@@ -300,6 +307,25 @@ async def test_planner_degradation_is_visible_without_adding_an_llm_call() -> No
     assert result.status is QueryGraphStatus.COMPLETE
     assert result.planner_degraded is True
     assert result.llm_calls == 2
+
+
+@pytest.mark.anyio
+async def test_standard_graph_rebinds_provider_requirement_to_received_query() -> None:
+    provider_plan = query_plan(original_query="Provider 伪造的问题")
+    runner, _, _, _, _, llm = graph(
+        hits=(retrieval_hit(),),
+        roots=(root_context(),),
+        plan=provider_plan,
+    )
+
+    result = await runner.run(request())
+
+    assert result.status is QueryGraphStatus.COMPLETE
+    assert result.plan is not None
+    assert result.plan.original_query == "问题"
+    assert result.plan.requirements == ("问题",)
+    assert "Requirements: ['问题']" in llm.requests[0].user_prompt
+    assert "Provider 伪造的问题" not in llm.requests[0].user_prompt
 
 
 @pytest.mark.anyio

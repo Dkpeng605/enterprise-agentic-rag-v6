@@ -3240,6 +3240,29 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   或数据库，不改变 Provider 选择和重建的持久化语义。
 - PR：`fix/provider-selection-dimension-state`。
 
+##### M7-R17 查询图统一的子查询与 requirement 语义（已完成）
+
+- 缺陷事实：M7-R13 已修复 Mac/生产 `SemanticQueryRunner` 的原始问题 requirement 边界，但独立的
+  `StandardQueryGraph` 仍直接使用注入的 `PlannerOutcome.plan`。自定义 Planner 因此可能把自己伪造的
+  `original_query`/requirement 带入答案 Prompt，造成不同查询图的安全语义不一致。
+- 计划语义：子查询不是默认步骤。只有 LLM 在结构化计划中明确返回 `use_sub_queries=true`，并提供 2～4
+  条面向同一原始问题的唯一替代检索路径时，才启动并行分支；`false` 强制使用唯一 `rewritten_query`，
+  确定性 fallback 永不自动拆分。比较、多条件、多跳或问题中的连接词本身都不能触发拆分。
+- 覆盖语义：每个 QueryPlan 只有一个 requirement，且由服务端收到的原始用户问题确定性生成。子查询只
+  提供该 requirement 的替代证据来源，不创建新的 requirement，也不要求每个分支都命中；四条路径中
+  任意一条提供足够可靠、可引用的证据即可覆盖这一个 requirement。`matched_queries` 只能说明当前
+  计划中的检索 provenance，未知路径不能制造覆盖。
+- 实现边界：`canonicalize_plan()` 是所有查询图共享的入口约束，Standard 与 Semantic 在检索前都将
+  `original_query` 和唯一 requirement 绑定到服务器收到的 query；它不改变重写文本、Scope、RRF、授权、
+  Rerank 或 Citation Verify。Deep Assessor 与 Answer Verify 接收同一单 requirement，仍保留可靠证据、
+  Root/Leaf 归属和连续 quote 校验。
+- EDD：新增 Standard Graph 的恶意 Planner 回归测试，并保持 Planner 的默认单路、关闭开关、空列表、四路
+  单 requirement、单一路径覆盖和未知 provenance 测试；必须运行相关 Pytest、Ruff、strict Mypy、前端
+  Vitest/typecheck/build 与 OpenAPI drift。
+- 回滚：移除共享 canonicalization 和 Standard 回归测试即可回退到仅 Semantic 入口保护的行为；不改动
+  数据库、向量、Root/Leaf、索引 revision 或历史 Trace。
+- PR：`fix/unify-query-coverage-boundary`。
+
 ### M8：首次公网发布
 
 #### M8-00 独立摄取 Worker 前置 Slice（已完成）
