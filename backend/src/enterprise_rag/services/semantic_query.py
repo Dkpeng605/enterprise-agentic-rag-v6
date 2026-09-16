@@ -45,6 +45,7 @@ from enterprise_rag.services.query_api import (
 from enterprise_rag.services.query_planner import (
     QueryPlanningService,
     canonicalize_plan,
+    retrieval_queries,
 )
 from enterprise_rag.services.reranking import RerankingService
 from enterprise_rag.services.retrieval import (
@@ -188,18 +189,19 @@ class SemanticQueryRunner:
             emit,
             QueryProgressStage.RETRIEVING,
             (
-                f"执行 {len(plan.sub_queries)} 条替代检索路径的 Dense / Sparse 检索"
+                f"执行 {len(retrieval_queries(plan))} 条替代检索路径的 Dense / Sparse 检索"
                 if plan.use_sub_queries
                 else "执行单条 rewritten query 的 Dense / Sparse 检索"
             ),
         )
+        active_queries = retrieval_queries(plan)
         await self._vector_store.ensure_revision(
             IndexSchema(self._index_revision, self._embedding.dimension, self._sparse.mode)
         )
         retrieved = await self._retrieve(
             command,
             plan.scope,
-            plan.sub_queries,
+            active_queries,
             plan.rewritten_query,
             RetrievalMode.HYBRID,
             emit=emit,
@@ -240,7 +242,7 @@ class SemanticQueryRunner:
                     self._evidence(
                         retrieved,
                         requirements=effective_plan.requirements,
-                        sub_queries=effective_plan.sub_queries,
+                        sub_queries=retrieval_queries(effective_plan),
                     ),
                     _repairable_scope_fields(command.scope, effective_plan.scope),
                 )
@@ -783,7 +785,7 @@ def _answer_root_limit(mode: QueryMode, plan: QueryPlan) -> int:
 
     if mode is QueryMode.DEEP:
         return 5
-    return 5 if len(plan.sub_queries) > 1 else 3
+    return 5 if len(retrieval_queries(plan)) > 1 else 3
 
 
 def _fusion_root_quota(queries: Sequence[str]) -> int:

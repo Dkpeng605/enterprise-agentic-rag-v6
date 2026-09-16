@@ -27,7 +27,6 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-docker compose -f infra/compose/compose.dev.yml up -d postgres
 "${repository_root}/scripts/ensure-local-databases.sh"
 uv sync --project backend --locked
 uv run --project backend --no-env-file alembic -c backend/alembic.ini upgrade head

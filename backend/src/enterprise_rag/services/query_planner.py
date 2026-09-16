@@ -196,6 +196,20 @@ def canonicalize_plan(plan: QueryPlan, *, original_query: str) -> QueryPlan:
     return replace(plan, original_query=requirement, requirements=(requirement,))
 
 
+def retrieval_queries(plan: QueryPlan) -> tuple[str, ...]:
+    """Return only the retrieval routes explicitly enabled by the plan.
+
+    ``QueryPlan`` validates this relationship today, but both graph runners also
+    accept plans through provider/application boundaries. Keeping the switch at
+    the execution boundary makes the policy explicit and prevents a future
+    planner adapter from accidentally turning an opt-out into parallel search.
+    """
+
+    if not plan.use_sub_queries:
+        return (plan.rewritten_query,)
+    return plan.sub_queries
+
+
 def _required_text(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("planner text field is invalid")

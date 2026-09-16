@@ -36,6 +36,7 @@ from enterprise_rag.services import (
     StandardQueryGraph,
     StandardQueryRequest,
 )
+from enterprise_rag.services.query_planner import retrieval_queries
 
 TENANT_ID = UUID("01900000-0000-7000-8000-000000001701")
 DOCUMENT_ID = UUID("01900000-0000-7000-8000-000000001702")
@@ -118,11 +119,12 @@ class FakeSearch:
 
 
 class FakeFusion:
-    def __init__(self, hits: tuple[RetrievalHit, ...]) -> None:
+    def __init__(self, hits: tuple[RetrievalHit, ...], *, expected_results: int) -> None:
         self.hits = hits
+        self.expected_results = expected_results
 
     def fuse(self, results: tuple[DualSearchResult, ...]) -> FusionResult:
-        assert len(results) == 2
+        assert len(results) == self.expected_results
         return FusionResult(self.hits, FusionDiagnostic(4, 0, len(self.hits), 0, 0))
 
 
@@ -233,11 +235,15 @@ def graph(
     scope_root = FakeScopeRoot(roots=roots)
     reranking = FakeReranking()
     llm = FakeLanguageModel()
+    active_plan = plan or query_plan()
     return (
         StandardQueryGraph(
             planner=planner,
             search=search,
-            fusion=FakeFusion(hits),
+            fusion=FakeFusion(
+                hits,
+                expected_results=len(retrieval_queries(active_plan)),
+            ),
             scope_root=scope_root,
             reranking=reranking,
             language_model=llm,
@@ -307,6 +313,31 @@ async def test_planner_degradation_is_visible_without_adding_an_llm_call() -> No
     assert result.status is QueryGraphStatus.COMPLETE
     assert result.planner_degraded is True
     assert result.llm_calls == 2
+
+
+@pytest.mark.anyio
+async def test_standard_graph_executes_one_route_when_subqueries_are_disabled() -> None:
+    single_plan = QueryPlan(
+        "问题",
+        "改写问题",
+        QueryIntent.FACTUAL,
+        ("改写问题",),
+        ("问题",),
+        QueryScope(),
+        "zh",
+        QueryMode.STANDARD,
+        False,
+    )
+    runner, _, search, _, _, _ = graph(
+        hits=(retrieval_hit(),),
+        roots=(root_context(),),
+        plan=single_plan,
+    )
+
+    result = await runner.run(request())
+
+    assert result.status is QueryGraphStatus.COMPLETE
+    assert search.queries == ["改写问题"]
 
 
 @pytest.mark.anyio

@@ -211,6 +211,8 @@ QueryPlan：把依赖会话的问题改写为独立检索问题。子查询不�
 运行器还会在进入检索前用服务端收到的原始 query 重新绑定 `original_query` 和唯一 requirement，Provider
 不能通过伪造计划字段替换用户问题。LLM 明确关闭多路且返回空 `sub_queries` 时，后端也只合成一条
 `rewritten_query` 路径；Leaf 上的 `matched_queries` 仅在属于本次计划时作为 provenance，不能凭空制造覆盖。
+执行器还会通过共享的有效路径策略再次落实开关：`use_sub_queries=false` 永远只调用一条 rewritten query，
+只有 `true` 才会启动 2–4 条替代路径；因此自定义 Planner 即使错误携带多条关闭态路径，也不会被执行层并行调用。
 完成问答后到“Query Trace”可查看本次改写、子查询、Planner Provider/降级、Planner token、每个分支的
 Dense/Sparse 返回量、交集、RRF 去重与淘汰、权限过滤、Rerank、Root 恢复、Deep 证据评估/恢复轮次、
 回答生成、引用核验/修复及各自 token。Planner、Assessor、回答与 Repair 调用都会计入查询 usage；即使
@@ -491,6 +493,9 @@ export DATABASE_URL=postgresql+asyncpg://enterprise_rag:enterprise_rag@127.0.0.1
 export SESSION_SECRET=development-only-change-me-32-bytes-minimum
 uv run --project backend alembic -c backend/alembic.ini upgrade head
 ```
+
+`ensure-local-databases.sh` 会先复用已经占用 `55432` 且被 Docker 标记为 PostgreSQL service 的旧 Compose
+容器，再创建缺失的开发/测试数据库；遇到无关进程会明确失败，不会停止或删除用户已有数据库。
 
 在第一个终端启动后端：
 
