@@ -3,6 +3,7 @@ from uuid import UUID
 import pytest
 
 from enterprise_rag.domain import QueryMode, QueryScope
+from enterprise_rag.ports import ScopeAuthorization
 from enterprise_rag.services import (
     KnowledgeApplication,
     KnowledgeQuery,
@@ -58,6 +59,26 @@ async def test_rest_and_mcp_facades_share_one_query_use_case() -> None:
     assert runner.commands[0].query == "shared question"
     assert runner.commands[0].tenant_id == TENANT_ID
     assert runner.commands[0].session_id == SESSION_ID
+
+
+def test_query_authorization_is_carried_separately_from_explicit_query_scope() -> None:
+    runner = RecordingRunner()
+    knowledge = KnowledgeApplication(
+        QueryApiService(runner), query_id_factory=lambda: QUERY_ID
+    )
+    authorization = ScopeAuthorization(
+        TENANT_ID,
+        False,
+        collection_ids=(UUID("01900000-0000-7000-8000-000000002005"),),
+    )
+
+    command = knowledge.command(
+        Principal(SESSION_ID, TENANT_ID, ACTOR_ID),
+        KnowledgeQuery("question", authorization=authorization),
+    )
+
+    assert command.scope == QueryScope()
+    assert command.authorization == authorization
 
 
 def test_application_layer_rejects_invalid_generated_identity() -> None:

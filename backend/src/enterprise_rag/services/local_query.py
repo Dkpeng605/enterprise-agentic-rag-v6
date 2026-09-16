@@ -1,10 +1,11 @@
 """Offline deterministic QueryRunner for Compose and browser acceptance tests."""
 
 from collections.abc import Mapping
+from dataclasses import replace
 
 from enterprise_rag.adapters.database import Database, PostgreSQLContextRepository
 from enterprise_rag.adapters.rerankers import NoopReranker
-from enterprise_rag.domain.retrieval import Citation
+from enterprise_rag.domain.retrieval import Citation, QueryScope
 from enterprise_rag.observability import start_span, trace_async
 from enterprise_rag.ports.context import ScopeAuthorization
 from enterprise_rag.ports.embedding import EmbeddingProvider
@@ -80,19 +81,20 @@ class DeterministicLocalQueryRunner:
                 "rag.query.mode": command.mode.value,
             },
         ):
-            authorization = ScopeAuthorization(command.tenant_id, True)
+            authorization = command.authorization or ScopeAuthorization(command.tenant_id, True)
 
         await self._progress(emit, QueryProgressStage.RETRIEVING, "执行 Dense / Sparse 检索")
         await self._vector_store.ensure_revision(
             IndexSchema(self._index_revision, self._embedding.dimension, self._sparse.mode)
         )
+        search_scope = _authorized_search_scope(command.scope, authorization)
         searched = await trace_async(
             "rag.retrieval",
             self._search.search(
                 query=command.query,
                 tenant_id=command.tenant_id,
                 index_revision=self._index_revision,
-                scope=command.scope,
+                scope=search_scope,
             ),
         )
         with start_span("rag.rrf_fusion") as span:
@@ -198,6 +200,20 @@ class DeterministicLocalQueryRunner:
             "planner_degraded": False,
             "reranker_degraded": False,
         }
+
+
+def _authorized_search_scope(
+    scope: QueryScope, authorization: ScopeAuthorization
+) -> QueryScope:
+    """Apply restricted transport authorization before vector retrieval."""
+
+    if authorization.full_tenant_access:
+        return scope
+    return replace(
+        scope,
+        collection_ids=scope.collection_ids or authorization.collection_ids,
+        document_ids=scope.document_ids or authorization.document_ids,
+    )
 
 
 def _excerpt(text: str, *, limit: int = 520) -> str:

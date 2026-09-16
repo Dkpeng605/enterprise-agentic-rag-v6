@@ -19,6 +19,7 @@ from enterprise_rag.observability import (
     current_context,
     start_span,
 )
+from enterprise_rag.ports.context import ScopeAuthorization
 from enterprise_rag.ports.planner import ConversationTurn
 from enterprise_rag.ports.traces import TraceCompletion, TraceRecorder
 from enterprise_rag.services.auth import Principal
@@ -41,6 +42,7 @@ class KnowledgeQuery:
     mode: QueryMode = QueryMode.STANDARD
     scope: QueryScope = QueryScope()
     history: tuple[ConversationTurn, ...] = ()
+    authorization: ScopeAuthorization | None = None
 
     def __post_init__(self) -> None:
         require_non_empty(self.question, "question")
@@ -72,6 +74,11 @@ class KnowledgeApplication:
         try:
             query_id = self._query_id_factory()
             require_uuid7(query_id, "query_id")
+            authorization = request.authorization or ScopeAuthorization(
+                principal.tenant_id, True
+            )
+            if authorization.tenant_id != principal.tenant_id:
+                raise ValueError("query authorization tenant must match principal tenant")
             return QueryCommand(
                 query_id,
                 principal.tenant_id,
@@ -81,6 +88,7 @@ class KnowledgeApplication:
                 request.scope,
                 request.history,
                 principal.session_id,
+                authorization,
             )
         except ValueError as error:
             raise AppError(ErrorCode.VALIDATION_ERROR, "The query request is invalid.") from error

@@ -152,6 +152,11 @@ Configure the single-line value from `/tmp/enterprise-rag-mcp-token` in the MCP 
 MCP scopes and can access only collections present in the Demo Tenant when it was issued; tool arguments cannot
 widen that allowlist. List non-secret metadata or revoke a token with:
 
+The token collection allowlist is a server-side authorization boundary, not an explicit user-selected query filter.
+An allowlisted collection with no ready document therefore does not make `query_knowledge_base` fail when another
+authorized collection has evidence; only collections explicitly supplied by the caller are treated as explicit scope
+filters. `scripts/mac-mcp-smoke.py --run-query` reports the real response `status` field.
+
 ```bash
 uv run --project backend --env-file .env enterprise-rag-mcp-token list
 uv run --project backend --env-file .env enterprise-rag-mcp-token revoke <TOKEN_UUID>

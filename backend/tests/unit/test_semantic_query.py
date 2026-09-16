@@ -2,9 +2,11 @@ from dataclasses import replace
 from uuid import UUID
 
 from enterprise_rag.domain import QueryIntent, QueryMode, QueryPlan, QueryScope
+from enterprise_rag.ports import ScopeAuthorization
 from enterprise_rag.services.scope_root import RootContext
 from enterprise_rag.services.semantic_query import (
     _answer_root_limit,
+    _authorized_search_scope,
     _effective_plan,
     _requirements_for_queries,
     _select_answer_roots,
@@ -187,3 +189,19 @@ def test_runtime_binds_requirement_to_the_server_received_original_query() -> No
 
     assert effective.original_query == "用户真正的问题"
     assert effective.requirements == ("用户真正的问题",)
+
+
+def test_restricted_transport_authorization_is_a_search_prefilter_not_an_explicit_scope() -> None:
+    allowed_collection = UUID("01900000-0000-7000-8000-000000003005")
+    authorization = ScopeAuthorization(
+        DOCUMENT_ID,
+        False,
+        collection_ids=(allowed_collection,),
+    )
+
+    requested = QueryScope(titles=("仅此文档",))
+    search_scope = _authorized_search_scope(requested, authorization)
+
+    assert search_scope.collection_ids == (allowed_collection,)
+    assert search_scope.document_ids == ()
+    assert search_scope.titles == requested.titles

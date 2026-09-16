@@ -2896,6 +2896,10 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 引用核验：`verify_answer` 不调用 LLM，不保存或回显 answer/question。它重新解析 Token collection Scope，
   从 PostgreSQL 核对 citation ID、document/root/leaf 归属和连续 quote，只返回 citation/verified count 与
   有界 issue code/index；未知 Root、错误 Leaf、document mismatch、quote 不存在与重复 citation 必须稳定失败；
+- 查询授权边界：MCP Token 的 collection allowlist 必须作为 `ScopeAuthorization` 传入查询链路，并在 Dense/Sparse
+  向量请求中作为服务端前置过滤；它不能被编码成用户的显式 `QueryScope`。只有 Tool 调用显式提交的
+  `collection_ids` 才属于显式范围并触发“每个集合均须存在 ready 文档”的冲突校验。空的 allowlist 集合不得使
+  其他已授权集合的查询失败；Query Command 必须保留授权与用户范围两个独立字段，Root 回源继续同时执行二者；
 - Endpoint 配置：浏览器 `PUBLIC_BASE_URL` 与 MCP resource URL 不得混用。新增独立
   `MCP_PUBLIC_BASE_URL`；Mac 示例为 `http://127.0.0.1:8000`，开发/test 才允许明文 loopback，production
   缺少显式值或不是 HTTPS 时启动失败。`/api/v1/workspace/mcp` 在 Mac 组合中只在 factory 实际注入后显示

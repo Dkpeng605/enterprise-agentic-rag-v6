@@ -11,6 +11,7 @@ from uuid import UUID
 from enterprise_rag.domain.common import require_non_empty, require_uuid7, to_json_value
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import Citation, QueryMode, QueryScope
+from enterprise_rag.ports.context import ScopeAuthorization
 from enterprise_rag.ports.planner import ConversationTurn
 
 ProgressSink = Callable[["QueryProgress"], Awaitable[None]]
@@ -42,12 +43,15 @@ class QueryCommand:
     scope: QueryScope
     history: tuple[ConversationTurn, ...]
     session_id: UUID | None = None
+    authorization: ScopeAuthorization | None = None
 
     def __post_init__(self) -> None:
         for name in ("query_id", "tenant_id", "actor_id"):
             require_uuid7(getattr(self, name), name)
         if self.session_id is not None:
             require_uuid7(self.session_id, "session_id")
+        if self.authorization is not None and self.authorization.tenant_id != self.tenant_id:
+            raise ValueError("query authorization tenant must match query tenant")
         require_non_empty(self.query, "query")
         if len(self.query) > 2_000:
             raise ValueError("query must not exceed 2000 characters")

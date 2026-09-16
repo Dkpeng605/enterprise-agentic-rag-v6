@@ -411,6 +411,8 @@ class SemanticQueryRunner:
         *,
         emit: ProgressSink | None = None,
     ) -> _RetrievalOutcome:
+        authorization = _query_authorization(command)
+        search_scope = _authorized_search_scope(scope, authorization)
         with start_span(
             "rag.retrieval",
             attributes={
@@ -421,7 +423,7 @@ class SemanticQueryRunner:
             if mode is RetrievalMode.HYBRID:
                 searched = await asyncio.gather(
                     *(
-                        self._search_branch(command, scope, query, branch_index)
+                        self._search_branch(command, search_scope, query, branch_index)
                         for branch_index, query in enumerate(queries)
                     )
                 )
@@ -433,7 +435,7 @@ class SemanticQueryRunner:
             else:
                 branches = (
                     await self._search_single_branch(
-                        command, scope, queries[0], mode
+                        command, search_scope, queries[0], mode
                     ),
                 )
         with start_span(
@@ -488,7 +490,7 @@ class SemanticQueryRunner:
             await self._progress(
                 emit, QueryProgressStage.RERANKING, "使用当前 Reranker 重排授权候选"
             )
-        authorization = ScopeAuthorization(command.tenant_id, True)
+        authorization = _query_authorization(command)
         async with self._database.session() as session:
             scope_root = ScopeRootService(
                 PostgreSQLContextRepository(session),
@@ -724,6 +726,35 @@ def _requirements_for_queries(
         return ()
     known_queries = set(sub_queries)
     return requirements if any(query in known_queries for query in matched_queries) else ()
+
+
+def _query_authorization(command: QueryCommand) -> ScopeAuthorization:
+    """Return the server-owned authorization carried by a query command."""
+
+    authorization = command.authorization
+    if authorization is None:
+        return ScopeAuthorization(command.tenant_id, True)
+    return authorization
+
+
+def _authorized_search_scope(
+    scope: QueryScope, authorization: ScopeAuthorization
+) -> QueryScope:
+    """Push capability allowlists into vector search without making them explicit filters.
+
+    An MCP token's collection list is an authorization boundary, not a request that
+    every listed collection must contain a ready document. The PostgreSQL Root
+    resolver receives the original explicit scope plus the authorization separately;
+    vector search still gets the allowlist as a mandatory pre-filter.
+    """
+
+    if authorization.full_tenant_access:
+        return scope
+    return replace(
+        scope,
+        collection_ids=scope.collection_ids or authorization.collection_ids,
+        document_ids=scope.document_ids or authorization.document_ids,
+    )
 
 
 def _effective_plan(plan: QueryPlan, *, original_query: str) -> QueryPlan:

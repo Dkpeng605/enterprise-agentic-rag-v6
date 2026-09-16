@@ -141,6 +141,10 @@ uv run --project backend --env-file .env enterprise-rag-mcp-token issue \
 `http://127.0.0.1:8000/mcp`，Authorization 使用 Bearer。默认 Token 具有四个 MCP scope，并且只能访问
 签发时 Demo Tenant 已存在的集合；Tool 输入不能扩大 allowlist。查看不含 secret 的元数据或撤销 Token：
 
+Token 的集合 allowlist 是服务端授权边界，不会被误当成“用户显式选择的查询集合”。因此 allowlist 中即使有
+尚无 ready 文档的空集合，`query_knowledge_base` 仍可在其他已授权集合中正常检索；只有用户显式传入的集合才会
+触发显式范围冲突校验。`scripts/mac-mcp-smoke.py --run-query` 的 `query_status` 来自真实返回的 `status` 字段。
+
 ```bash
 uv run --project backend --env-file .env enterprise-rag-mcp-token list
 uv run --project backend --env-file .env enterprise-rag-mcp-token revoke <TOKEN_UUID>
