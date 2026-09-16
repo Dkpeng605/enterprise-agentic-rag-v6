@@ -3665,6 +3665,24 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
 - 图片 Caption 不等于可靠图表数据提取；
 - 企业能力是应用层隔离实现，不等于完成行业合规认证。
 
+### 23.4 2026-09-16 本机真实验收记录
+
+本节记录运行时证据，和“代码/契约已实现”严格分开。以下证据来自当前 Mac composition、当前 PostgreSQL
+工作区和一次性测试凭据；Token 已在验收后撤销，不保存 Token 原文、查询正文或模型原始输出：
+
+- `/health/live` 实际返回 200；无 Bearer Token 访问 `/mcp` 实际返回 401。官方 MCP SDK 已完成 Tool 发现、
+  Resource 读取、引用验证和真实知识查询，随后撤销一次性 Token。M7-R8 的授权 live smoke 因此已具备运行时证据。
+- 对无可靠证据的问题执行真实 Deep 查询，持久化 Trace 实际记录 2 轮 Recovery、4 次 LLM 调用，且
+  `assessor_degraded=false`、Planner Provider 为 `openai_compatible_query_planner`。这证明 Recovery 不是静态
+  节点，而是走当前 OpenAI-compatible LLM 的真实路径；该结果不代表回答质量评测成绩。
+- 对 Demo 文档执行人工 LLM 清洗闭环，真实使用 `openai_compatible / MiniMax-M3` 调用 1 次，1 个 Root 变化，
+  Leaf 数量保持 1；重新读取 Pipeline Inspector 可见 LLM audit 与 2 条清洗 audit，重复执行被拒绝。
+- Provider 目录与实际装配一致：本地 384 维 Embedding、Jina 多语 Reranker、Milvus 原生 BM25、Vision `none`。
+  最新 SiliconFlow BGE-M3 Embedding 和 BGE Reranker 请求均返回 HTTP 402；TokenHub 当前模型目录没有可确认的
+  Vision 模型。因此远程 Embedding/Rerank 的真实成功链路和 Vision Caption 的真实成功链路仍不得标记为已验收。
+- M8-04、M8-05、M8-06 仍需真实主机部署/回滚、隔离恢复和公网验收；本机测试、静态 Workflow 检查和本节 Mac
+  证据都不能替代这些生产环境证据。
+
 ---
 
 ## 24. 完成定义
