@@ -494,6 +494,9 @@ export SESSION_SECRET=development-only-change-me-32-bytes-minimum
 uv run --project backend alembic -c backend/alembic.ini upgrade head
 ```
 
+`ensure-local-databases.sh` 会先复用已经占用 `55432` 且被 Docker 标记为 PostgreSQL service 的旧 Compose
+容器，再创建缺失的开发/测试数据库；遇到无关进程会明确失败，不会停止或删除用户已有数据库。
+
 在第一个终端启动后端：
 
 ```bash

@@ -556,6 +556,10 @@ export SESSION_SECRET=development-only-change-me-32-bytes-minimum
 uv run --project backend alembic -c backend/alembic.ini upgrade head
 ```
 
+`ensure-local-databases.sh` first reuses an existing container bound to `55432` only when Docker identifies it as a
+PostgreSQL service from an older Compose project, then creates missing development/test databases. An unrelated port
+occupant fails loudly; the script never stops or deletes an existing user database.
+
 Start the backend in the first terminal:
 
 ```bash

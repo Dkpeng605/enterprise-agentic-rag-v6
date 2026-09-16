@@ -25,8 +25,8 @@ def test_production_compose_keeps_application_services_private() -> None:
     gateway = services["gateway"]
     assert isinstance(gateway, dict)
     assert gateway["ports"] == [
-        "${HTTP_BIND:-0.0.0.0}:80:80",
-        "${HTTPS_BIND:-0.0.0.0}:443:443",
+        "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80",
+        "${HTTPS_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443",
     ]
     assert gateway["networks"] == ["private"]
     assert services["api"]["expose"] == ["8000"]
