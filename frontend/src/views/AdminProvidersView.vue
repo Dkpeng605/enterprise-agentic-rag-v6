@@ -44,6 +44,10 @@ const optionsByKind = computed(() =>
 const currentProviders = computed(() => catalog.value?.providers ?? [])
 const currentLlm = computed(() => currentProviders.value.filter((provider) => provider.kind === 'llm'))
 const pendingRestart = computed(() => Boolean(catalog.value?.selection.pending_restart))
+const pendingEmbeddingDimension = computed(() => {
+  const value = catalog.value?.selection.pending_embedding_dimension
+  return typeof value === 'string' ? value : ''
+})
 
 function providerLabel(kind: string): string {
   return kindLabels[kind] ?? kind
@@ -151,7 +155,7 @@ onMounted(load)
 
     <template v-else-if="catalog">
       <div v-if="pendingRestart" class="provider-admin-banner provider-admin-banner--pending" role="status">
-        <strong>存在待生效选择</strong><span>配置已写入本机运行时目录，但当前进程仍使用旧模型；重启 backend 后才会切换。</span>
+        <strong>存在待生效选择</strong><span>配置已写入本机运行时目录，但当前进程仍使用旧模型；重启 backend 后才会切换。<template v-if="pendingEmbeddingDimension">待生效 Embedding 维度：{{ pendingEmbeddingDimension }}。</template></span>
       </div>
       <div v-if="actionMessage" class="provider-admin-banner" role="status">{{ actionMessage }}</div>
       <div v-if="actionError" class="provider-admin-banner provider-admin-banner--error" role="alert">{{ actionError }}</div>

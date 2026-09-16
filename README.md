@@ -101,7 +101,9 @@ tokens）和 `BAAI/bge-reranker-v2-m3`。两者共用 `SILICONFLOW_API_KEY`，�
 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION` 设置为远端模型真实维度。Mac runtime 会按显式
 Provider 装配 HTTP Adapter，不再把 API 配置误判为本地模型。页面产生的新选择会额外保存
 `embedding_provider`/`reranker_provider`，旧的仅含模型名的选择文件仍向后兼容；重启后目录中的
-current/pending 状态以实际装配的 Provider 为准。
+current/pending 状态以实际装配的 Provider 为准。`pending_restart` 会同时比较 Provider、模型和
+Embedding 维度；即使模型名相同，只要持久化目标维度与当前运行 Provider 不同，也会显示
+`pending_embedding_dimension`，避免把错误索引契约误报为已生效。
 
 在第二个终端启动 Vue 3 前端：
 
@@ -741,6 +743,7 @@ docker compose -p enterprise-rag-browser-e2e -f infra/compose/compose.e2e.yml \
 - M7-R13 拒答率诊断与证据预算修复：已完成
 - M7-R14 部分答案状态与拒答率口径修复：已完成
 - M7-R15 Pipeline Inspector 图片受保护预览：已完成
+- M7-R16 Provider 选择维度状态一致性：已完成
 - M8-00 独立摄取 Worker 前置 Slice：已完成
 - M8-01 生产镜像：已完成
 - 生产 API 组合根（M8-02 前置）：已完成

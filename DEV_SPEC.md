@@ -3206,6 +3206,28 @@ tenant_id；文档正文、查询文本和 Trace 明细只能在当前 demo tena
   metadata 展示。
 - PR：待提交，建议分支 `feat/m7-r15-protected-image-preview`。
 
+##### M7-R16 Provider 选择维度状态一致性（已完成）
+
+- 缺陷事实：M7-R5/R7 已将 Provider 选择设计为 restart-bound，并在目录返回当前模型、Provider、Embedding
+  dimension 与 input token limit；但旧的 `pending_restart` 比较只检查 Provider/model。若 selection 文件中的
+  `embedding_dimension` 与重启后实际装配 Provider 的维度不一致，即使模型名相同，页面也可能误报没有待生效变更，
+  让管理员误以为当前索引契约已经切换。
+- 单一事实源：当前 dimension 必须来自实际运行 Embedding Provider 的 `dimension`，不能来自 selection 文件或
+  profile 文案；selection 文件的 `embedding_dimension` 只表示下一次启动目标。真实组合能够提供当前维度时，二者
+  不一致必须令 `pending_restart=true`，并返回 `pending_embedding_dimension`；没有实际维度的轻量测试目录不能猜测
+  或制造 pending。
+- API/UI：`GET /api/v1/admin/providers` 保持非敏感 `selection.embedding_dimension` 为当前运行值，只有维度不一致时
+  增加 `pending_embedding_dimension`；已应用且维度、模型、Provider 均一致时不得返回对应 `pending_*`。
+  `/admin/providers` 在待生效提示中展示目标维度，保留“重启后生效”和重建索引边界；该状态不能被前端自行推断。
+- 失败边界：该修复只影响 Provider 目录状态，不热切换 Embedding/Reranker、不绕过重建、不修改 Root/Leaf/Milvus
+  数据；远程 Embedding 的实际向量维度仍由 Adapter 严格校验，Reranker 选择仍不触发向量重建。
+- EDD：新增测试证明模型相同但目标维度不一致时仍为 pending，并返回稳定目标维度；已有远程 BGE-M3
+  1024 维、BGE-small-zh 512 维、Provider identity、重启后 current/pending、密钥不可见和 API contract 测试必须
+  保持通过。执行后端相关 Pytest、Ruff、strict Mypy、前端 Vitest/typecheck/build 与 OpenAPI drift。
+- 回滚：移除 `pending_embedding_dimension` 比较和提示即可回到旧目录展示；不删除 selection 文件、向量、Root/Leaf
+  或数据库，不改变 Provider 选择和重建的持久化语义。
+- PR：`fix/provider-selection-dimension-state`。
+
 ### M8：首次公网发布
 
 #### M8-00 独立摄取 Worker 前置 Slice（已完成）

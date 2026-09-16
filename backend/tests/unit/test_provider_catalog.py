@@ -220,6 +220,32 @@ def test_applied_restart_selection_is_current_and_no_longer_reported_as_pending(
     assert "pending_embedding_model" not in runtime
 
 
+def test_embedding_dimension_mismatch_remains_pending_even_when_model_matches(
+    tmp_path: Path,
+) -> None:
+    selection_path = tmp_path / "provider-selection.json"
+    selection_path.write_text(
+        '{"embedding_model":"same-model","embedding_provider":"local_multilingual_minilm",'
+        '"embedding_dimension":"384"}\n',
+        encoding="utf-8",
+    )
+
+    catalog = RuntimeProviderCatalog(
+        registry=ProviderRegistry(),
+        selection_path=selection_path,
+        current_models={
+            "embedding": "same-model",
+            "embedding_provider": "local_multilingual_minilm",
+        },
+        current_embedding_dimension=512,
+    )
+
+    selection = cast(dict[str, object], catalog.to_dict()["selection"])
+
+    assert selection["pending_restart"] is True
+    assert selection["pending_embedding_dimension"] == "384"
+
+
 def test_runtime_provider_supports_direct_api_mode_and_ignores_stale_model_only_selection() -> None:
     embedding_provider, embedding_model = resolve_runtime_provider(
         {"embedding_model": "old-local-model", "embedding_dimension": "384"},
