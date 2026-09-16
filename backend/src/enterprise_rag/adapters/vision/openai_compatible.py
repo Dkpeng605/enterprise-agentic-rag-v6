@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -12,6 +13,7 @@ from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, Provider
 from enterprise_rag.ports.vision import VisionImage
 
 Sleeper = Callable[[float], Awaitable[None]]
+_THINK_BLOCK = re.compile(r"^\s*<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
 
 
 class VisionError(AppError):
@@ -26,7 +28,12 @@ class OpenAICompatibleVisionProvider:
     server-side errors. Provider response bodies are never included in errors.
     """
 
-    _CAPTION_PROMPT = "Describe the visible content of this image for enterprise retrieval."
+    _CAPTION_PROMPT = (
+        "Convert this image into concise, searchable text for an enterprise knowledge base. "
+        "Transcribe visible text, numbers, code, tables, labels, and relationships accurately; "
+        "describe diagrams or charts when needed. Return only the final description, without "
+        "reasoning, preambles, or Markdown fences."
+    )
 
     def __init__(
         self,
@@ -178,9 +185,30 @@ class OpenAICompatibleVisionProvider:
             content = choices[0]["message"]["content"]
             if not isinstance(content, str) or not content.strip():
                 raise TypeError("caption content must be a non-empty string")
+            return _visible_caption(content)
         except (KeyError, TypeError, ValueError, IndexError) as error:
             raise VisionError(
                 ErrorCode.VISION_INVALID_RESPONSE,
                 "The remote Vision Provider returned an invalid response.",
             ) from error
-        return content.strip()
+
+
+def _visible_caption(text: str) -> str:
+    """Remove reasoning wrappers before a caption enters the embedding index.
+
+    Reasoning-capable gateways such as MiniMax may prepend a ``<think>`` block
+    even when the request asks for a plain caption. The reasoning is not image
+    evidence and must never be persisted or embedded. Markdown inside the
+    actual caption is deliberately preserved because code/table formatting can
+    be meaningful retrieval evidence.
+    """
+
+    visible = text.strip()
+    while visible.lower().startswith("<think>"):
+        remaining = _THINK_BLOCK.sub("", visible, count=1)
+        if remaining == visible:
+            raise TypeError("caption reasoning block is incomplete")
+        visible = remaining.strip()
+    if not visible:
+        raise TypeError("caption content is empty after removing reasoning")
+    return visible

@@ -166,6 +166,27 @@ async def test_typographic_quote_is_canonicalized_to_the_exact_source_quote() ->
 
 
 @pytest.mark.anyio
+async def test_vision_caption_in_selected_retrieval_evidence_can_be_cited() -> None:
+    caption = '图片中显示文字 "RAG VISION"。'
+    source_root = replace(
+        root(),
+        evidence_text=f"政策定义明确。\n\n{caption}",
+    )
+    draft = AnswerDraft(
+        (DraftParagraph("图片中的文字是 RAG VISION。[1]", (1,)),),
+        (DraftCitation(1, ROOT_ID, (LEAF_ID,), caption),),
+        ("政策是什么？",),
+    )
+
+    outcome = await AnswerVerificationService(
+        FakeRepairer(RuntimeError("must not run"))
+    ).finalize(plan=plan(), roots=(source_root,), draft=draft)
+
+    assert outcome.status is AnswerStatus.ANSWERED
+    assert outcome.citations[0].quote == caption
+
+
+@pytest.mark.anyio
 async def test_bad_quote_is_repaired_once_using_the_same_roots() -> None:
     bad = AnswerDraft(
         (DraftParagraph("错误引用。[1]", (1,)),),

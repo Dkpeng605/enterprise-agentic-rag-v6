@@ -72,12 +72,27 @@ Mac 组合同时在 `http://127.0.0.1:8000/mcp` 挂载官方 SDK v2 Streamable H
 - Reranker：`jinaai/jina-reranker-v2-base-multilingual`；
 - LLM：`MiniMax-M3`，通过 `.env` 中的 `LLM_BASE_URL` 调用。
 
-图片 Caption 默认关闭（`vision=none`）：Loader 提取的图片仍会保存到本地 ObjectStore，但不离开本机。
-如需演示真实图片理解，在 `.env` 中配置 `ENTERPRISE_RAG__PROVIDERS__VISION=openai_compatible`、
-`VISION_BASE_URL`、`VISION_API_KEY` 和 `VISION_MODEL`；适配器会以 OpenAI-compatible
-`/chat/completions` 的 text + base64 data URI 调用模型。远程 Vision 只发送图片，不发送未授权文档正文，
-并对 429、5xx 和传输错误执行有界重试。管理员也可以在 `/admin/providers` 选择关闭或启用该 profile；
-选择写入本机的 restart-bound 文件，重启后才生效，密钥永不返回前端。
+Mac 示例已通过 `ENTERPRISE_RAG__PROVIDERS__VISION=openai_compatible` 启用图片理解，并显式复用已经配置的
+`LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`（已用 TokenHub 的 `MiniMax-M3` 验证），不需要再复制一份密钥。
+它以 OpenAI-compatible `/chat/completions` 的 text + base64 data URI 发送图片，移除 MiniMax 返回的
+`<think>` 包装后，把最终 caption 写入 Root metadata 和首个 Leaf 的 `retrieval_text`，再进入 Embedding
+投影；Root 回源给回答模型时继续使用这个已授权 Leaf 的 `retrieval_text`，所以回答模型可以看到并引用图片
+文字；引用校验允许 caption 只在当前选中 Leaf 的持久化检索文本中出现，原始文档引用仍要求来自完整 clean Root。
+原始图片仍保存在本地 ObjectStore。远程 Vision 只发送图片，不发送未授权文档正文，并对 429、5xx
+和传输错误执行有界重试；Vision 失败只降级 caption，不丢弃文档。需要独立多模态 endpoint 时仍可配置
+`VISION_BASE_URL`、`VISION_API_KEY` 和 `VISION_MODEL`。管理员也可以在 `/admin/providers` 选择关闭或启用该
+profile；选择写入本机的 restart-bound 文件，重启后才生效，密钥永不返回前端。
+
+可在不写入数据库的情况下验证真实 Vision 与检索接入边界（只输出 Provider、模型、状态和计数，不输出图片
+文字或密钥）：
+
+```bash
+uv run --project backend --env-file .env python scripts/mac-vision-smoke.py
+```
+
+该 smoke 会生成内存中的有效 PNG，调用 TokenHub `MiniMax-M3`，确认原始图片已暂存、`<think>` 未进入 caption，
+并确认 caption 已进入首个 Leaf 的 `retrieval_text`。完整业务验收仍应在页面上传包含内嵌图片的 PDF/DOCX，等待
+Job 成功后打开 Pipeline Inspector，核对真实图片预览、Caption 和 retrieval inclusion。
 
 默认 MiniLM 的 registry 描述是 512 input tokens，但本机 FastEmbed tokenizer 实测上限是 128；页面和
 Splitter 以运行时实测值为准。Provider 管理页会同时显示 profile 声明值和当前进程探测到的有效值。
@@ -930,9 +945,16 @@ PDF Loader 会流式落盘临时输入，先按页提取文本，低于 `pdf_ocr
 
 结构化 Splitter 使用版本化的段落/句子感知策略：在 Root 内优先保留标题、段落、列表、代码围栏、表格行和完整句子，再应用 target/max 限制；新摄取的 Leaf 不重叠，Root 在检索后负责恢复完整上下文。只有单个结构单元本身超过预算时才降级为 token 硬切，并在 Leaf metadata 标记 `boundary=token_limit_hard_cut`、`hard_cut=true`。macOS 真实运行时直接复用 FastEmbed tokenizer 与模型输入上限，实际安全预算为配置上限和 `model_input_limit - 1` 的较小值；每个 Root/Leaf 都保存实际 tokenizer、预算、边界和硬切计数，前端可逐块核对。表格续块会重复表头且计入 token 上限；Root/Leaf ID 对相同 version、index revision、内容和顺序保持稳定。
 
-图片增强服务先把 Loader 提取的原始图片写入内容寻址 ObjectStore，再调用可插拔 Vision 端口。默认 `vision: none` 会保留图片并跳过 caption；`openai_compatible` 通过 `/chat/completions` 发送 text + `data:image/*;base64,...` 多模态请求，严格要求一个非空字符串 caption，并对 429/5xx/传输错误执行最多配置次数的退避重试。Vision 异常只将 caption 标记为降级，不会丢弃已存图片或泄露供应商错误；Root metadata 记录图片尺寸、MIME、hash、对象键、caption 状态和错误码，供 Pipeline Inspector 核对实际结果。ObjectStore 写入失败仍会中止摄取，因为图片持久化不是可选数据。
+图片增强服务先把 Loader 提取的原始图片写入内容寻址 ObjectStore，再调用可插拔 Vision 端口。默认离线组合的
+`vision: none` 会保留图片并跳过 caption；Mac 组合显式启用 `openai_compatible`，复用已配置的 MiniMax-M3
+LLM endpoint/密钥/模型，或在需要独立服务时使用完整 `VISION_*` 配置。适配器通过 `/chat/completions` 发送
+text + `data:image/*;base64,...` 多模态请求，移除 MiniMax 的 `<think>` 包装后才返回 caption，并对
+429/5xx/传输错误执行最多配置次数的退避重试。Vision 异常只将 caption 标记为降级，不会丢弃已存图片或泄露
+供应商错误；Root metadata 记录图片尺寸、MIME、hash、对象键、caption 状态和错误码，供 Pipeline Inspector
+核对实际结果。非空 caption 写入 `image_captions`，并加入首个 Leaf 的 `retrieval_text` 后再进入 Embedding
+投影。ObjectStore 写入失败仍会中止摄取，因为图片持久化不是可选数据。
 
-Pipeline Inspector 的 `IMAGE ENRICHMENT` 面板直接读取当前 Root 的持久化事实，展示图片数量、页码/序号/名称、MIME、尺寸、SHA-256、ObjectStore key、Caption、`created/skipped/degraded` 状态、实际 Vision Provider/Model 及状态计数。它还逐一用已保存 Leaf 的 `retrieval_text` 核对 Caption 是否真的进入检索，并明确标出没有进入的情况。图片现在可以通过 `GET /api/v1/documents/{document_id}/images/{sha256}` 在面板中真实预览：服务端只允许当前租户的 `ready` 文档、active 且 indexed version，以及 Root metadata 中匹配的 SHA-256；对象键由摘要派生并再次校验，响应带 `ETag`、摘要和 `nosniff`。这不是公开静态路径，预览失败不会影响 metadata/Caption 展示，也不根据当前配置补造历史结果。
+Pipeline Inspector 的 `IMAGE ENRICHMENT` 面板直接读取当前 Root 的持久化事实，展示图片数量、页码/序号/名称、MIME、尺寸、SHA-256、ObjectStore key、Caption、`created/skipped/degraded` 状态、实际 Vision Provider/Model 及状态计数。它还逐一用已保存 Leaf 的 `retrieval_text` 核对 Caption 是否真的进入检索，并明确标出没有进入的情况。Root 回源向回答模型提供同一已授权 Leaf 的 `retrieval_text`，因此模型可看到并引用图片文字；引用校验只接受当前选中 Leaf 持久化检索文本中的 caption，普通文档引用仍须来自完整 clean Root。图片现在可以通过 `GET /api/v1/documents/{document_id}/images/{sha256}` 在面板中真实预览：服务端只允许当前租户的 `ready` 文档、active 且 indexed version，以及 Root metadata 中匹配的 SHA-256；对象键由摘要派生并再次校验，响应带 `ETag`、摘要和 `nosniff`。这不是公开静态路径，预览失败不会影响 metadata/Caption 展示，也不根据当前配置补造历史结果。
 
 Embedding 端口提供本地多语和 OpenAI-compatible 两种实现，并通过 `EMBEDDING_MODEL` 选择 FastEmbed profile。本地默认使用 `paraphrase-multilingual-MiniLM-L12-v2`（384 维、mean pooling、registry 描述为 512 input tokens），首次调用会下载约 0.22GB 模型；运行时不会盲信 registry：优先读取实际 truncation limit；如果 FastEmbed ONNX wrapper 不暴露该字段，则用超出 registry 上限的探测文本调用 `token_count`，识别被 tokenizer 截断后的真实上限（当前缓存模型实际报告 128）。可选 `BAAI/bge-small-zh-v1.5` profile 实测为 512 维、512 input tokens，适合中文本地部署；切换时同时设置 `ENTERPRISE_RAG__INGESTION__EMBEDDING_DIMENSION=512`，并通过新 index revision 隔离旧向量。Provider 暴露真实 tokenizer 的 `count_tokens` 与输入上限，拒绝达到模型上限的单项输入，Splitter 与 Embedding 使用同一个计数器。远程实现具有条数/token 双重批处理、超时、限流和 5xx 有界重试；SiliconFlow `BAAI/bge-m3` profile 固定校验 1024 维并采用官方 8192 token 上限，但因为 HTTP API 不暴露 tokenizer，本地计数明确标记为 deterministic estimate。两者都严格校验数量、顺序、维度及有限数，并输出 L2 归一化向量。真实模型可用以下命令单独验证：
 

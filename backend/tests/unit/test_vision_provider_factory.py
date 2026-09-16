@@ -39,6 +39,24 @@ async def test_factory_builds_openai_compatible_provider_from_vision_credentials
     await provider.aclose()
 
 
+@pytest.mark.anyio
+async def test_mac_composition_may_explicitly_reuse_llm_credentials() -> None:
+    settings = load_settings(
+        environ={
+            "LLM_BASE_URL": "https://tokenhub.example/v1",
+            "LLM_API_KEY": "llm-secret",
+            "LLM_MODEL": "MiniMax-M3",
+        },
+        overrides={"providers": {"vision": "openai_compatible"}},
+    )
+
+    provider = build_vision_provider(settings, reuse_llm_credentials=True)
+
+    assert provider.info().name == "openai_compatible"
+    assert provider.info().version == "MiniMax-M3"
+    await provider.aclose()
+
+
 def test_factory_rejects_remote_vision_without_complete_credentials() -> None:
     settings = AppSettings.model_validate(
         {"providers": {"vision": "openai_compatible"}}

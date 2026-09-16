@@ -53,8 +53,11 @@ async def test_http_provider_sends_openai_multimodal_data_uri_and_returns_captio
                         {
                             "type": "text",
                             "text": (
-                                "Describe the visible content of this image "
-                                "for enterprise retrieval."
+                                "Convert this image into concise, searchable text for an "
+                                "enterprise knowledge base. Transcribe visible text, numbers, "
+                                "code, tables, labels, and relationships accurately; describe "
+                                "diagrams or charts when needed. Return only the final "
+                                "description, without reasoning, preambles, or Markdown fences."
                             ),
                         },
                         {
@@ -86,6 +89,29 @@ async def test_http_provider_sends_openai_multimodal_data_uri_and_returns_captio
     assert provider.info().name == "openai_compatible"
     assert provider.info().version == "vision-model"
     assert provider.info().is_remote is True
+
+
+@pytest.mark.anyio
+async def test_http_provider_removes_minimax_reasoning_before_persisting_caption() -> None:
+    response = _caption_response(
+        '<think>private reasoning must not enter retrieval</think>\n\n'
+        "图中有一个带 RAG 标签的流程框。"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return response
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatibleVisionProvider(
+            base_url="https://vision.example/v1",
+            api_key="test-secret",
+            model="MiniMax-M3",
+            client=client,
+        )
+        caption = await provider.caption(IMAGE)
+
+    assert caption == "图中有一个带 RAG 标签的流程框。"
+    assert "private reasoning" not in caption
 
 
 @pytest.mark.anyio
@@ -159,6 +185,14 @@ async def test_http_provider_sanitizes_transport_failure_and_bounds_retries() ->
         httpx.Response(200, json={"choices": []}),
         httpx.Response(200, json={"choices": [{"message": {"content": ""}}]}),
         httpx.Response(200, json={"choices": [{"message": {"content": ["caption"]}}]}),
+        httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": "<think>unfinished reasoning"}}
+                ]
+            },
+        ),
         httpx.Response(200, content=b"not-json"),
     ],
 )

@@ -72,6 +72,31 @@ async def test_code_block_stays_whole_when_it_fits(context: IngestionContext) ->
 
 
 @pytest.mark.anyio
+async def test_vision_caption_is_added_to_retrieval_text_without_changing_leaf_text(
+    context: IngestionContext,
+) -> None:
+    root = clean_root("正文说明图片中的流程。")
+    root = replace(
+        root,
+        metadata={
+            "language": "zh",
+            "image_captions": ("图片文字：上传 → 解析 → Embedding。",),
+        },
+    )
+
+    result = await StructureAwareSplitter(
+        target_tokens=40,
+        max_tokens=64,
+        overlap_tokens=0,
+        token_counter=lambda value: len(value),
+    ).split(root, context)
+
+    assert result.leaves[0].text == "正文说明图片中的流程。"
+    assert "图片文字：上传 → 解析 → Embedding。" in result.leaves[0].retrieval_text
+    assert result.leaves[0].token_count == len(result.leaves[0].retrieval_text)
+
+
+@pytest.mark.anyio
 async def test_table_continuations_repeat_header_within_max_tokens(
     context: IngestionContext,
 ) -> None:
