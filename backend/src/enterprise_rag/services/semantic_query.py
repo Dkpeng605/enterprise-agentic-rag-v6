@@ -164,7 +164,7 @@ class SemanticQueryRunner:
             planned = await self._planner.plan(
                 PlannerRequest(command.query, command.history, command.scope, command.mode)
             )
-            plan = planned.plan
+            plan = _effective_plan(planned.plan, original_query=command.query)
             span.set_attribute("provider.name", planned.provider)
             span.set_attribute("rag.query.mode", command.mode.value)
             span.set_attribute("rag.plan.original", plan.original_query)
@@ -206,7 +206,9 @@ class SemanticQueryRunner:
             planned.input_tokens,
             planned.output_tokens,
         )
-        effective_plan = _effective_plan(plan)
+        # ``plan`` was rebound to the server query immediately after planning;
+        # keep the same canonical object for every later stage.
+        effective_plan = plan
         answer_root_limit = _answer_root_limit(command.mode, effective_plan)
         roots = _select_answer_roots(
             effective_plan,
@@ -718,13 +720,13 @@ def _requirements_for_queries(
 ) -> tuple[str, ...]:
     """Treat sub-query provenance as alternative evidence for one user question."""
 
-    del sub_queries
-    if not matched_queries:
+    if not matched_queries or not sub_queries:
         return ()
-    return requirements
+    known_queries = set(sub_queries)
+    return requirements if any(query in known_queries for query in matched_queries) else ()
 
 
-def _effective_plan(plan: QueryPlan) -> QueryPlan:
+def _effective_plan(plan: QueryPlan, *, original_query: str) -> QueryPlan:
     """Restore the runtime invariant for every injected planner.
 
     The normal planning service already fills this field. The runner still protects
@@ -733,10 +735,10 @@ def _effective_plan(plan: QueryPlan) -> QueryPlan:
     user question, never rewritten retrieval text or a sub-query.
     """
 
-    requirement = plan.original_query.strip()
-    if plan.requirements == (requirement,):
+    requirement = original_query.strip()
+    if plan.original_query.strip() == requirement and plan.requirements == (requirement,):
         return plan
-    return replace(plan, requirements=(requirement,))
+    return replace(plan, original_query=requirement, requirements=(requirement,))
 
 
 def _answer_root_limit(mode: QueryMode, plan: QueryPlan) -> int:

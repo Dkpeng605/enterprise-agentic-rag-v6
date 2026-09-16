@@ -208,6 +208,37 @@ async def test_explicit_opt_out_never_activates_model_extra_routes() -> None:
 
 
 @pytest.mark.anyio
+async def test_explicit_opt_out_with_empty_routes_keeps_the_rewritten_single_route() -> None:
+    payload = valid_payload()
+    payload.update(
+        {
+            "rewritten_query": "如何配置本地索引？",
+            "intent": "procedural",
+            "use_sub_queries": False,
+            "sub_queries": [],
+            "requirements": ["如何配置本地索引？"],
+            "scope": {
+                "collection_ids": [],
+                "document_ids": [],
+                "titles": [],
+                "organizations": [],
+                "doc_types": [],
+                "versions": [],
+                "sections": [],
+            },
+        }
+    )
+    request = PlannerRequest("如何配置本地索引？", (), QueryScope(), QueryMode.STANDARD)
+
+    outcome = await QueryPlanningService(FakePlanner(payload)).plan(request)
+
+    assert outcome.degraded is False
+    assert outcome.plan.use_sub_queries is False
+    assert outcome.plan.sub_queries == ("如何配置本地索引？",)
+    assert outcome.plan.requirements == (request.query,)
+
+
+@pytest.mark.anyio
 async def test_simple_factual_plan_overrides_model_misclassified_intent() -> None:
     payload = valid_payload()
     payload.update(

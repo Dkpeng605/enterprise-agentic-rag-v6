@@ -204,6 +204,9 @@ QueryPlan：把依赖会话的问题改写为独立检索问题。子查询不�
 `requirements` 与检索路径完全解耦：无论是否拆成多条，QueryPlan 始终只保留一个来自原始用户问题的 requirement。
 子查询只是获取同一 requirement 证据的替代路线，不会创建新的回答义务；只要任一分支提供足够可靠的证据，回答
 作者和最终核验就可以完成同一个 requirement，不会因为其他分支没有命中而强制拒答。
+运行器还会在进入检索前用服务端收到的原始 query 重新绑定 `original_query` 和唯一 requirement，Provider
+不能通过伪造计划字段替换用户问题。LLM 明确关闭多路且返回空 `sub_queries` 时，后端也只合成一条
+`rewritten_query` 路径；Leaf 上的 `matched_queries` 仅在属于本次计划时作为 provenance，不能凭空制造覆盖。
 完成问答后到“Query Trace”可查看本次改写、子查询、Planner Provider/降级、Planner token、每个分支的
 Dense/Sparse 返回量、交集、RRF 去重与淘汰、权限过滤、Rerank、Root 恢复、Deep 证据评估/恢复轮次、
 回答生成、引用核验/修复及各自 token。Planner、Assessor、回答与 Repair 调用都会计入查询 usage；即使
