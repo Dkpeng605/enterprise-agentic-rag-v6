@@ -25,7 +25,7 @@ const counts = computed(() => ({
 }))
 
 function setError(caught: unknown): void {
-  error.value = caught instanceof ApiError ? caught.message : '无法载入摄取任务。'
+  error.value = caught instanceof ApiError ? caught.message : '无法载入文档处理任务。'
   requestId.value = caught instanceof ApiError ? caught.requestId ?? '' : ''
 }
 
@@ -83,7 +83,7 @@ function statusLabel(status: string): string {
 function stageLabel(job: Job | JobListItem): string {
   if (job.stage) return job.stage
   if (job.type === 'delete') return '等待清理文档'
-  return job.status === 'queued' ? '等待摄取调度' : job.type
+  return job.status === 'queued' ? '等待处理调度' : job.type
 }
 
 function dateLabel(value: string): string {
@@ -104,7 +104,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="ingestion-page">
     <header class="workspace-heading">
-      <div><p class="section-kicker">PIPELINE CONTROL</p><h1>摄取任务</h1><p>任务状态来自 PostgreSQL 租约状态机；页面只轮询活跃任务，不伪造进度或自动重启失败任务。</p></div>
+      <div><p class="section-kicker">DOCUMENT PIPELINE · TASKS</p><h1>文档处理任务</h1><p>查看文档解析、切分、向量化与删除任务的真实进度；失败任务不会在浏览器中被自动重启。</p></div>
       <div class="ingestion-summary"><div><span>ACTIVE</span><strong>{{ counts.active }}</strong></div><div><span>SUCCEEDED</span><strong>{{ counts.succeeded }}</strong></div><div><span>FAILED</span><strong>{{ counts.failed }}</strong></div></div>
     </header>
 
@@ -112,8 +112,8 @@ onBeforeUnmount(() => {
 
     <div class="ingestion-toolbar"><label>状态<select v-model="statusFilter" @change="loadJobs()"><option value="">全部任务</option><option value="queued">Queued</option><option value="leased">Leased</option><option value="running">Running</option><option value="retry_wait">Retry wait</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label><span v-if="hasActiveJobs"><i></i>{{ refreshing ? '正在同步状态' : '每 5 秒同步活跃任务' }}</span><button type="button" @click="loadJobs()">立即刷新</button></div>
 
-    <div v-if="loading" class="job-skeleton" aria-busy="true" aria-label="正在载入摄取任务"><i v-for="index in 4" :key="index"></i></div>
-    <div v-else-if="!jobs.length" class="jobs-empty"><span>0</span><h2>当前没有摄取任务</h2><p>上传文档或删除文档后，任务会出现在这里。</p><RouterLink class="button button--primary" to="/workspace/documents">前往文档管理</RouterLink></div>
+    <div v-if="loading" class="job-skeleton" aria-busy="true" aria-label="正在载入文档处理任务"><i v-for="index in 4" :key="index"></i></div>
+    <div v-else-if="!jobs.length" class="jobs-empty"><span>0</span><h2>当前没有文档处理任务</h2><p>上传或删除文档后，相应任务会出现在这里。</p><RouterLink class="button button--primary" to="/workspace/documents">前往文档与切分</RouterLink></div>
     <div v-else class="jobs-layout">
       <div class="job-list" data-testid="job-list">
         <button v-for="job in jobs" :key="job.id" type="button" :class="{ active: selected?.id === job.id }" @click="selected = job">

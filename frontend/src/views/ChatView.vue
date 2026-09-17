@@ -142,7 +142,7 @@ function stop(): void {
 <template>
   <section class="chat-page">
     <header class="chat-heading">
-      <div><p class="section-kicker">PUBLIC RAG · EVIDENCE FIRST</p><h1>知识问答</h1><p>答案只依据当前 Demo Tenant 的已授权文档；证据不足时会明确拒答。</p></div>
+      <div><p class="section-kicker">KNOWLEDGE Q&amp;A · EVIDENCE FIRST</p><h1>知识问答</h1><p>答案只依据演示工作区内已授权的文档；证据不足时会明确拒答。</p></div>
       <div class="quota-note"><span>匿名额度</span><strong>Standard / Deep</strong><small>达到上限后不会降级为无依据回答</small></div>
     </header>
 
@@ -160,12 +160,12 @@ function stop(): void {
         <div class="control-block">
           <span class="control-label">知识范围</span>
           <p v-if="collectionsError" class="scope-state">集合暂不可用，将由服务端限定安全范围。</p>
-          <p v-else-if="!collections.length" class="scope-state">当前租户暂无集合，查询会返回无结果。</p>
+          <p v-else-if="!collections.length" class="scope-state">当前工作区暂无集合，查询会返回无结果。</p>
           <label v-for="collection in collections" :key="collection.id" class="scope-choice">
             <input v-model="selectedCollections" type="checkbox" :value="collection.id" />
             <span><strong>{{ collection.name }}</strong><small>{{ collection.ready_document_count }} 个可查询文档</small></span>
           </label>
-          <small v-if="collections.length" class="scope-hint">不勾选表示搜索当前 Demo Tenant 全部集合。</small>
+          <small v-if="collections.length" class="scope-hint">不勾选表示搜索演示工作区内的全部集合。</small>
         </div>
       </aside>
 

@@ -190,7 +190,7 @@ async function upload(): Promise<void> {
       organization: uploadOrganization.value.trim() || undefined,
       visibility: uploadVisibility.value,
     })
-    notice.value = uploadResult.value.deduplicated ? '相同内容已存在，已复用原摄取任务。' : '上传完成，摄取任务已进入队列。'
+    notice.value = uploadResult.value.deduplicated ? '相同内容已存在，已复用原文档处理任务。' : '上传完成，文档处理任务已进入队列。'
     await Promise.all([loadCollections(), loadDocuments()])
   } catch (caught) {
     setError(caught, '文档上传失败。')
@@ -249,7 +249,7 @@ onMounted(initialLoad)
 <template>
   <section class="documents-page">
     <header class="workspace-heading">
-      <div><p class="section-kicker">KNOWLEDGE OPERATIONS</p><h1>文档管理</h1><p>匿名用户拥有当前 Demo Tenant 的完整业务权限；系统配置与其他租户始终不可见。</p></div>
+      <div><p class="section-kicker">KNOWLEDGE BASE · CONTENT &amp; CHUNKS</p><h1>文档与切分</h1><p>管理演示工作区的知识集合、原始文档与检索切片，并追踪每个版本的处理状态。</p></div>
       <div class="heading-actions"><button class="button button--secondary" type="button" @click="openCreate">新建集合</button><button class="button button--primary" type="button" :disabled="!selectedCollection" @click="openUpload">上传文档 <span>↗</span></button></div>
     </header>
 
@@ -276,7 +276,7 @@ onMounted(initialLoad)
         </div>
 
         <div v-if="loading" class="document-skeleton" aria-busy="true" aria-label="正在载入文档"><i v-for="index in 5" :key="index"></i></div>
-        <div v-else-if="!documents.length" class="document-empty"><span>＋</span><h2>这里还没有匹配的文档</h2><p>{{ selectedCollection ? '上传第一份资料，系统会创建可追踪的摄取任务。' : '选择集合或调整筛选条件。' }}</p><button v-if="selectedCollection" class="button button--primary" type="button" @click="openUpload">上传文档</button></div>
+        <div v-else-if="!documents.length" class="document-empty"><span>＋</span><h2>这里还没有匹配的文档</h2><p>{{ selectedCollection ? '上传第一份资料，系统会创建可追踪的文档处理任务。' : '选择集合或调整筛选条件。' }}</p><button v-if="selectedCollection" class="button button--primary" type="button" @click="openUpload">上传文档</button></div>
         <div v-else class="document-table" data-testid="document-list">
           <div class="document-table__head"><span>文档</span><span>状态</span><span>版本 / 大小</span><span>更新时间</span><span></span></div>
           <article v-for="document in documents" :key="document.id">
@@ -310,13 +310,13 @@ onMounted(initialLoad)
           <label>组织<input v-model="uploadOrganization" maxlength="200" /></label>
           <label>可见性<select v-model="uploadVisibility"><option value="tenant">Tenant</option><option value="private">Private</option><option value="public">Public</option></select></label>
           <button class="button button--primary" type="submit" :disabled="saving || !uploadFile || !uploadTitle.trim()">{{ saving ? '上传中…' : '上传并创建任务' }}</button>
-          <div v-if="uploadResult" class="upload-result" role="status"><strong>Job {{ uploadResult.job_id.slice(0, 12) }}…</strong><span>{{ uploadResult.status }}</span><RouterLink :to="`/workspace/ingestion?job=${uploadResult.job_id}`">查看摄取进度 →</RouterLink></div>
+          <div v-if="uploadResult" class="upload-result" role="status"><strong>任务 {{ uploadResult.job_id.slice(0, 12) }}…</strong><span>{{ uploadResult.status }}</span><RouterLink :to="`/workspace/ingestion?job=${uploadResult.job_id}`">查看处理进度 →</RouterLink></div>
         </form>
 
         <div v-else-if="panel === 'document-detail'" class="detail-sheet">
           <p class="section-kicker">DOCUMENT DETAIL</p><h2>{{ activeDocument?.title }}</h2>
           <div v-if="!documentDetail" class="detail-loading">正在读取文档事实源…</div>
-          <template v-else><div class="detail-facts"><p><span>状态</span><strong>{{ documentDetail.status }}</strong></p><p><span>Root / Leaf</span><strong>{{ documentDetail.root_count }} / {{ documentDetail.leaf_count }}</strong></p><p><span>SHA-256</span><strong>{{ documentDetail.sha256_prefix }}…</strong></p><p><span>媒体类型</span><strong>{{ documentDetail.media_type }}</strong></p><p><span>版本 ID</span><strong>{{ documentDetail.version_id }}</strong></p><p><span>可见性</span><strong>{{ documentDetail.visibility }}</strong></p></div><RouterLink v-if="documentDetail.root_count" class="button button--primary" :to="`/workspace/documents/${documentDetail.id}/pipeline`">查看解析、清洗与切分 →</RouterLink><div v-if="documentDetail.recent_job" class="detail-job"><span>最近任务</span><strong>{{ documentDetail.recent_job.stage || documentDetail.recent_job.type }}</strong><i>{{ documentDetail.recent_job.progress }}% · {{ documentDetail.recent_job.status }}</i><RouterLink :to="`/workspace/ingestion?job=${documentDetail.recent_job.id}`">查看任务 →</RouterLink></div><div v-if="documentDetail.version_error_code" class="detail-error"><strong>{{ documentDetail.version_error_code }}</strong><p>{{ documentDetail.version_error_message }}</p></div></template>
+          <template v-else><div class="detail-facts"><p><span>状态</span><strong>{{ documentDetail.status }}</strong></p><p><span>原文块 / 检索块</span><strong>{{ documentDetail.root_count }} / {{ documentDetail.leaf_count }}</strong></p><p><span>SHA-256</span><strong>{{ documentDetail.sha256_prefix }}…</strong></p><p><span>媒体类型</span><strong>{{ documentDetail.media_type }}</strong></p><p><span>版本 ID</span><strong>{{ documentDetail.version_id }}</strong></p><p><span>可见性</span><strong>{{ documentDetail.visibility }}</strong></p></div><RouterLink v-if="documentDetail.root_count" class="button button--primary" :to="`/workspace/documents/${documentDetail.id}/pipeline`">查看解析、清洗与切分 →</RouterLink><div v-if="documentDetail.recent_job" class="detail-job"><span>最近任务</span><strong>{{ documentDetail.recent_job.stage || documentDetail.recent_job.type }}</strong><i>{{ documentDetail.recent_job.progress }}% · {{ documentDetail.recent_job.status }}</i><RouterLink :to="`/workspace/ingestion?job=${documentDetail.recent_job.id}`">打开任务详情 →</RouterLink></div><div v-if="documentDetail.version_error_code" class="detail-error"><strong>{{ documentDetail.version_error_code }}</strong><p>{{ documentDetail.version_error_message }}</p></div></template>
         </div>
 
         <div v-else-if="panel === 'collection-delete'" class="danger-sheet"><p class="section-kicker">CONFIRM DELETION</p><h2>删除集合</h2><p>集合内非删除态文档会立即退出查询范围，并转交后台 Saga 清理。Seed 集合不可删除。</p><label>输入 <strong>{{ activeCollection?.name }}</strong> 确认<input v-model="deleteConfirmation" /></label><button class="button danger-button" type="button" :disabled="saving || deleteConfirmation !== activeCollection?.name" @click="deleteCollection">确认删除</button></div>

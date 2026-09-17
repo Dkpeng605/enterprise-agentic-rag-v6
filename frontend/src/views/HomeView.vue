@@ -3,13 +3,13 @@
     <div class="hero-copy">
       <p class="section-kicker">EVALUATION-DRIVEN · FULLY PLUGGABLE</p>
       <h1>让每一次检索<br /><em>都有证据。</em></h1>
-      <p class="hero-lead">面向企业知识场景的 Agentic RAG 平台。匿名用户无需注册，即可在隔离的 Demo Tenant 中体验完整业务链路。</p>
+      <p class="hero-lead">面向企业知识场景的 Agentic RAG 平台。无需注册即可在隔离的演示工作区体验知识问答、文档处理、模型状态与全链路观测。</p>
       <div class="hero-actions">
         <RouterLink class="button button--primary" to="/chat">开始提问 <span>↗</span></RouterLink>
         <RouterLink class="button button--secondary" to="/workspace/documents">管理知识库</RouterLink>
       </div>
       <div class="trust-row">
-        <span><i>✓</i> Tenant 强隔离</span><span><i>✓</i> 可验证引用</span><span><i>✓</i> 全链路 Trace</span>
+        <span><i>✓</i> 工作区隔离</span><span><i>✓</i> 可验证引用</span><span><i>✓</i> 全链路观测</span>
       </div>
     </div>
 
@@ -22,7 +22,7 @@
 
     <div class="metric-strip">
       <div><strong>2</strong><span>查询模式<br />Standard / Deep</span></div>
-      <div><strong>6</strong><span>核心 Provider<br />均可热替换</span></div>
+      <div><strong>6</strong><span>核心组件<br />支持灵活替换</span></div>
       <div><strong>100%</strong><span>引用可追溯<br />拒绝无依据回答</span></div>
     </div>
   </section>

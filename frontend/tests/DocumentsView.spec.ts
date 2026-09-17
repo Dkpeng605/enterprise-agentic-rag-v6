@@ -70,7 +70,7 @@ describe('documents and collection management', () => {
     await flushPromises()
     expect(workspaceApi.getDocument).toHaveBeenCalledWith(document.id)
     expect(wrapper.get('.detail-facts').text()).toContain('4 / 12')
-    expect(wrapper.text()).toContain('查看任务')
+    expect(wrapper.text()).toContain('打开任务详情')
   })
 
   it('creates, edits, and confirmation-deletes a non-seed collection', async () => {
@@ -112,7 +112,7 @@ describe('documents and collection management', () => {
     expect(workspaceApi.uploadDocument).toHaveBeenCalledWith(expect.objectContaining({
       file, collectionId: team.id, title: 'policy', visibility: 'tenant',
     }))
-    expect(wrapper.get('.upload-result').text()).toContain('查看摄取进度')
+    expect(wrapper.get('.upload-result').text()).toContain('查看处理进度')
   })
 
   it('creates an idempotent delete job from the document list', async () => {

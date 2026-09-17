@@ -103,7 +103,7 @@ async function load(): Promise<void> {
     state.value = 'ready'
   } catch (caught) {
     state.value = 'error'
-    errorMessage.value = caught instanceof ApiError ? caught.message : 'Provider 目录暂时无法载入。'
+    errorMessage.value = caught instanceof ApiError ? caught.message : '模型服务目录暂时无法载入。'
   }
 }
 
@@ -135,7 +135,7 @@ async function selectProvider(kind: ProviderKind, key: string): Promise<void> {
     catalog.value = await providerApi.select(kind, key)
     actionMessage.value = '选择已保存。重启 Mac backend 后生效；Embedding 变更后请在下方执行安全索引重建。'
   } catch (caught) {
-    actionError.value = caught instanceof ApiError ? caught.message : 'Provider 选择失败，请稍后重试。'
+    actionError.value = caught instanceof ApiError ? caught.message : '模型选择失败，请稍后重试。'
   } finally {
     savingKey.value = ''
   }
@@ -148,16 +148,16 @@ onMounted(load)
   <section class="provider-admin-page">
     <header class="provider-admin-heading">
       <div>
-        <p class="section-kicker">SYSTEM · PROVIDER CATALOG</p>
-        <h1>Provider 管理</h1>
-        <p>查看当前运行时真实注册的 Provider，并选择下一次启动要使用的 Embedding、Reranker、Vision 与 Sparse profile。</p>
+        <p class="section-kicker">SYSTEM · MODEL SERVICES</p>
+        <h1>模型选配与索引</h1>
+        <p>查看当前运行时注册的模型服务，选择下一次启动使用的向量、重排、视觉与关键词检索配置，并管理索引兼容性。</p>
       </div>
       <button class="button button--secondary" type="button" :disabled="state === 'loading'" @click="load">刷新目录</button>
     </header>
 
-    <div v-if="state === 'loading'" class="provider-admin-state">正在读取当前运行时的 Provider…</div>
+    <div v-if="state === 'loading'" class="provider-admin-state">正在读取当前运行时的模型服务…</div>
     <div v-else-if="state === 'error'" class="provider-admin-state provider-admin-state--error" role="alert">
-      <strong>Provider 目录无法载入</strong><p>{{ errorMessage }}</p><button class="button button--primary" type="button" @click="load">重新载入</button>
+      <strong>模型服务目录无法载入</strong><p>{{ errorMessage }}</p><button class="button button--primary" type="button" @click="load">重新载入</button>
     </div>
 
     <template v-else-if="catalog">
@@ -168,7 +168,7 @@ onMounted(load)
       <div v-if="actionError" class="provider-admin-banner provider-admin-banner--error" role="alert">{{ actionError }}</div>
 
       <section class="provider-admin-section" aria-labelledby="active-provider-title">
-        <div class="section-heading"><div><p class="section-kicker">LIVE REGISTRY</p><h2 id="active-provider-title">当前运行中的 Provider</h2></div><span>{{ currentProviders.length }} 个实例</span></div>
+        <div class="section-heading"><div><p class="section-kicker">LIVE REGISTRY</p><h2 id="active-provider-title">当前运行中的模型服务</h2></div><span>{{ currentProviders.length }} 个实例</span></div>
         <div class="provider-admin-grid">
           <article v-for="provider in currentProviders" :key="`${provider.kind}:${provider.name}`" class="provider-admin-card" :class="providerStatusClass(provider)">
             <header><span>{{ providerLabel(provider.kind) }}</span><i></i></header>

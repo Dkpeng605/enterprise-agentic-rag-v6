@@ -44,7 +44,7 @@ async function loadTraces(append = false): Promise<void> {
       if (page.items[0]) await selectTrace(page.items[0].trace_id)
     }
   } catch (caught) {
-    setError(caught, '无法载入 Ingestion Trace。')
+    setError(caught, '无法载入文档处理链路。')
   } finally {
     loading.value = false
     loadingMore.value = false
@@ -62,7 +62,7 @@ async function selectTrace(traceId: string): Promise<void> {
   } catch (caught) {
     if (selectedId.value === requestedId) {
       detail.value = undefined
-      setError(caught, '无法载入摄取 Trace 详情。')
+      setError(caught, '无法载入文档处理链路详情。')
     }
   } finally {
     if (selectedId.value === requestedId) detailLoading.value = false
@@ -114,16 +114,16 @@ onMounted(() => loadTraces())
 <template>
   <section class="trace-page ingestion-trace-page">
     <header class="workspace-heading">
-      <div><p class="section-kicker">PIPELINE OBSERVABILITY</p><h1>Ingestion Trace</h1><p>查看 Worker 实际执行的阶段、向量批次与稳定错误；任务失败不会在浏览器中被自动重试。</p></div>
+      <div><p class="section-kicker">RAG OBSERVABILITY · DOCUMENTS</p><h1>文档处理观测</h1><p>查看解析、切分、向量化各阶段的实际耗时、处理批次与稳定错误。</p></div>
       <div class="trace-legend"><span><i class="legend-dot"></i>完成阶段</span><span><i class="legend-dot legend-dot--deep"></i>Projection Batch</span><span><i class="legend-dot legend-dot--degraded"></i>失败阶段</span></div>
     </header>
 
     <div class="trace-toolbar ingestion-trace-toolbar"><label>结果<select v-model="status" @change="loadTraces()"><option value="">全部结果</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option><option value="retry_wait">Retry wait</option><option value="cancelled">Cancelled</option></select></label><button type="button" @click="loadTraces()">刷新</button></div>
     <div v-if="error" class="workspace-alert workspace-alert--error" role="alert"><strong>{{ error }}</strong><code v-if="requestId">Request ID · {{ requestId }}</code><button type="button" @click="loadTraces()">重试</button></div>
-    <div v-if="loading" class="trace-skeleton" aria-busy="true" aria-label="正在载入 Ingestion Trace"><i></i><i></i><i></i></div>
-    <div v-else-if="!traces.length" class="trace-empty" data-testid="ingestion-trace-empty"><span>0</span><h2>还没有匹配的 Ingestion Trace</h2><p>Worker 完成一次成功、重试、失败或取消尝试后，Trace 才会出现在这里。</p><RouterLink class="button button--primary" to="/workspace/documents">前往文档管理</RouterLink></div>
+    <div v-if="loading" class="trace-skeleton" aria-busy="true" aria-label="正在载入文档处理链路"><i></i><i></i><i></i></div>
+    <div v-else-if="!traces.length" class="trace-empty" data-testid="ingestion-trace-empty"><span>0</span><h2>还没有匹配的文档处理链路</h2><p>后台完成一次成功、重试、失败或取消尝试后，链路记录才会出现在这里。</p><RouterLink class="button button--primary" to="/workspace/documents">前往文档与切分</RouterLink></div>
     <div v-else class="trace-layout">
-      <aside class="trace-list" data-testid="ingestion-trace-list"><button v-for="trace in traces" :key="trace.trace_id" type="button" :class="{ active: selectedId === trace.trace_id }" @click="selectTrace(trace.trace_id)"><span class="trace-mode" :class="`ingestion-status--${trace.status}`">{{ trace.status === 'succeeded' ? 'OK' : trace.status === 'retry_wait' ? 'RETRY' : 'ERR' }}</span><span><strong>{{ statusLabel(trace.status) }}</strong><small>{{ trace.subject_id.slice(0, 13) }}… · {{ dateLabel(trace.started_at) }}</small></span><span class="trace-duration">{{ Math.round(trace.duration_ms) }}<small>ms</small></span></button><button v-if="nextCursor" class="load-more" type="button" :disabled="loadingMore" @click="loadTraces(true)">{{ loadingMore ? '载入中…' : '载入更多 Trace' }}</button></aside>
+      <aside class="trace-list" data-testid="ingestion-trace-list"><button v-for="trace in traces" :key="trace.trace_id" type="button" :class="{ active: selectedId === trace.trace_id }" @click="selectTrace(trace.trace_id)"><span class="trace-mode" :class="`ingestion-status--${trace.status}`">{{ trace.status === 'succeeded' ? 'OK' : trace.status === 'retry_wait' ? 'RETRY' : 'ERR' }}</span><span><strong>{{ statusLabel(trace.status) }}</strong><small>{{ trace.subject_id.slice(0, 13) }}… · {{ dateLabel(trace.started_at) }}</small></span><span class="trace-duration">{{ Math.round(trace.duration_ms) }}<small>ms</small></span></button><button v-if="nextCursor" class="load-more" type="button" :disabled="loadingMore" @click="loadTraces(true)">{{ loadingMore ? '载入中…' : '载入更多记录' }}</button></aside>
 
       <main class="trace-detail">
         <div v-if="detailLoading" class="trace-detail-loading" aria-busy="true"><i></i><p>正在投影阶段与批次…</p></div>
@@ -131,7 +131,7 @@ onMounted(() => loadTraces())
           <header class="trace-detail-head"><div><p class="section-kicker">TRACE INSPECTOR</p><h2>{{ statusLabel(detail.summary.status) }} · Attempt {{ detail.attempt }}</h2><code>{{ detail.summary.trace_id }}</code></div><dl><div><dt>耗时</dt><dd>{{ Math.round(detail.summary.duration_ms) }} ms</dd></div><div><dt>进度</dt><dd>{{ detail.progress }}%</dd></div><div><dt>阶段</dt><dd>{{ detail.stages.length }}</dd></div></dl></header>
           <div v-if="detail.error_code" class="ingestion-trace-error" role="status"><span>STABLE ERROR</span><div><strong>{{ detail.error_code }}</strong><p>只展示 Worker 保存的稳定错误码；供应商消息与异常堆栈不会进入该投影。</p></div><RouterLink :to="`/workspace/ingestion?job=${detail.summary.subject_id}`">查看任务</RouterLink></div>
 
-          <section class="trace-section"><div class="trace-section-head"><div><p class="section-kicker">STAGE WATERFALL</p><h3>摄取阶段</h3></div><span>0 ms → {{ Math.round(detail.summary.duration_ms) }} ms</span></div><div class="waterfall ingestion-waterfall" data-testid="ingestion-waterfall"><article v-for="stage in detail.stages" :key="stage.span_id"><div><strong><b v-if="stage.parent_span_id">↳</b>{{ stageLabel(stage.name) }}</strong><small>+{{ Math.round(stage.offset_ms) }} ms · {{ stage.duration_ms.toFixed(1) }} ms</small><em v-if="stageCounts(stage)">{{ stageCounts(stage) }}</em></div><div class="waterfall-track"><i :class="{ 'waterfall-bar--degraded': stage.status === 'ERROR' }" :style="stageStyle(stage.offset_ms, stage.duration_ms)"></i></div></article><p v-if="!detail.stages.length" class="trace-inline-empty">该 Trace 没有已持久化摄取阶段。</p></div></section>
+          <section class="trace-section"><div class="trace-section-head"><div><p class="section-kicker">STAGE WATERFALL</p><h3>处理阶段</h3></div><span>0 ms → {{ Math.round(detail.summary.duration_ms) }} ms</span></div><div class="waterfall ingestion-waterfall" data-testid="ingestion-waterfall"><article v-for="stage in detail.stages" :key="stage.span_id"><div><strong><b v-if="stage.parent_span_id">↳</b>{{ stageLabel(stage.name) }}</strong><small>+{{ Math.round(stage.offset_ms) }} ms · {{ stage.duration_ms.toFixed(1) }} ms</small><em v-if="stageCounts(stage)">{{ stageCounts(stage) }}</em></div><div class="waterfall-track"><i :class="{ 'waterfall-bar--degraded': stage.status === 'ERROR' }" :style="stageStyle(stage.offset_ms, stage.duration_ms)"></i></div></article><p v-if="!detail.stages.length" class="trace-inline-empty">该链路没有已持久化的处理阶段。</p></div></section>
 
           <section class="trace-section"><div class="trace-section-head"><div><p class="section-kicker">VECTOR BATCHES</p><h3>Projection 批次</h3></div><span>{{ detail.batches.length }} 个已观测批次</span></div><div v-if="detail.batches.length" class="batch-table" data-testid="ingestion-batches"><div class="batch-row batch-row--head"><span>PHASE</span><span>BATCH</span><span>ITEMS</span><span>WRITTEN</span><span>DURATION</span><span>STATUS</span></div><div v-for="batch in detail.batches" :key="batch.span_id" class="batch-row"><span><b>{{ phaseLabel(batch.phase) }}</b><small>+{{ Math.round(batch.offset_ms) }} ms</small></span><span>{{ batch.batch_index }} / {{ batch.batch_count }}</span><span>{{ batch.item_count }}</span><span>{{ batch.written_count ?? '—' }}</span><span>{{ batch.duration_ms.toFixed(1) }} ms</span><span :class="{ 'batch-status--error': batch.status === 'ERROR' }">{{ batch.status === 'ERROR' ? 'ERROR' : 'OK' }}</span></div></div><p v-else class="trace-inline-empty">本次尝试未进入向量批处理，或旧 Trace 尚未记录批次 Span。</p></section>
         </template>

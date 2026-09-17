@@ -73,7 +73,7 @@ describe('ingestion trace workspace', () => {
     expect(loadingWrapper.get('[aria-busy="true"]').attributes('aria-label')).toContain('正在载入')
     resolve({ items: [] })
     await flushPromises()
-    expect(loadingWrapper.get('[data-testid="ingestion-trace-empty"]').text()).toContain('Worker 完成一次')
+    expect(loadingWrapper.get('[data-testid="ingestion-trace-empty"]').text()).toContain('后台完成一次')
 
     vi.mocked(traceApi.listIngestion).mockRejectedValue(new ApiError('trace unavailable', 503, 'SERVICE_UNAVAILABLE', 'request-m7-06'))
     const errorWrapper = mountView()

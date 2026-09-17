@@ -8,34 +8,49 @@ const auth = useAuthStore()
 const route = useRoute()
 const menuOpen = ref(false)
 
-const primaryNavigation = [
-  { to: '/chat', label: '知识问答', mark: '问' },
-  { to: '/workspace/overview', label: '租户总览', mark: '览' },
-  { to: '/workspace/documents', label: '文档管理', mark: '档' },
-  { to: '/workspace/ingestion', label: '摄取任务', mark: '取' },
-  { to: '/workspace/traces/queries', label: 'Query Trace', mark: 'Q' },
-  { to: '/workspace/traces/ingestion', label: 'Ingestion Trace', mark: 'I' },
-  { to: '/workspace/evaluations', label: '评测中心', mark: '评' },
-  { to: '/workspace/mcp', label: 'MCP 生态', mark: 'M' },
+const navigationGroups = [
+  {
+    label: '应用',
+    items: [{ to: '/chat', label: '知识问答', mark: '问' }],
+  },
+  {
+    label: '知识库',
+    items: [
+      { to: '/workspace/documents', label: '文档与切分', mark: '档' },
+      { to: '/workspace/ingestion', label: '文档处理任务', mark: '任' },
+    ],
+  },
+  {
+    label: '模型与扩展',
+    items: [
+      { to: '/workspace/models', label: '模型状态与选配', mark: '模' },
+      { to: '/workspace/mcp', label: 'MCP 能力目录', mark: 'M' },
+    ],
+  },
+  {
+    label: '监控与评测',
+    items: [
+      { to: '/workspace/overview', label: 'RAG 运行概览', mark: '览' },
+      { to: '/workspace/traces/queries', label: '问答链路观测', mark: '问' },
+      { to: '/workspace/traces/ingestion', label: '文档处理观测', mark: '链' },
+      { to: '/workspace/evaluations', label: 'RAG 效果评测', mark: '评' },
+    ],
+  },
 ]
 
 const systemNavigation = [
-  { to: '/admin/providers', label: 'Provider 管理' },
-  { to: '/admin/tenants', label: '租户管理' },
-  { to: '/admin/users', label: '用户与角色' },
-  { to: '/admin/audit', label: '审计日志' },
+  { to: '/admin/providers', label: '模型选配与索引' },
+  { to: '/admin/tenants', label: '工作区管理' },
+  { to: '/admin/users', label: '用户与权限' },
+  { to: '/admin/audit', label: '操作审计' },
 ]
 
 const identityLabel = computed(() =>
-  auth.isSystemAdmin ? auth.profile?.email : `${auth.profile?.tenant.slug ?? 'demo'} · 匿名演示`,
+  auth.isSystemAdmin ? auth.profile?.email : '演示工作区 · 匿名访客',
 )
 const sessionKind = computed(() => {
   if (!auth.profile) return '正在建立会话'
-  return auth.isAnonymous ? '匿名全功能' : '管理员'
-})
-const consoleKind = computed(() => {
-  if (!auth.profile) return 'SESSION BOOTSTRAP'
-  return auth.isAnonymous ? 'DEMO TENANT' : 'SYSTEM CONSOLE'
+  return auth.isAnonymous ? '演示模式' : '管理员'
 })
 </script>
 
@@ -49,10 +64,12 @@ const consoleKind = computed(() => {
       </RouterLink>
 
       <nav aria-label="工作区导航">
-        <p class="nav-caption">工作区</p>
-        <RouterLink v-for="item in primaryNavigation" :key="item.to" :to="item.to" @click="menuOpen = false">
-          <span class="nav-mark">{{ item.mark }}</span>{{ item.label }}
-        </RouterLink>
+        <section v-for="group in navigationGroups" :key="group.label" class="nav-group">
+          <p class="nav-caption">{{ group.label }}</p>
+          <RouterLink v-for="item in group.items" :key="item.to" :to="item.to" @click="menuOpen = false">
+            <span class="nav-mark">{{ item.mark }}</span>{{ item.label }}
+          </RouterLink>
+        </section>
         <template v-if="auth.isSystemAdmin">
           <p class="nav-caption nav-caption--system">系统管理</p>
           <RouterLink v-for="item in systemNavigation" :key="item.to" :to="item.to" @click="menuOpen = false">
@@ -72,7 +89,7 @@ const consoleKind = computed(() => {
     <main class="main-stage">
       <header class="topbar">
         <div>
-          <span class="topbar__eyebrow">{{ consoleKind }}</span>
+          <span class="topbar__eyebrow">{{ route.meta.section }}</span>
           <strong>{{ route.meta.title }}</strong>
         </div>
         <div class="topbar__actions">

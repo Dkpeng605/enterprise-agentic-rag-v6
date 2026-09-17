@@ -56,7 +56,7 @@ async function loadTraces(append = false): Promise<void> {
       if (page.items[0]) await selectTrace(page.items[0].trace_id)
     }
   } catch (caught) {
-    setError(caught, '无法载入 Query Trace。')
+    setError(caught, '无法载入问答链路记录。')
   } finally {
     loading.value = false
     loadingMore.value = false
@@ -74,7 +74,7 @@ async function selectTrace(traceId: string): Promise<void> {
   } catch (caught) {
     if (selectedId.value === requestedId) {
       detail.value = undefined
-      setError(caught, '无法载入 Trace 详情。')
+      setError(caught, '无法载入问答链路详情。')
     }
   } finally {
     if (selectedId.value === requestedId) detailLoading.value = false
@@ -95,7 +95,7 @@ function stageLabel(name: string): string {
     'rag.rrf_fusion': 'RRF Fusion',
     'rag.auth_and_scope': 'Scope Guard',
     'rag.rerank': 'Rerank',
-    'rag.rerank.provider': 'Rerank Provider',
+    'rag.rerank.provider': '重排模型服务',
     'rag.root_restore': 'Root Restore',
     'rag.deep_recovery': 'Deep Recovery',
     'rag.deep_recovery.assess': 'Evidence Assess',
@@ -203,7 +203,7 @@ onMounted(() => loadTraces())
 <template>
   <section class="trace-page">
     <header class="workspace-heading">
-      <div><p class="section-kicker">QUERY OBSERVABILITY</p><h1>Query Trace</h1><p>按当前租户展示查询改写、子查询、逐阶段数量与候选排名；不展示 Prompt、隐藏推理、密钥或内部异常堆栈。</p></div>
+      <div><p class="section-kicker">RAG OBSERVABILITY · Q&amp;A</p><h1>问答链路观测</h1><p>按当前工作区展示查询改写、子查询、逐阶段数量与候选排名；不展示提示词、隐藏推理、密钥或内部异常堆栈。</p></div>
       <div class="trace-legend"><span><i class="legend-dot"></i>正常阶段</span><span><i class="legend-dot legend-dot--deep"></i>Deep Recovery</span><span><i class="legend-dot legend-dot--degraded"></i>降级</span></div>
     </header>
 
@@ -215,8 +215,8 @@ onMounted(() => loadTraces())
     </div>
 
     <div v-if="error" class="workspace-alert workspace-alert--error" role="alert"><strong>{{ error }}</strong><code v-if="requestId">Request ID · {{ requestId }}</code><button type="button" @click="loadTraces()">重试</button></div>
-    <div v-if="loading" class="trace-skeleton" aria-busy="true" aria-label="正在载入 Query Trace"><i></i><i></i><i></i></div>
-    <div v-else-if="!traces.length" class="trace-empty" data-testid="trace-empty"><span>0</span><h2>还没有匹配的 Query Trace</h2><p>完成一次知识问答后，持久化 Trace 会出现在这里；当前筛选不会由演示数据填充。</p><RouterLink class="button button--primary" to="/chat">发起知识问答</RouterLink></div>
+    <div v-if="loading" class="trace-skeleton" aria-busy="true" aria-label="正在载入问答链路"><i></i><i></i><i></i></div>
+    <div v-else-if="!traces.length" class="trace-empty" data-testid="trace-empty"><span>0</span><h2>还没有匹配的问答链路</h2><p>完成一次知识问答后，链路记录会出现在这里；当前筛选不会由演示数据填充。</p><RouterLink class="button button--primary" to="/chat">发起知识问答</RouterLink></div>
     <div v-else class="trace-layout">
       <aside class="trace-list" data-testid="trace-list">
         <button v-for="trace in traces" :key="trace.trace_id" type="button" :class="{ active: selectedId === trace.trace_id }" @click="selectTrace(trace.trace_id)">
@@ -225,7 +225,7 @@ onMounted(() => loadTraces())
           <span class="trace-duration">{{ Math.round(trace.duration_ms) }}<small>ms</small></span>
           <i v-if="trace.degraded">DEGRADED</i>
         </button>
-        <button v-if="nextCursor" class="load-more" type="button" :disabled="loadingMore" @click="loadTraces(true)">{{ loadingMore ? '载入中…' : '载入更多 Trace' }}</button>
+        <button v-if="nextCursor" class="load-more" type="button" :disabled="loadingMore" @click="loadTraces(true)">{{ loadingMore ? '载入中…' : '载入更多记录' }}</button>
       </aside>
 
       <main class="trace-detail">
