@@ -118,7 +118,10 @@ function percent(value: number | null | undefined): string {
 }
 
 function outcome(status: string): number {
-  return overview.value?.query_outcome_counts[status] ?? 0
+  // Keep the operations page readable while an older backend is being rolled
+  // forward. The current API always supplies this map, but a missing map must
+  // not make the whole overview fail to render.
+  return overview.value?.query_outcome_counts?.[status] ?? 0
 }
 
 function timeLabel(value: string): string {

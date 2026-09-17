@@ -179,6 +179,22 @@ describe('workspace overview browser states', () => {
     expect(wrapper.text()).not.toContain('服务处于降级态')
   })
 
+  it('keeps the overview usable when an in-flight backend omits newer outcome counters', async () => {
+    const legacySnapshot = structuredClone(snapshot) as unknown as {
+      overview: Record<string, unknown>
+      health: OverviewSnapshot['health']
+    }
+    delete legacySnapshot.overview.query_outcome_counts
+    vi.mocked(overviewApi.load).mockResolvedValue(legacySnapshot as OverviewSnapshot)
+
+    const wrapper = mountOverview()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('RAG 运行概览')
+    expect(wrapper.text()).toContain('0 完整回答')
+    expect(wrapper.text()).toContain('0 次安全拒答')
+  })
+
   it('surfaces the request id and retries after a load error', async () => {
     vi.mocked(overviewApi.load)
       .mockRejectedValueOnce(new ApiError('upstream timeout', 503, 'UPSTREAM_ERROR', 'request-m7-03'))
