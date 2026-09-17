@@ -128,6 +128,12 @@ class DeepSettings(SettingsModel):
 
 class SecuritySettings(SettingsModel):
     anonymous_demo_full_access: bool = True
+    # Explicitly opt in only for a disposable public demonstration. Production
+    # otherwise rejects the well-known admin/admin bootstrap credentials.
+    allow_insecure_demo_admin: bool = False
+    # This permits the single-process demo composition to keep its Milvus Lite
+    # index beside the API. It is never suitable for replicas or separate workers.
+    allow_single_process_demo_runtime: bool = False
     anonymous_demo_tenant_slug: Annotated[str, Field(min_length=1)] = "demo"
     anonymous_api_requests_per_minute: PositiveInt = 10
     anonymous_queries_per_minute: PositiveInt = 5
