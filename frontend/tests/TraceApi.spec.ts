@@ -29,6 +29,20 @@ describe('query trace generated API adapter', () => {
     expect(capturedRequest.url).toContain('limit=12')
   })
 
+  it('accepts the partial-answer status emitted by the query trace API', async () => {
+    vi.stubGlobal('location', { origin: 'https://example.test' })
+    let capturedRequest!: Request
+    vi.stubGlobal('fetch', vi.fn(async (request: Request) => {
+      capturedRequest = request
+      return Response.json({ items: [], next_cursor: null })
+    }))
+    const { traceApi } = await import('../src/api/traces')
+
+    await traceApi.listQueries({ status: 'partial' })
+
+    expect(capturedRequest.url).toContain('status=partial')
+  })
+
   it('uses the dedicated ingestion list and sanitized detail endpoints', async () => {
     vi.stubGlobal('location', { origin: 'https://example.test' })
     const requests: Request[] = []

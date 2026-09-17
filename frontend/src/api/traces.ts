@@ -6,7 +6,7 @@ export type TraceSummary = components['schemas']['TraceSummaryResponse']
 export type QueryTraceView = components['schemas']['QueryTraceViewResponse']
 export type IngestionTraceView = components['schemas']['IngestionTraceViewResponse']
 export type QueryMode = 'standard' | 'deep'
-export type QueryTraceStatus = 'answered' | 'abstained' | 'no_results' | 'error' | 'cancelled'
+export type QueryTraceStatus = 'answered' | 'partial' | 'abstained' | 'no_results' | 'error' | 'cancelled'
 export type IngestionTraceStatus = 'succeeded' | 'failed' | 'retry_wait' | 'cancelled'
 export type TraceFilters = {
   mode?: QueryMode
