@@ -54,8 +54,8 @@ onMounted(load)
     <header class="mcp-heading">
       <div>
         <p class="section-kicker">MCP · CAPABILITY CATALOG</p>
-        <h1>MCP 生态</h1>
-        <p>展示当前服务端 MCP 注册定义、授权边界和传输装配状态。这里不显示 Token、Prompt 或文档正文。</p>
+        <h1>MCP 能力目录</h1>
+        <p>查看系统可提供给外部智能体的工具、资源、授权边界与连接状态；这里不显示访问令牌、提示词或文档正文。</p>
       </div>
       <div v-if="state === 'ready' && catalog" class="mcp-identity">
         <span class="status-dot"></span>

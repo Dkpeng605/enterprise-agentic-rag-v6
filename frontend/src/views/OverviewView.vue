@@ -13,12 +13,12 @@ type ViewState = 'loading' | 'ready' | 'error'
 type ProviderSlot = { kind: string; label: string; short: string }
 
 const providerSlots: ProviderSlot[] = [
-  { kind: 'llm', label: 'LLM', short: 'LLM' },
-  { kind: 'embedding', label: 'Embedding', short: 'EM' },
-  { kind: 'reranker', label: 'Rerank', short: 'RR' },
-  { kind: 'vector_store', label: 'Vector Store', short: 'VS' },
-  { kind: 'splitter', label: 'Splitter', short: 'SP' },
-  { kind: 'evaluator', label: 'Evaluator', short: 'EV' },
+  { kind: 'llm', label: '生成模型', short: 'LLM' },
+  { kind: 'embedding', label: '向量模型', short: 'EM' },
+  { kind: 'reranker', label: '重排模型', short: 'RR' },
+  { kind: 'vector_store', label: '向量存储', short: 'VS' },
+  { kind: 'splitter', label: '文档切分', short: 'SP' },
+  { kind: 'evaluator', label: '评测组件', short: 'EV' },
 ]
 
 const state = ref<ViewState>('loading')
@@ -73,7 +73,7 @@ async function load(): Promise<void> {
     state.value = 'ready'
   } catch (caught) {
     state.value = 'error'
-    errorMessage.value = caught instanceof ApiError ? caught.message : '无法载入租户运行数据，请稍后重试。'
+    errorMessage.value = caught instanceof ApiError ? caught.message : '无法载入 RAG 运行数据，请稍后重试。'
     requestId.value = caught instanceof ApiError ? caught.requestId ?? '' : ''
   }
 }
@@ -84,7 +84,7 @@ async function seedDemo(): Promise<void> {
   seedMessage.value = ''
   try {
     const result = await overviewApi.seedDemo()
-    seedMessage.value = `已提交 ${result.documents.length} 份演示文档；摄取完成后可在文档、Trace 和问答页面查看真实结果。`
+    seedMessage.value = `已提交 ${result.documents.length} 份演示文档；处理完成后可在文档、链路观测和问答页面查看真实结果。`
     await load()
   } catch (caught) {
     seedMessage.value = caught instanceof ApiError ? caught.message : '演示数据提交失败，请稍后重试。'
@@ -134,40 +134,40 @@ onMounted(load)
   <section class="overview-page">
     <header class="overview-heading">
       <div>
-        <p class="section-kicker">WORKSPACE · LIVE OPERATIONS</p>
-        <h1>租户总览</h1>
-        <p>只展示当前租户的真实业务数据与已注册 Provider；未配置项会明确标记为不可用。</p>
+        <p class="section-kicker">RAG OPERATIONS · LIVE STATUS</p>
+        <h1>RAG 运行概览</h1>
+        <p>集中查看知识库规模、问答表现、模型与基础组件健康状态，以及最近发生的处理任务。</p>
       </div>
       <div v-if="state === 'ready' && overview" class="overview-freshness">
         <span :class="{ 'status-dot--degraded': isDegraded }"></span>
-        <div><strong>{{ isDegraded ? '服务处于降级态' : probePending ? '服务运行中 · 远程 Provider 待探测' : '服务运行正常' }}</strong><small>快照 {{ timeLabel(overview.generated_at) }}</small></div>
+        <div><strong>{{ isDegraded ? '服务处于降级态' : probePending ? '服务运行中 · 远程模型待探测' : '服务运行正常' }}</strong><small>快照 {{ timeLabel(overview.generated_at) }}</small></div>
       </div>
     </header>
 
-    <div v-if="state === 'loading'" class="overview-skeleton" aria-label="正在载入租户总览" aria-busy="true">
+    <div v-if="state === 'loading'" class="overview-skeleton" aria-label="正在载入 RAG 运行概览" aria-busy="true">
       <i v-for="index in 10" :key="index"></i>
     </div>
 
     <div v-else-if="state === 'error'" class="overview-error" role="alert">
-      <span>!</span><div><p class="section-kicker">OVERVIEW UNAVAILABLE</p><h2>租户总览暂时无法载入</h2><p>{{ errorMessage }}</p><code v-if="requestId">Request ID · {{ requestId }}</code><button class="button button--primary" type="button" @click="load">重新载入 <b>↗</b></button></div>
+      <span>!</span><div><p class="section-kicker">OVERVIEW UNAVAILABLE</p><h2>RAG 运行概览暂时无法载入</h2><p>{{ errorMessage }}</p><code v-if="requestId">Request ID · {{ requestId }}</code><button class="button button--primary" type="button" @click="load">重新载入 <b>↗</b></button></div>
     </div>
 
     <template v-else-if="overview && health">
       <aside v-if="isDegraded" class="degraded-banner" role="status">
-        <span>DEGRADED</span><div><strong>部分依赖尚未就绪</strong><p>页面继续展示可确认的数据；请根据下方 Provider 和健康检查定位缺失能力。</p></div>
+        <span>DEGRADED</span><div><strong>部分依赖尚未就绪</strong><p>页面继续展示可确认的数据；请根据下方模型与基础组件状态定位缺失能力。</p></div>
       </aside>
       <aside v-else-if="probePending" class="degraded-banner" role="status">
-        <span>PROBE PENDING</span><div><strong>远程 Provider 尚未探测</strong><p>LLM、Reranker 等 Provider 会在首次真实请求后显示健康或具体错误；这不是故障，页面当前可以正常使用。</p></div>
+        <span>待探测</span><div><strong>远程模型尚未完成首次探测</strong><p>生成、重排等模型会在首次真实请求后显示健康或具体错误；这不是故障，页面当前可以正常使用。</p></div>
       </aside>
 
       <div v-if="seedMessage" class="overview-seed-message" role="status">{{ seedMessage }}</div>
 
       <div v-if="isEmpty" class="overview-empty" data-testid="overview-empty">
-        <span>0</span><div><p class="section-kicker">EMPTY WORKSPACE</p><h2>工作区还没有业务数据</h2><p>系统已为匿名用户准备独立 Demo Tenant。可加载提交到真实摄取流水线的演示文档，也可以上传自己的文档。</p><button class="button button--primary" type="button" :disabled="seedingDemo" @click="seedDemo">{{ seedingDemo ? '提交中…' : '加载演示数据' }} <b>↗</b></button><RouterLink class="button button--secondary" to="/workspace/documents">管理文档 <b>↗</b></RouterLink></div>
+        <span>0</span><div><p class="section-kicker">EMPTY WORKSPACE</p><h2>工作区还没有业务数据</h2><p>可加载进入真实文档处理流水线的演示资料，也可以上传自己的文档。</p><button class="button button--primary" type="button" :disabled="seedingDemo" @click="seedDemo">{{ seedingDemo ? '提交中…' : '加载演示数据' }} <b>↗</b></button><RouterLink class="button button--secondary" to="/workspace/documents">管理文档 <b>↗</b></RouterLink></div>
       </div>
 
       <section class="overview-section" aria-labelledby="providers-title">
-        <div class="section-heading"><div><p class="section-kicker">PLUGGABLE RUNTIME</p><h2 id="providers-title">Provider 状态</h2></div><span>{{ health.providers.length }} 个已注册实例 <RouterLink class="section-heading__link" to="/admin/providers">查看目录与选择 →</RouterLink></span></div>
+        <div class="section-heading"><div><p class="section-kicker">MODELS &amp; DEPENDENCIES</p><h2 id="providers-title">模型与基础组件状态</h2></div><span>{{ health.providers.length }} 个已注册实例 <RouterLink class="section-heading__link" to="/workspace/models">查看模型状态与选配 →</RouterLink></span></div>
         <div class="provider-grid">
           <article v-for="group in providerGroups" :key="group.kind" class="provider-card" :class="`provider-card--${providerStatus(group.providers)}`">
             <div class="provider-card__top"><span>{{ group.short }}</span><i></i></div>
@@ -183,14 +183,14 @@ onMounted(load)
       </section>
 
       <section class="overview-section" aria-labelledby="metrics-title">
-        <div class="section-heading"><div><p class="section-kicker">TENANT METRICS</p><h2 id="metrics-title">系统指标</h2></div><span>过去 24 小时</span></div>
+        <div class="section-heading"><div><p class="section-kicker">RAG METRICS</p><h2 id="metrics-title">运行指标</h2></div><span>过去 24 小时</span></div>
         <div class="tenant-metrics">
-          <article><small>集合</small><strong>{{ metric(overview.collection_count) }}</strong><p>当前活跃 collection</p></article>
-          <article><small>文档</small><strong>{{ metric(documentTotal) }}</strong><p><i class="metric-ready"></i>{{ overview.document_counts.ready }} ready · <i class="metric-failed"></i>{{ overview.document_counts.failed }} failed</p></article>
-          <article><small>索引单元</small><strong>{{ metric(overview.leaf_count) }}</strong><p>{{ overview.root_count }} roots / {{ overview.leaf_count }} leaves</p></article>
-          <article><small>查询量</small><strong>{{ metric(overview.queries_24h) }}</strong><p>{{ outcome('answered') }} answered · {{ outcome('partial') }} partial</p></article>
-          <article><small>Query P95</small><strong>{{ metric(overview.query_p95_ms, ' ms') }}</strong><p>端到端执行耗时</p></article>
-          <article><small>错误率</small><strong>{{ percent(overview.query_error_rate) }}</strong><p>error / failed / cancelled</p></article>
+          <article><small>知识集合</small><strong>{{ metric(overview.collection_count) }}</strong><p>当前可用集合</p></article>
+          <article><small>文档</small><strong>{{ metric(documentTotal) }}</strong><p><i class="metric-ready"></i>{{ overview.document_counts.ready }} 就绪 · <i class="metric-failed"></i>{{ overview.document_counts.failed }} 失败</p></article>
+          <article><small>可检索切片</small><strong>{{ metric(overview.leaf_count) }}</strong><p>{{ overview.root_count }} 个原文块 / {{ overview.leaf_count }} 个检索块</p></article>
+          <article><small>查询量</small><strong>{{ metric(overview.queries_24h) }}</strong><p>{{ outcome('answered') }} 完整回答 · {{ outcome('partial') }} 部分回答</p></article>
+          <article><small>问答 P95</small><strong>{{ metric(overview.query_p95_ms, ' ms') }}</strong><p>端到端执行耗时</p></article>
+          <article><small>错误率</small><strong>{{ percent(overview.query_error_rate) }}</strong><p>错误、失败或取消的查询占比</p></article>
           <article><small>拒答率</small><strong>{{ percent(overview.query_abstention_rate) }}</strong><p>{{ outcome('abstained') }} 次安全拒答 / 全部查询</p></article>
           <article><small>有效回答率</small><strong>{{ percent(overview.query_answer_rate) }}</strong><p>answered + partial / 全部查询</p></article>
           <article><small>生成降级</small><strong>{{ metric(overview.query_generation_degraded_24h) }}</strong><p>回答 JSON 未通过首次解析</p></article>
@@ -201,10 +201,10 @@ onMounted(load)
         <div class="section-heading"><div><p class="section-kicker">RECENT ACTIVITY</p><h2 id="activity-title">最近任务</h2></div><span>最多 6 条</span></div>
         <div v-if="overview.recent_activity.length" class="activity-list">
           <article v-for="item in overview.recent_activity" :key="`${item.kind}-${item.id}`">
-            <span>{{ item.kind === 'ingestion' ? 'IN' : 'EV' }}</span><div><strong>{{ item.kind === 'ingestion' ? '摄取任务' : '评测运行' }} · {{ item.label }}</strong><small>{{ timeLabel(item.started_at) }} · {{ item.id.slice(0, 12) }}…</small></div><i :class="`activity-status--${item.status}`">{{ item.progress == null ? item.status : `${item.progress}%` }}</i>
+            <span>{{ item.kind === 'ingestion' ? 'IN' : 'EV' }}</span><div><strong>{{ item.kind === 'ingestion' ? '文档处理任务' : '评测运行' }} · {{ item.label }}</strong><small>{{ timeLabel(item.started_at) }} · {{ item.id.slice(0, 12) }}…</small></div><i :class="`activity-status--${item.status}`">{{ item.progress == null ? item.status : `${item.progress}%` }}</i>
           </article>
         </div>
-        <p v-else class="activity-empty">暂无摄取或评测任务。这里不会用演示数字填充空白。</p>
+        <p v-else class="activity-empty">暂无文档处理或评测任务。这里不会用演示数字填充空白。</p>
       </section>
     </template>
   </section>

@@ -271,8 +271,8 @@ onMounted(loadPipeline)
     <header class="workspace-heading">
       <div>
         <p class="section-kicker">DOCUMENT PIPELINE INSPECTOR</p>
-        <h1>文档处理透视</h1>
-        <p>逐项核对解析、确定性清洗、Root/Leaf 切分及送入检索的实际文本；数据始终受当前租户边界保护。</p>
+        <h1>文档解析与切分</h1>
+        <p>逐项核对解析、确定性清洗、原文块与检索块，以及最终送入检索的实际文本；数据始终受当前工作区边界保护。</p>
       </div>
       <RouterLink class="button button--secondary" to="/workspace/documents">返回文档管理</RouterLink>
     </header>
@@ -340,7 +340,7 @@ onMounted(loadPipeline)
         </article>
       </section>
 
-      <div v-if="!roots.length" class="trace-empty"><span>0</span><h2>尚无可检查内容</h2><p>文档完成摄取并进入 ready 后，这里会显示真实 Root 与 Leaf。</p></div>
+      <div v-if="!roots.length" class="trace-empty"><span>0</span><h2>尚无可检查内容</h2><p>文档处理完成并进入就绪状态后，这里会显示真实原文块与检索块。</p></div>
       <div v-else class="pipeline-layout">
         <aside class="pipeline-roots">
           <div class="panel-caption"><span>ROOTS</span><strong>{{ pipeline.root_count }}</strong></div>

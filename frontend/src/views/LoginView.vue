@@ -34,7 +34,7 @@ async function submit(): Promise<void> {
     <div class="login-context">
       <p class="section-kicker">SYSTEM BOUNDARY</p>
       <h1>系统管理<br /><em>独立授权。</em></h1>
-      <p>匿名工作区拥有 Demo Tenant 的业务权限，但 Provider、租户、用户与审计数据始终位于独立系统边界之后。</p>
+      <p>演示工作区开放知识问答、知识库、模型状态和运行观测；模型切换、用户权限与审计数据仍位于独立管理边界之后。</p>
       <RouterLink to="/workspace/overview">继续使用匿名工作区 →</RouterLink>
     </div>
     <form class="login-card" data-testid="login-form" @submit.prevent="submit">

@@ -173,8 +173,8 @@ describe('workspace overview browser states', () => {
     const wrapper = mountOverview()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('服务运行中 · 远程 Provider 待探测')
-    expect(wrapper.get('.degraded-banner').text()).toContain('远程 Provider 尚未探测')
+    expect(wrapper.text()).toContain('服务运行中 · 远程模型待探测')
+    expect(wrapper.get('.degraded-banner').text()).toContain('远程模型尚未完成首次探测')
     expect(wrapper.get('.provider-card--unknown').text()).toContain('待探测')
     expect(wrapper.text()).not.toContain('服务处于降级态')
   })

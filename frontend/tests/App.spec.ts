@@ -79,15 +79,17 @@ describe('application shell and authorization', () => {
 
     expect(router.currentRoute.value.fullPath).toBe('/workspace/documents')
     expect(auth.isAnonymous).toBe(true)
-    expect(wrapper.get('.sidebar__footer').text()).toContain('demo · 匿名演示')
-    expect(wrapper.get('h1').text()).toBe('文档管理')
+    expect(wrapper.get('.sidebar__footer').text()).toContain('演示工作区 · 匿名访客')
+    expect(wrapper.get('h1').text()).toBe('文档与切分')
+    expect(wrapper.text()).toContain('模型状态与选配')
+    expect(wrapper.text()).toContain('RAG 运行概览')
   })
 
   it('permits anonymous users to open the MCP capability catalog', async () => {
     const { wrapper, router } = await mountAt('/workspace/mcp')
 
     expect(router.currentRoute.value.fullPath).toBe('/workspace/mcp')
-    expect(wrapper.get('h1').text()).toBe('MCP 生态')
+    expect(wrapper.get('h1').text()).toBe('MCP 能力目录')
   })
 
   it('redirects an anonymous identity away from system routes', async () => {
@@ -111,7 +113,8 @@ describe('application shell and authorization', () => {
       password: 'correct-password',
     })
     expect(router.currentRoute.value.fullPath).toBe('/admin/providers')
-    expect(wrapper.text()).toContain('SYSTEM CONSOLE')
+    expect(wrapper.get('.topbar__eyebrow').text()).toBe('系统管理')
+    expect(wrapper.get('.topbar strong').text()).toBe('模型选配与索引')
   })
 
   it('clears the identity and redirects to login after a protected 401', async () => {

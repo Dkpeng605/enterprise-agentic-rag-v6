@@ -149,7 +149,7 @@ function reasonLabel(value: string): string {
     SAME_RUN: '请选择两次不同的运行', RUN_NOT_SUCCEEDED: '两次运行都必须成功完成',
     REPORT_MISSING: '至少一份聚合报告缺失', METADATA_INCOMPLETE: 'dataset/index/prompt/provider 元数据不完整',
     DATASET_MISMATCH: 'Dataset revision 不一致', MODE_MISMATCH: '查询模式不一致',
-    PROVIDER_MISMATCH: 'Provider profile 不一致', MODEL_MISMATCH: '模型版本不一致',
+    PROVIDER_MISMATCH: '模型服务配置不一致', MODEL_MISMATCH: '模型版本不一致',
     PROMPT_MISMATCH: 'Prompt revision 不一致', INDEX_MISMATCH: 'Index revision 不一致',
     CASE_SET_MISMATCH: '实际 Case 集合不一致',
   }[value] ?? value
@@ -203,14 +203,14 @@ onBeforeUnmount(() => { if (poller) clearInterval(poller) })
 
 <template>
   <section class="evaluation-page">
-    <header class="workspace-heading"><div><p class="section-kicker">EVALUATION-DRIVEN DEVELOPMENT</p><h1>评测中心</h1><p>运行有预算边界的小型 Golden Set，保留可复现报告，并只比较输入快照一致的结果。</p></div><span class="evaluation-local">LOCAL · ZERO LLM</span></header>
+    <header class="workspace-heading"><div><p class="section-kicker">RAG QUALITY · CONTROLLED EVALUATION</p><h1>RAG 效果评测</h1><p>使用标准问题集检查检索与回答质量，保留可复现报告，并只比较输入快照一致的结果。</p></div><span class="evaluation-local">本地评测 · 不调用模型</span></header>
     <div v-if="error" class="workspace-alert workspace-alert--error" role="alert"><strong>{{ error }}</strong><code v-if="requestId">Request ID · {{ requestId }}</code><button type="button" @click="loadPage()">重试</button></div>
 
     <section v-if="catalog" class="evaluation-launcher" data-testid="evaluation-launcher">
       <div><p class="section-kicker">NEW RUN</p><h2>运行配置</h2><p>{{ catalog.dataset_label }}</p></div>
       <label>模式<select v-model="mode"><option value="all">全部 · {{ catalog.case_counts.all }}</option><option value="standard">Standard · {{ catalog.case_counts.standard }}</option><option value="deep">Deep · {{ catalog.case_counts.deep }}</option></select></label>
       <label>最大 Case<input v-model.number="maxCases" type="number" min="1" :max="Math.min(catalog.max_cases, availableCases)" /></label>
-      <label>Provider Profile<select disabled><option>{{ profile?.label }}</option></select></label>
+      <label>模型服务配置<select disabled><option>{{ profile?.label }}</option></select></label>
       <div class="evaluation-budget"><span>执行前预算</span><strong>{{ selectedCases }} Cases · ≤ {{ estimatedCalls }} LLM calls</strong><small>部署上限 {{ catalog.max_cases }} Cases / {{ catalog.max_llm_calls }} LLM calls；本 Profile 不访问远程模型。</small></div>
       <button class="button button--primary" type="button" :disabled="running || selectedCases < 1 || active" @click="startRun">{{ running || active ? '评测运行中…' : '启动评测' }}</button>
     </section>
