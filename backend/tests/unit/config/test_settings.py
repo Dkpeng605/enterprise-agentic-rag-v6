@@ -167,6 +167,28 @@ def test_production_rejects_local_admin_admin_bootstrap_credentials() -> None:
     assert raised.value.details == {"fields": ("ADMIN_BOOTSTRAP_EMAIL", "ADMIN_BOOTSTRAP_PASSWORD")}
 
 
+def test_production_allows_admin_bootstrap_only_with_explicit_demo_override() -> None:
+    settings = load_settings(
+        environ={
+            "ADMIN_BOOTSTRAP_EMAIL": "admin",
+            "ADMIN_BOOTSTRAP_PASSWORD": "admin",
+            "DATABASE_URL": "postgresql+asyncpg://example.test/db",
+            "MCP_TOKEN_PEPPER": "pepper",
+            "METRICS_TOKEN": "metrics",
+            "SESSION_SECRET": "session",
+            "VECTOR_STORE_URI": "https://milvus.example",
+            "VECTOR_STORE_TOKEN": "token",
+            "ALLOW_INSECURE_DEMO_ADMIN": "true",
+        },
+        overrides={
+            "app": {"environment": "production"},
+            "providers": {"llm": "mock", "vector_store": "milvus_remote"},
+        },
+    )
+
+    assert settings.security.allow_insecure_demo_admin is True
+
+
 def test_remote_reranker_requires_its_own_production_credentials() -> None:
     environment = {
         "ADMIN_BOOTSTRAP_EMAIL": "admin@example.test",
@@ -272,6 +294,19 @@ def test_production_rejects_single_process_milvus_lite() -> None:
 
     assert raised.value.code is SettingsErrorCode.CONFIG_VALUE_INVALID
     assert raised.value.details == {"fields": ("providers.vector_store",)}
+
+
+def test_production_allows_milvus_lite_only_with_explicit_single_process_demo_override() -> None:
+    settings = load_settings(
+        environ={
+            **production_environment(),
+            "ALLOW_SINGLE_PROCESS_DEMO_RUNTIME": "true",
+        },
+        overrides={"app": {"environment": "production"}, "providers": {"llm": "mock"}},
+    )
+
+    assert settings.providers.vector_store == "milvus_lite"
+    assert settings.security.allow_single_process_demo_runtime is True
 
 
 def test_production_remote_milvus_requires_uri_and_token() -> None:
