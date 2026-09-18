@@ -3,7 +3,7 @@ from uuid import UUID
 
 import pytest
 
-from enterprise_rag.domain import QueryIntent, QueryMode, QueryPlan, QueryScope
+from enterprise_rag.domain import QueryIntent, QueryMode, QueryPlan, QueryScope, RetrievalHit
 from enterprise_rag.ports import ScopeAuthorization
 from enterprise_rag.services.query_api import QueryCommand, QueryRunStatus
 from enterprise_rag.services.query_planner import retrieval_queries
@@ -13,6 +13,7 @@ from enterprise_rag.services.semantic_query import (
     _answer_root_limit,
     _authorized_search_scope,
     _effective_plan,
+    _relevance_filtered_hits,
     _requirements_for_queries,
     _select_answer_roots,
 )
@@ -228,6 +229,34 @@ def test_restricted_transport_authorization_is_a_search_prefilter_not_an_explici
     assert search_scope.collection_ids == (allowed_collection,)
     assert search_scope.document_ids == ()
     assert search_scope.titles == requested.titles
+
+
+def test_near_zero_reranker_scores_do_not_become_unsupported_evidence() -> None:
+    relevant = RetrievalHit(
+        "leaf_" + "1" * 64,
+        "root_" + "1" * 64,
+        1,
+        None,
+        0.1,
+        0.02,
+        True,
+    )
+    unrelated = RetrievalHit(
+        "leaf_" + "2" * 64,
+        "root_" + "2" * 64,
+        2,
+        None,
+        0.1,
+        0.0001,
+        True,
+    )
+
+    assert _relevance_filtered_hits(
+        (relevant, unrelated), reranker_degraded=False
+    ) == (relevant,)
+    assert _relevance_filtered_hits(
+        (relevant, unrelated), reranker_degraded=True
+    ) == (relevant, unrelated)
 
 
 @pytest.mark.anyio
