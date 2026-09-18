@@ -57,6 +57,8 @@ from enterprise_rag.services.retrieval import (
 )
 from enterprise_rag.services.scope_root import RecoveredContext, RootContext, ScopeRootService
 
+_MINIMUM_RERANK_SCORE = 0.01
+
 
 @dataclass(frozen=True, slots=True)
 class _RetrievalOutcome:
@@ -544,10 +546,17 @@ class SemanticQueryRunner:
                 span.set_attribute("rag.rejected_count", rejected_count)
             with start_span("rag.rerank") as span:
                 reranked = await self._reranking.rerank(rerank_query, items)
+                selected_hits = _relevance_filtered_hits(
+                    reranked.hits, reranker_degraded=reranked.degraded
+                )
                 span.set_attribute("rag.degraded", reranked.degraded)
                 span.set_attribute("rag.input_count", len(items))
                 span.set_attribute("rag.candidate_count", reranked.candidate_count)
                 span.set_attribute("rag.output_count", len(reranked.hits))
+                span.set_attribute("rag.relevance_threshold", _MINIMUM_RERANK_SCORE)
+                span.set_attribute(
+                    "rag.relevance_rejected_count", len(reranked.hits) - len(selected_hits)
+                )
                 candidate_queries = tuple(
                     dict.fromkeys(
                         query
@@ -580,15 +589,15 @@ class SemanticQueryRunner:
             if emit is not None:
                 await self._progress(emit, QueryProgressStage.RECOVERING, "恢复授权 Root 原文")
             with start_span("rag.root_restore") as span:
-                recovered = await scope_root.recover(resolved_scope, reranked.hits)
-                span.set_attribute("rag.input_count", len(reranked.hits))
+                recovered = await scope_root.recover(resolved_scope, selected_hits)
+                span.set_attribute("rag.input_count", len(selected_hits))
                 span.set_attribute("rag.output_count", len(recovered.roots))
                 span.set_attribute("rag.rejected_count", recovered.rejected_count)
                 span.set_attribute("rag.truncated_count", recovered.truncated_count)
                 span.set_attribute("rag.used_chars", recovered.used_chars)
         return _RetrievalOutcome(
             recovered,
-            reranked.hits,
+            selected_hits,
             fused.diagnostic,
             reranked.degraded,
         )
@@ -744,6 +753,27 @@ class SemanticQueryRunner:
     ) -> None:
         if emit is not None:
             await emit(QueryProgress(stage, detail))
+
+
+def _relevance_filtered_hits(
+    hits: Sequence[RetrievalHit], *, reranker_degraded: bool
+) -> tuple[RetrievalHit, ...]:
+    """Discard near-zero remote reranker results before they become evidence.
+
+    Vector search always produces nearest neighbours.  A healthy cross-encoder
+    score close to zero is an explicit signal that none is relevant; retaining it
+    would turn an unsupported question into an answer with unrelated citations.
+    When the reranker is degraded there is no comparable score, so preserve the
+    existing safe-verification fallback instead of treating an outage as no data.
+    """
+
+    if reranker_degraded:
+        return tuple(hits)
+    return tuple(
+        hit
+        for hit in hits
+        if hit.rerank_score is not None and hit.rerank_score >= _MINIMUM_RERANK_SCORE
+    )
 
 
 def _requirements_for_queries(
