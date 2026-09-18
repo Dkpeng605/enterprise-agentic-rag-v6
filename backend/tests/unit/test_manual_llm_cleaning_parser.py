@@ -47,22 +47,18 @@ def test_strict_response_accepts_noise_removal_and_restores_input_order() -> Non
 @pytest.mark.parametrize(
     ("before", "after"),
     [
-        ("金额 199 元", "金额 299 元"),
-        ("访问 https://example.test/a", "访问 https://example.test/b"),
-        ('状态是 "ready"', '状态是 "failed"'),
-        ("# 原始标题\n正文", "# 新标题\n正文"),
-        ("系统必须保留原始策略", "系统必须删除原始策略"),
-        ("第一条 第二条", "第二条 第一条"),
-        ("```python\nprint(1)\n```", "```python\nprint(2)\n```"),
-        ("| 名称 | 值 |\n| --- | --- |\n| A | 1 |", "| name | value |\n| --- | --- |\n| A | 1 |"),
+        ("金额 199 元", "金额为 299 元"),
+        ("访问 https://example.test/a", "访问地址：https://example.test/b"),
+        ('状态是 "ready"', "当前状态为已就绪"),
+        ("# 原始标题\n正文", "# 规范标题\n整理后的正文"),
+        ("系统必须保留原始策略", "系统需要保留原始策略"),
+        ("第一条 第二条", "第二条；第一条"),
+        ("```python\nprint(1)\n```", "```python\nprint('1')\n```"),
+        ("| 名称 | 值 |\n| --- | --- |\n| A | 1 |", "| 名称 | 数值 |\n| --- | --- |\n| A | 1 |"),
     ],
 )
-def test_response_rejects_protected_anchor_changes(before: str, after: str) -> None:
-    with pytest.raises(AppError) as raised:
-        parse_cleaning_response(response((0, after)), (root(before),))
-
-    assert raised.value.code is ErrorCode.LLM_INVALID_RESPONSE
-    assert raised.value.details["root_ordinal"] == 0
+def test_response_accepts_trusted_llm_content_rewrites(before: str, after: str) -> None:
+    assert parse_cleaning_response(response((0, after)), (root(before),)) == (after,)
 
 
 def test_response_preserves_cleaning_output_whitespace_when_lexical_content_is_unchanged() -> None:
@@ -73,7 +69,7 @@ def test_response_preserves_cleaning_output_whitespace_when_lexical_content_is_u
     assert cleaned == (" 保留边界 ",)
 
 
-def test_response_allows_only_repeated_edge_line_removal() -> None:
+def test_response_allows_repeated_edge_line_removal() -> None:
     roots = (root("页眉\n第一段", ordinal=0), root("页眉\n第二段", ordinal=1))
 
     cleaned = parse_cleaning_response(response((0, "第一段"), (1, "第二段")), roots)
@@ -103,25 +99,36 @@ def test_response_allows_pdf_layout_reflow_and_line_break_hyphen_repair() -> Non
     assert cleaned == (after,)
 
 
-def test_response_rejects_merging_two_distinct_words() -> None:
+def test_response_rejects_unbounded_root_expansion() -> None:
     with pytest.raises(AppError) as raised:
-        parse_cleaning_response(response((0, "helloworld")), (root("hello world"),))
+        parse_cleaning_response(response((0, "x" * 4_097)), (root("short"),))
 
     assert raised.value.code is ErrorCode.LLM_INVALID_RESPONSE
 
 
-def test_response_cannot_remove_a_repeated_edge_line_from_the_middle() -> None:
+def test_response_accepts_rewritten_or_removed_middle_content() -> None:
     roots = (
         root("正文开始\n重复页眉\n正文结尾", ordinal=0),
         root("重复页眉\n第二个 Root", ordinal=1),
     )
 
-    with pytest.raises(AppError) as raised:
-        parse_cleaning_response(
-            response((0, "正文开始\n正文结尾"), (1, "重复页眉\n第二个 Root")), roots
-        )
+    cleaned = parse_cleaning_response(
+        response((0, "正文开始\n正文结尾"), (1, "重复页眉\n第二个 Root")), roots
+    )
 
-    assert raised.value.code is ErrorCode.LLM_INVALID_RESPONSE
+    assert cleaned == ("正文开始\n正文结尾", "重复页眉\n第二个 Root")
+
+
+def test_response_accepts_explanatory_fields_around_required_result() -> None:
+    payload = json.dumps(
+        {
+            "roots": [{"ordinal": 0, "clean_text": "整理后的内容", "reason": "修复 OCR"}],
+            "summary": "cleaned",
+        },
+        ensure_ascii=False,
+    )
+
+    assert parse_cleaning_response(payload, (root("原始内容"),)) == ("整理后的内容",)
 
 
 @pytest.mark.parametrize(
@@ -129,8 +136,11 @@ def test_response_cannot_remove_a_repeated_edge_line_from_the_middle() -> None:
     [
         "```json\n{}\n```",
         json.dumps({"roots": []}),
-        json.dumps({"roots": [{"ordinal": 0, "clean_text": "ok", "reason": "hidden"}]}),
         json.dumps({"roots": [{"ordinal": 1, "clean_text": "ok"}]}),
+        json.dumps({"roots": [{"ordinal": 0, "clean_text": " "}]}),
+        json.dumps(
+            {"roots": [{"ordinal": 0, "clean_text": "one"}, {"ordinal": 0, "clean_text": "two"}]}
+        ),
     ],
 )
 def test_response_rejects_non_strict_or_structurally_changed_json(payload: str) -> None:
