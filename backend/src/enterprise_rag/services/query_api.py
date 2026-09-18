@@ -1,6 +1,7 @@
 """Framework-neutral query execution and SSE progress orchestration."""
 
 import asyncio
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -17,12 +18,56 @@ from enterprise_rag.ports.planner import ConversationTurn
 ProgressSink = Callable[["QueryProgress"], Awaitable[None]]
 DisconnectCheck = Callable[[], Awaitable[bool]]
 
+_CONVERSATIONAL_QUERY = re.compile(r"[^a-z\u3400-\u9fff]+")
+_CONVERSATIONAL_GREETINGS = frozenset(
+    {
+        "hi",
+        "hello",
+        "hey",
+        "你好",
+        "您好",
+        "嗨",
+        "哈喽",
+        "哈囉",
+        "在吗",
+        "在麼",
+    }
+)
+
 
 class QueryRunStatus(StrEnum):
     ANSWERED = "answered"
     PARTIAL = "partial"
     ABSTAINED = "abstained"
     NO_RESULTS = "no_results"
+
+
+def conversational_answer(query: str) -> str | None:
+    """Answer standalone greetings without inventing a knowledge-base citation.
+
+    A vector index always returns nearest neighbours, even for a greeting.  Sending
+    one through the full RAG path therefore creates irrelevant evidence and can
+    spend several LLM calls before the verifier rejects it.  Only exact, short
+    conversational openers use this deterministic path; substantive questions
+    still enter retrieval as usual.
+    """
+
+    normalized = _CONVERSATIONAL_QUERY.sub("", query.casefold())
+    if normalized not in _CONVERSATIONAL_GREETINGS:
+        return None
+    return (
+        "你好！我可以基于当前知识库帮你查找和整理信息。"
+        "请告诉我想了解的问题；如果资料尚未导入，也可以先上传相关文件。"
+    )
+
+
+def no_results_answer() -> str:
+    """Return a helpful, non-fabricated answer when the knowledge base has no evidence."""
+
+    return (
+        "我暂时没有从当前知识库检索到足够完整的信息来可靠回答这个问题。"
+        "你可以补充关键词、换一种表述，或上传相关资料后再问我。"
+    )
 
 
 class QueryProgressStage(StrEnum):
