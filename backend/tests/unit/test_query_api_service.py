@@ -14,7 +14,11 @@ from enterprise_rag.services import (
     QueryRunStatus,
     QueryStreamEvent,
 )
-from enterprise_rag.services.query_api import ProgressSink
+from enterprise_rag.services.query_api import (
+    ProgressSink,
+    conversational_answer,
+    no_results_answer,
+)
 
 QUERY_ID = UUID("01900000-0000-7000-8000-000000001901")
 TENANT_ID = UUID("01900000-0000-7000-8000-000000001902")
@@ -102,6 +106,19 @@ def test_partial_query_status_is_serializable() -> None:
     )
 
     assert result.to_dict()["status"] == "partial"
+
+
+def test_standalone_greetings_skip_retrieval_but_questions_do_not() -> None:
+    assert conversational_answer("你好！") is not None
+    assert conversational_answer("  HELLO  ") is not None
+    assert conversational_answer("你好，请问如何配置 RAG？") is None
+
+
+def test_no_results_answer_is_helpful_without_claiming_evidence() -> None:
+    answer = no_results_answer()
+
+    assert "没有从当前知识库检索到" in answer
+    assert "补充关键词" in answer
 
 
 @pytest.mark.anyio

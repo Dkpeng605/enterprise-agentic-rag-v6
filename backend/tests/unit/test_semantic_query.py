@@ -1,11 +1,15 @@
 from dataclasses import replace
 from uuid import UUID
 
+import pytest
+
 from enterprise_rag.domain import QueryIntent, QueryMode, QueryPlan, QueryScope
 from enterprise_rag.ports import ScopeAuthorization
+from enterprise_rag.services.query_api import QueryCommand, QueryRunStatus
 from enterprise_rag.services.query_planner import retrieval_queries
 from enterprise_rag.services.scope_root import RootContext
 from enterprise_rag.services.semantic_query import (
+    SemanticQueryRunner,
     _answer_root_limit,
     _authorized_search_scope,
     _effective_plan,
@@ -224,3 +228,24 @@ def test_restricted_transport_authorization_is_a_search_prefilter_not_an_explici
     assert search_scope.collection_ids == (allowed_collection,)
     assert search_scope.document_ids == ()
     assert search_scope.titles == requested.titles
+
+
+@pytest.mark.anyio
+async def test_standalone_greeting_returns_before_planning_or_retrieval() -> None:
+    runner = object.__new__(SemanticQueryRunner)
+    command = QueryCommand(
+        UUID("01900000-0000-7000-8000-000000003006"),
+        UUID("01900000-0000-7000-8000-000000003007"),
+        UUID("01900000-0000-7000-8000-000000003008"),
+        "你好",
+        QueryMode.STANDARD,
+        QueryScope(),
+        (),
+    )
+
+    result = await runner.run(command)
+
+    assert result.status is QueryRunStatus.ANSWERED
+    assert result.citations == ()
+    assert result.usage == {"llm_calls": 0, "input_tokens": 0, "output_tokens": 0}
+    assert result.diagnostics["answer_strategy"] == "conversational_fallback"

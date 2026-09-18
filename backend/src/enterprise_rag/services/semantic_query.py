@@ -41,6 +41,8 @@ from enterprise_rag.services.query_api import (
     QueryProgress,
     QueryProgressStage,
     QueryRunStatus,
+    conversational_answer,
+    no_results_answer,
 )
 from enterprise_rag.services.query_planner import (
     QueryPlanningService,
@@ -163,6 +165,30 @@ class SemanticQueryRunner:
     async def run(
         self, command: QueryCommand, *, emit: ProgressSink | None = None
     ) -> QueryExecution:
+        if (greeting := conversational_answer(command.query)) is not None:
+            await self._progress(emit, QueryProgressStage.ANSWERING, "回应日常问候")
+            return QueryExecution(
+                command.query_id,
+                QueryRunStatus.ANSWERED,
+                greeting,
+                (),
+                diagnostics={
+                    "runtime": "mac_semantic",
+                    "mode": command.mode.value,
+                    "answer_strategy": "conversational_fallback",
+                    "candidate_count": 0,
+                    "citation_count": 0,
+                    "planner_provider": "deterministic_conversation",
+                    "planner_degraded": False,
+                    "reranker_degraded": False,
+                    "deep_decision": None,
+                    "recovery_rounds": 0,
+                    "assessor_degraded": False,
+                    "generation_degraded": False,
+                    "answer_status": "conversational_fallback",
+                },
+                usage=_usage_dict(ModelUsage()),
+            )
         await self._progress(emit, QueryProgressStage.PLANNING, "执行查询改写与子查询规划")
         with start_span("rag.query_planning") as span:
             planned = await self._planner.plan(
@@ -293,7 +319,7 @@ class SemanticQueryRunner:
             return QueryExecution(
                 command.query_id,
                 QueryRunStatus.NO_RESULTS,
-                "当前授权范围内没有检索到可回答该问题的证据。",
+                no_results_answer(),
                 (),
                 diagnostics=self._diagnostics(
                     mode=command.mode,

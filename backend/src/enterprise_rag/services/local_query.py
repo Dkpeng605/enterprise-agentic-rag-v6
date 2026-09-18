@@ -19,6 +19,8 @@ from enterprise_rag.services.query_api import (
     QueryProgress,
     QueryProgressStage,
     QueryRunStatus,
+    conversational_answer,
+    no_results_answer,
 )
 from enterprise_rag.services.reranking import RerankingService
 from enterprise_rag.services.retrieval import DualSearchService
@@ -73,6 +75,19 @@ class DeterministicLocalQueryRunner:
     async def run(
         self, command: QueryCommand, *, emit: ProgressSink | None = None
     ) -> QueryExecution:
+        if (answer := conversational_answer(command.query)) is not None:
+            await self._progress(emit, QueryProgressStage.ANSWERING, "回应日常问候")
+            return QueryExecution(
+                command.query_id,
+                QueryRunStatus.ANSWERED,
+                answer,
+                (),
+                diagnostics={
+                    **self._diagnostics(0, 0),
+                    "answer_strategy": "conversational_fallback",
+                },
+                usage=self._usage(),
+            )
         await self._progress(emit, QueryProgressStage.PLANNING, "校验查询范围")
         with start_span(
             "rag.query_planning",
@@ -156,7 +171,7 @@ class DeterministicLocalQueryRunner:
                 return QueryExecution(
                     command.query_id,
                     QueryRunStatus.NO_RESULTS,
-                    "当前授权范围内没有检索到可回答该问题的证据。",
+                    no_results_answer(),
                     (),
                     diagnostics=self._diagnostics(0, fused.diagnostic.unique_leaf_count),
                     usage=self._usage(),
