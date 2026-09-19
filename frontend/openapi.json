@@ -8629,6 +8629,61 @@
         ],
         "title": "QueryHistoryTurn"
       },
+      "QueryIoExchangeResponse": {
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "span_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$",
+            "title": "Span Id"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "component": {
+            "type": "string",
+            "title": "Component"
+          },
+          "input_json": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Json"
+          },
+          "output_json": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Json"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sequence",
+          "span_id",
+          "stage",
+          "component",
+          "input_json",
+          "output_json",
+          "truncated"
+        ],
+        "title": "QueryIoExchangeResponse"
+      },
       "QueryPlanResponse": {
         "properties": {
           "provider": {
@@ -9222,6 +9277,13 @@
             },
             "type": "array",
             "title": "Stage Metrics"
+          },
+          "io_exchanges": {
+            "items": {
+              "$ref": "#/components/schemas/QueryIoExchangeResponse"
+            },
+            "type": "array",
+            "title": "Io Exchanges"
           }
         },
         "additionalProperties": false,
@@ -9235,7 +9297,8 @@
           "degradations",
           "plan",
           "retrieval_branches",
-          "stage_metrics"
+          "stage_metrics",
+          "io_exchanges"
         ],
         "title": "QueryTraceViewResponse"
       },

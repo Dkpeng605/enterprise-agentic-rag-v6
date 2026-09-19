@@ -6,6 +6,7 @@ from enterprise_rag.observability.context import (
     current_context,
 )
 from enterprise_rag.observability.exporter import BufferedSpanExporter
+from enterprise_rag.observability.io_capture import record_trace_io
 from enterprise_rag.observability.logging import JsonLogFormatter, configure_json_logging
 from enterprise_rag.observability.metrics import (
     ApplicationMetrics,
@@ -29,6 +30,7 @@ __all__ = [
     "configure_json_logging",
     "current_context",
     "current_metrics",
+    "record_trace_io",
     "safe_attributes",
     "start_span",
     "trace_async",

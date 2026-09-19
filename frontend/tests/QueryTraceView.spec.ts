@@ -45,6 +45,11 @@ const standardDetail: QueryTraceView = {
     attributes: { ranked_lists: 4, unique_leaves: 10 },
     covered_requirements: [], missing_requirements: [], issues: [],
   }],
+  io_exchanges: [{
+    sequence: 1, span_id: '0000000000000001', stage: 'rag.answer_generation',
+    component: 'language_model', input_json: { user_prompt: 'private evidence' },
+    output_json: { text: '{"paragraphs":[]}' }, truncated: false,
+  }],
 }
 
 function mountView() {
@@ -73,6 +78,11 @@ describe('query trace workspace', () => {
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('8 / 40')
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('BM25（Milvus 原生）')
     expect(wrapper.get('[data-testid="retrieval-metrics"]').text()).toContain('不等同于 Recall@K')
+    expect(wrapper.get('[data-testid="trace-io-section"] button').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('[data-testid="trace-io-list"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="trace-io-section"] button').trigger('click')
+    expect(wrapper.get('[data-testid="trace-io-list"]').text()).toContain('LLM 模型')
+    expect(wrapper.get('[data-testid="trace-io-list"]').text()).toContain('INPUT JSON')
   })
 
   it('shows that the LLM kept a single rewritten route when sub-queries are off', async () => {

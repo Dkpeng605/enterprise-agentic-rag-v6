@@ -9,6 +9,7 @@ import httpx
 
 from enterprise_rag.adapters.rerankers.common import RerankerError, validate_request
 from enterprise_rag.domain.errors import ErrorCode
+from enterprise_rag.observability import record_trace_io
 from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, ProviderKind
 from enterprise_rag.ports.reranker import RerankCandidate, RerankResult
 
@@ -69,6 +70,23 @@ class OpenAICompatibleReranker:
         if self._closed:
             raise RuntimeError("Reranker Provider is closed")
         validate_request(query, candidates, top_k)
+        record_trace_io(
+            "reranker_model",
+            "input",
+            {
+                "model": self._model,
+                "query": query,
+                "documents": [
+                    {
+                        "candidate_id": candidate.candidate_id,
+                        "text": candidate.text,
+                        "fused_score": candidate.fused_score,
+                    }
+                    for candidate in candidates
+                ],
+                "top_n": top_k,
+            },
+        )
         for attempt in range(self._max_retries + 1):
             try:
                 response = await self._client.post(
@@ -85,6 +103,7 @@ class OpenAICompatibleReranker:
             except httpx.TransportError as error:
                 if attempt >= self._max_retries:
                     self._health = ProviderHealth.UNAVAILABLE
+                    _record_reranker_error(ErrorCode.RERANKER_UNAVAILABLE, attempt)
                     raise RerankerError(
                         ErrorCode.RERANKER_UNAVAILABLE,
                         "The remote reranker Provider is unavailable.",
@@ -96,6 +115,7 @@ class OpenAICompatibleReranker:
                     await self._sleeper(0.25 * (2**attempt))
                     continue
                 self._health = ProviderHealth.UNAVAILABLE
+                _record_reranker_error(ErrorCode.RERANKER_UNAVAILABLE, attempt)
                 raise RerankerError(
                     ErrorCode.RERANKER_UNAVAILABLE,
                     "The remote reranker Provider exhausted bounded retries.",
@@ -103,6 +123,9 @@ class OpenAICompatibleReranker:
                 )
             if response.status_code >= 400:
                 self._health = ProviderHealth.UNAVAILABLE
+                _record_reranker_error(
+                    ErrorCode.RERANKER_UNAVAILABLE, attempt, response.status_code
+                )
                 raise RerankerError(
                     ErrorCode.RERANKER_UNAVAILABLE,
                     "The remote reranker Provider rejected the request.",
@@ -112,11 +135,25 @@ class OpenAICompatibleReranker:
                 result = self._parse_response(response, candidates, top_k)
             except RerankerError:
                 self._health = ProviderHealth.DEGRADED
+                _record_reranker_error(ErrorCode.RERANKER_INVALID_RESPONSE, attempt)
                 raise
             self._health = ProviderHealth.HEALTHY
+            record_trace_io(
+                "reranker_model",
+                "output",
+                {
+                    "results": [
+                        {
+                            "candidate_id": item.candidate_id,
+                            "relevance_score": item.score,
+                        }
+                        for item in result
+                    ],
+                    "retry_count": attempt,
+                },
+            )
             return result
         raise AssertionError("retry loop did not terminate")
-
     async def aclose(self) -> None:
         if self._closed:
             return
@@ -159,3 +196,18 @@ class OpenAICompatibleReranker:
                 ErrorCode.RERANKER_INVALID_RESPONSE,
                 "The remote reranker Provider returned an invalid response.",
             ) from error
+
+
+def _record_reranker_error(
+    code: ErrorCode, retry_count: int, status_code: int | None = None
+) -> None:
+    record_trace_io(
+        "reranker_model",
+        "output",
+        {
+            "status": "error",
+            "error_code": code.value,
+            "status_code": status_code,
+            "retry_count": retry_count,
+        },
+    )

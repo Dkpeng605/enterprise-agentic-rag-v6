@@ -447,6 +447,16 @@ class QueryStageMetricResponse(ApiModel):
     issues: list[str]
 
 
+class QueryIoExchangeResponse(ApiModel):
+    sequence: int
+    span_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    stage: str
+    component: str
+    input_json: object | None
+    output_json: object | None
+    truncated: bool
+
+
 class QueryTraceViewResponse(ApiModel):
     summary: TraceSummaryResponse
     usage: dict[str, int | float]
@@ -457,6 +467,7 @@ class QueryTraceViewResponse(ApiModel):
     plan: QueryPlanResponse | None
     retrieval_branches: list[QueryRetrievalBranchResponse]
     stage_metrics: list[QueryStageMetricResponse]
+    io_exchanges: list[QueryIoExchangeResponse]
 
 
 class IngestionTraceStageResponse(ApiModel):

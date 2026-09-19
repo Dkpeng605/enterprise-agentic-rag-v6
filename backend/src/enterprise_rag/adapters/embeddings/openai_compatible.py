@@ -14,6 +14,7 @@ from enterprise_rag.adapters.embeddings.common import (
     validated_vectors,
 )
 from enterprise_rag.domain.errors import ErrorCode
+from enterprise_rag.observability import record_trace_io
 from enterprise_rag.ports.provider import ProviderHealth, ProviderInfo, ProviderKind
 
 Sleeper = Callable[[float], Awaitable[None]]
@@ -124,6 +125,11 @@ class OpenAICompatibleEmbedding:
         self._closed = True
 
     async def _embed_batch(self, texts: tuple[str, ...]) -> list[list[float]]:
+        record_trace_io(
+            "embedding_model",
+            "input",
+            {"model": self._model, "input": list(texts), "encoding_format": "float"},
+        )
         for attempt in range(self._max_retries + 1):
             try:
                 response = await self._client.post(
@@ -135,6 +141,7 @@ class OpenAICompatibleEmbedding:
             except httpx.TransportError as error:
                 if attempt >= self._max_retries:
                     self._health = ProviderHealth.UNAVAILABLE
+                    _record_embedding_error(ErrorCode.EMBEDDING_UNAVAILABLE, attempt)
                     raise EmbeddingError(
                         ErrorCode.EMBEDDING_UNAVAILABLE,
                         "The remote embedding Provider is unavailable.",
@@ -146,6 +153,7 @@ class OpenAICompatibleEmbedding:
                     await self._sleeper(0.25 * (2**attempt))
                     continue
                 self._health = ProviderHealth.UNAVAILABLE
+                _record_embedding_error(ErrorCode.EMBEDDING_UNAVAILABLE, attempt)
                 raise EmbeddingError(
                     ErrorCode.EMBEDDING_UNAVAILABLE,
                     "The remote embedding Provider exhausted bounded retries.",
@@ -153,6 +161,9 @@ class OpenAICompatibleEmbedding:
                 )
             if response.status_code >= 400:
                 self._health = ProviderHealth.UNAVAILABLE
+                _record_embedding_error(
+                    ErrorCode.EMBEDDING_UNAVAILABLE, attempt, response.status_code
+                )
                 raise EmbeddingError(
                     ErrorCode.EMBEDDING_UNAVAILABLE,
                     "The remote embedding Provider rejected the request.",
@@ -162,11 +173,21 @@ class OpenAICompatibleEmbedding:
                 result = self._parse_response(response, len(texts))
             except EmbeddingError:
                 self._health = ProviderHealth.DEGRADED
+                _record_embedding_error(ErrorCode.EMBEDDING_INVALID_RESPONSE, attempt)
                 raise
             self._health = ProviderHealth.HEALTHY
+            record_trace_io(
+                "embedding_model",
+                "output",
+                {
+                    "vectors": result,
+                    "count": len(result),
+                    "dimension": self._dimension,
+                    "retry_count": attempt,
+                },
+            )
             return result
         raise AssertionError("retry loop did not terminate")
-
     def _parse_response(self, response: httpx.Response, expected_count: int) -> list[list[float]]:
         try:
             payload: Any = response.json()
@@ -189,3 +210,18 @@ class OpenAICompatibleEmbedding:
                 "The remote embedding Provider returned an invalid response.",
             ) from error
         return validated_vectors(ordered, expected_count=expected_count, dimension=self.dimension)
+
+
+def _record_embedding_error(
+    code: ErrorCode, retry_count: int, status_code: int | None = None
+) -> None:
+    record_trace_io(
+        "embedding_model",
+        "output",
+        {
+            "status": "error",
+            "error_code": code.value,
+            "status_code": status_code,
+            "retry_count": retry_count,
+        },
+    )

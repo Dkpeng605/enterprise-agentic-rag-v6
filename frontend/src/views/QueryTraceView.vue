@@ -20,6 +20,7 @@ const degraded = ref<'' | 'true' | 'false'>('')
 const loading = ref(true)
 const loadingMore = ref(false)
 const detailLoading = ref(false)
+const ioExpanded = ref(false)
 const error = ref('')
 const requestId = ref('')
 
@@ -65,6 +66,7 @@ async function loadTraces(append = false): Promise<void> {
 
 async function selectTrace(traceId: string): Promise<void> {
   selectedId.value = traceId
+  ioExpanded.value = false
   detailLoading.value = true
   error.value = ''
   const requestedId = traceId
@@ -197,13 +199,30 @@ function sparseAlgorithmLabel(value: string): string {
   return value === 'milvus_builtin_bm25' ? 'BM25（Milvus 原生）' : value
 }
 
+function ioComponentLabel(value: string): string {
+  return {
+    query: '用户查询', query_planning: '查询规划', language_model: 'LLM 模型',
+    embedding_model: 'Embedding 模型', sparse_encoding: 'Sparse 编码',
+    dense_retrieval: 'Dense 检索', sparse_retrieval: 'Sparse 检索',
+    rrf_fusion: 'RRF 融合', authorization_and_scope: '权限与范围过滤',
+    reranker_model: 'Rerank 模型', root_restore: 'Root 原文恢复',
+    answer_generation: '答案生成', answer_verification: '引用核验与修复',
+    deep_recovery: 'Deep Recovery', evidence_assessment: '证据覆盖评估',
+    recovery_round: 'Recovery 检索轮次',
+  }[value] ?? value
+}
+
+function prettyJson(value: unknown): string {
+  return value == null ? '未记录' : JSON.stringify(value, null, 2)
+}
+
 onMounted(() => loadTraces())
 </script>
 
 <template>
   <section class="trace-page">
     <header class="workspace-heading">
-      <div><p class="section-kicker">RAG OBSERVABILITY · Q&amp;A</p><h1>问答链路观测</h1><p>按当前工作区展示查询改写、子查询、逐阶段数量与候选排名；不展示提示词、隐藏推理、密钥或内部异常堆栈。</p></div>
+      <div><p class="section-kicker">RAG OBSERVABILITY · Q&amp;A</p><h1>问答链路观测</h1><p>按当前工作区展示查询改写、候选排名与全阶段 JSON；输入输出默认折叠，密钥、凭证与隐藏推理不会入库。</p></div>
       <div class="trace-legend"><span><i class="legend-dot"></i>正常阶段</span><span><i class="legend-dot legend-dot--deep"></i>Deep Recovery</span><span><i class="legend-dot legend-dot--degraded"></i>降级</span></div>
     </header>
 
@@ -254,6 +273,18 @@ onMounted(() => loadTraces())
           </section>
 
           <section class="trace-section"><div class="trace-section-head"><div><p class="section-kicker">LATENCY WATERFALL</p><h3>全链路瀑布</h3></div><span>0 ms → {{ Math.round(detail.summary.duration_ms) }} ms</span></div><div class="waterfall" data-testid="waterfall"><article v-for="stage in detail.stages" :key="stage.span_id"><div><strong><b v-if="stage.parent_span_id">↳</b>{{ stageLabel(stage.name) }}</strong><small>+{{ Math.round(stage.offset_ms) }} ms · {{ stage.duration_ms.toFixed(1) }} ms<template v-if="stage.parent_span_id"> · parent {{ stage.parent_span_id.slice(0, 6) }}</template></small></div><div class="waterfall-track"><i :class="{ 'waterfall-bar--deep': stage.name.includes('deep_recovery'), 'waterfall-bar--degraded': stage.degraded }" :style="stageStyle(stage.offset_ms, stage.duration_ms)"></i></div></article><p v-if="!detail.stages.length" class="trace-inline-empty">该 Trace 没有已持久化 Span。</p></div></section>
+
+          <section class="trace-section trace-io-section" data-testid="trace-io-section">
+            <div class="trace-section-head"><div><p class="section-kicker">FULL PIPELINE JSON</p><h3>逐阶段输入 / 输出</h3></div><span>{{ detail.io_exchanges.length }} 组交换记录</span></div>
+            <button class="trace-io-toggle" type="button" :aria-expanded="ioExpanded" @click="ioExpanded = !ioExpanded"><span>{{ ioExpanded ? '收起全链路 JSON' : '查看全链路 JSON' }}</span><small>包含模型 Prompt、可见响应、向量、候选、证据与最终结果；不包含密钥和隐藏推理。</small><b>{{ ioExpanded ? '−' : '+' }}</b></button>
+            <div v-if="ioExpanded" class="trace-io-list" data-testid="trace-io-list">
+              <details v-for="exchange in detail.io_exchanges" :key="`${exchange.span_id}-${exchange.sequence}`">
+                <summary><span>#{{ exchange.sequence }} · {{ ioComponentLabel(exchange.component) }}</span><small>{{ stageLabel(exchange.stage) }} · {{ exchange.span_id.slice(0, 8) }}<template v-if="exchange.truncated"> · 已截断</template></small></summary>
+                <div class="trace-io-grid"><article><strong>INPUT JSON</strong><pre>{{ prettyJson(exchange.input_json) }}</pre></article><article><strong>OUTPUT JSON</strong><pre>{{ prettyJson(exchange.output_json) }}</pre></article></div>
+              </details>
+              <p v-if="!detail.io_exchanges.length" class="trace-inline-empty">该记录生成于全链路 JSON 上线前，或本次查询未进入模型与检索阶段。</p>
+            </div>
+          </section>
 
           <section class="trace-section"><div class="trace-section-head"><div><p class="section-kicker">RANK MOVEMENT</p><h3>Dense / Sparse → RRF → Rerank</h3></div><span>{{ detail.rankings.length }} 个可追踪候选 · 多分支取最佳 Dense/Sparse 名次</span></div><div v-if="detail.rankings.length" class="rank-table" data-testid="rank-table"><div class="rank-row rank-row--head"><span>候选 / Root</span><span v-for="item in rankStages" :key="item.key">{{ item.label }}</span></div><div v-for="candidate in detail.rankings" :key="candidate.leaf_id" class="rank-row"><span><strong>{{ candidate.leaf_id }}</strong><small>{{ candidate.root_id || 'Root 未记录' }}</small><small v-if="candidate.matched_queries.length" class="rank-provenance">命中：{{ candidate.matched_queries.join(' · ') }}</small></span><span v-for="item in rankStages" :key="item.key"><b>{{ rankValue(candidate[item.key]) }}</b><small>{{ scoreValue(candidate[item.score]) }}</small></span></div></div><p v-else class="trace-inline-empty">当前 Trace 没有候选排名事件，无法推断排名变化。</p></section>
 

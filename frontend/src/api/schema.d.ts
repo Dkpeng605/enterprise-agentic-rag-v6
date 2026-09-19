@@ -1781,6 +1781,23 @@ export interface components {
             /** Content */
             content: string;
         };
+        /** QueryIoExchangeResponse */
+        QueryIoExchangeResponse: {
+            /** Sequence */
+            sequence: number;
+            /** Span Id */
+            span_id: string;
+            /** Stage */
+            stage: string;
+            /** Component */
+            component: string;
+            /** Input Json */
+            input_json: unknown | null;
+            /** Output Json */
+            output_json: unknown | null;
+            /** Truncated */
+            truncated: boolean;
+        };
         /** QueryPlanResponse */
         QueryPlanResponse: {
             /** Provider */
@@ -1964,6 +1981,8 @@ export interface components {
             retrieval_branches: components["schemas"]["QueryRetrievalBranchResponse"][];
             /** Stage Metrics */
             stage_metrics: components["schemas"]["QueryStageMetricResponse"][];
+            /** Io Exchanges */
+            io_exchanges: components["schemas"]["QueryIoExchangeResponse"][];
         };
         /** QueryWaterfallStageResponse */
         QueryWaterfallStageResponse: {
