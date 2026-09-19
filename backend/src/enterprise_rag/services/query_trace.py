@@ -3,6 +3,7 @@
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import cast
 
 from enterprise_rag.ports.traces import StoredSpan, TraceDetail, TraceSummary
 
@@ -196,7 +197,7 @@ def _json_payload(value: object) -> object | None:
     if not isinstance(value, str):
         return None
     try:
-        return json.loads(value)
+        return cast(object, json.loads(value))
     except json.JSONDecodeError:
         return None
 
