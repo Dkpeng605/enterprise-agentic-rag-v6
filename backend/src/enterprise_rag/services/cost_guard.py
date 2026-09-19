@@ -8,7 +8,7 @@ from time import perf_counter
 
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import QueryMode
-from enterprise_rag.observability import current_metrics
+from enterprise_rag.observability import current_metrics, record_trace_io
 from enterprise_rag.ports.llm import CompletionRequest, CompletionResult, LanguageModel
 from enterprise_rag.ports.provider import ProviderInfo
 from enterprise_rag.ports.usage import (
@@ -152,6 +152,18 @@ class BoundedLanguageModel:
 
     async def complete(self, request: CompletionRequest) -> CompletionResult:
         info = self._delegate.info()
+        record_trace_io(
+            "language_model",
+            "input",
+            {
+                "provider": info.name,
+                "model": info.version,
+                "system_prompt": request.system_prompt,
+                "user_prompt": request.user_prompt,
+                "max_output_tokens": request.max_output_tokens,
+                "json_mode": request.json_mode,
+            },
+        )
         for retry_count in range(self._max_retries + 1):
             started = perf_counter()
             try:
@@ -167,12 +179,23 @@ class BoundedLanguageModel:
                         input_tokens=result.input_tokens,
                         output_tokens=result.output_tokens,
                     )
-                return CompletionResult(
+                bounded_result = CompletionResult(
                     result.text,
                     result.input_tokens,
                     result.output_tokens,
                     result.retry_count + retry_count,
                 )
+                record_trace_io(
+                    "language_model",
+                    "output",
+                    {
+                        "text": bounded_result.text,
+                        "input_tokens": bounded_result.input_tokens,
+                        "output_tokens": bounded_result.output_tokens,
+                        "retry_count": bounded_result.retry_count,
+                    },
+                )
+                return bounded_result
             except asyncio.CancelledError:
                 if (metrics := current_metrics()) is not None:
                     metrics.observe_provider(
@@ -181,6 +204,11 @@ class BoundedLanguageModel:
                         status="cancelled",
                         duration_seconds=perf_counter() - started,
                     )
+                record_trace_io(
+                    "language_model",
+                    "output",
+                    {"status": "cancelled", "retry_count": retry_count},
+                )
                 raise
             except Exception as error:
                 if (metrics := current_metrics()) is not None:
@@ -191,6 +219,19 @@ class BoundedLanguageModel:
                         duration_seconds=perf_counter() - started,
                     )
                 if retry_count >= self._max_retries or not _retryable(error):
+                    record_trace_io(
+                        "language_model",
+                        "output",
+                        {
+                            "status": "error",
+                            "error_code": (
+                                error.code.value
+                                if isinstance(error, AppError)
+                                else "LLM_UNAVAILABLE"
+                            ),
+                            "retry_count": retry_count,
+                        },
+                    )
                     if isinstance(error, AppError) and error.code is not ErrorCode.LLM_UNAVAILABLE:
                         raise
                     raise AppError(

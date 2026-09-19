@@ -61,6 +61,26 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
                 "rag.input_tokens": 120,
                 "rag.output_tokens": 80,
             },
+            events=(
+                {
+                    "name": "rag.trace.io",
+                    "attributes": {
+                        "rag.io.component": "query_planning",
+                        "rag.io.direction": "input",
+                        "rag.io.json": '{"query":"如何部署"}',
+                        "rag.io.truncated": False,
+                    },
+                },
+                {
+                    "name": "rag.trace.io",
+                    "attributes": {
+                        "rag.io.component": "query_planning",
+                        "rag.io.direction": "output",
+                        "rag.io.json": '{"plan":{"rewritten_query":"如何部署"}}',
+                        "rag.io.truncated": False,
+                    },
+                },
+            ),
         ),
         span(
             2,
@@ -230,6 +250,12 @@ def test_projects_query_plan_branches_stage_metrics_and_best_cross_branch_rank()
     assert projected.stage_metrics[4].attributes == {
         "truncated_roots": 1,
         "used_chars": 4096,
+    }
+    assert len(projected.io_exchanges) == 1
+    assert projected.io_exchanges[0].component == "query_planning"
+    assert projected.io_exchanges[0].input_json == {"query": "如何部署"}
+    assert projected.io_exchanges[0].output_json == {
+        "plan": {"rewritten_query": "如何部署"}
     }
 
 

@@ -1,5 +1,7 @@
 """Stable, sanitized projection for the Query Trace workspace."""
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from enterprise_rag.ports.traces import StoredSpan, TraceDetail, TraceSummary
@@ -88,6 +90,17 @@ class QueryStageMetric:
 
 
 @dataclass(frozen=True, slots=True)
+class QueryIoExchange:
+    sequence: int
+    span_id: str
+    stage: str
+    component: str
+    input_json: object | None
+    output_json: object | None
+    truncated: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class QueryTraceView:
     summary: TraceSummary
     usage: dict[str, int | float]
@@ -98,6 +111,7 @@ class QueryTraceView:
     plan: QueryPlanSnapshot | None
     retrieval_branches: tuple[QueryRetrievalBranch, ...]
     stage_metrics: tuple[QueryStageMetric, ...]
+    io_exchanges: tuple[QueryIoExchange, ...]
 
 
 def project_query_trace(detail: TraceDetail) -> QueryTraceView:
@@ -114,7 +128,77 @@ def project_query_trace(detail: TraceDetail) -> QueryTraceView:
         _plan(detail.spans),
         _retrieval_branches(detail.spans),
         _stage_metrics(detail.spans),
+        _io_exchanges(detail.spans),
     )
+
+
+def _io_exchanges(spans: tuple[StoredSpan, ...]) -> tuple[QueryIoExchange, ...]:
+    exchanges: list[dict[str, object]] = []
+    pending: dict[tuple[str, str], int] = {}
+    for span in spans:
+        for event in span.events:
+            if event.get("name") != "rag.trace.io":
+                continue
+            attributes = event.get("attributes")
+            if not isinstance(attributes, Mapping):
+                continue
+            component = _text(attributes.get("rag.io.component"))
+            direction = _text(attributes.get("rag.io.direction"))
+            payload = _json_payload(attributes.get("rag.io.json"))
+            if component is None or direction not in {"input", "output"} or payload is None:
+                continue
+            key = (span.span_id, component)
+            if direction == "input":
+                exchanges.append(
+                    {
+                        "span_id": span.span_id,
+                        "stage": span.name,
+                        "component": component,
+                        "input_json": payload,
+                        "output_json": None,
+                        "truncated": _bool(attributes.get("rag.io.truncated")),
+                    }
+                )
+                pending[key] = len(exchanges) - 1
+                continue
+            index = pending.pop(key, None)
+            if index is None:
+                exchanges.append(
+                    {
+                        "span_id": span.span_id,
+                        "stage": span.name,
+                        "component": component,
+                        "input_json": None,
+                        "output_json": payload,
+                        "truncated": _bool(attributes.get("rag.io.truncated")),
+                    }
+                )
+            else:
+                exchanges[index]["output_json"] = payload
+                exchanges[index]["truncated"] = bool(exchanges[index]["truncated"]) or _bool(
+                    attributes.get("rag.io.truncated")
+                )
+    return tuple(
+        QueryIoExchange(
+            sequence=index,
+            span_id=str(item["span_id"]),
+            stage=str(item["stage"]),
+            component=str(item["component"]),
+            input_json=item["input_json"],
+            output_json=item["output_json"],
+            truncated=bool(item["truncated"]),
+        )
+        for index, item in enumerate(exchanges, start=1)
+    )
+
+
+def _json_payload(value: object) -> object | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return None
 
 
 def _waterfall(summary: TraceSummary, span: StoredSpan) -> QueryWaterfallStage:

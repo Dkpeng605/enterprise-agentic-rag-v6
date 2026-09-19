@@ -17,6 +17,7 @@ from enterprise_rag.observability import (
     bind_context,
     bind_metrics,
     current_context,
+    record_trace_io,
     start_span,
 )
 from enterprise_rag.ports.context import ScopeAuthorization
@@ -113,7 +114,9 @@ class KnowledgeApplication:
                 tracer_provider=self._tracer_provider,
             ) as span:
                 trace_id = _span_trace_id(span)
+                record_trace_io("query", "input", _query_trace_input(command))
                 result = await self._query_api.execute(command)
+                record_trace_io("query", "output", result.to_dict())
                 if trace_id is not None:
                     result = replace(result, trace_id=trace_id)
                 status = result.status.value
@@ -181,11 +184,13 @@ class KnowledgeApplication:
                 tracer_provider=self._tracer_provider,
             ) as span:
                 trace_id = _span_trace_id(span)
+                record_trace_io("query", "input", _query_trace_input(command))
                 async for event in self._query_api.stream(
                     command, disconnected=disconnected
                 ):
                     output_event = _stream_trace_event(event, trace_id, command.mode)
                     if event.event in {"completed", "error"}:
+                        record_trace_io("query", "output", dict(event.data))
                         trace_status = _stream_status(event)
                         if event.event == "completed":
                             usage = _numeric_usage(_mapping(event.data.get("usage")))
@@ -267,6 +272,18 @@ def _span_trace_id(span: object) -> str | None:
     if not context.is_valid:
         return None
     return f"{context.trace_id:032x}"
+
+
+def _query_trace_input(command: QueryCommand) -> dict[str, object]:
+    return {
+        "query_id": str(command.query_id),
+        "query": command.query,
+        "mode": command.mode.value,
+        "scope": command.scope.to_dict(),
+        "history": [
+            {"role": turn.role.value, "content": turn.content} for turn in command.history
+        ],
+    }
 
 
 def _context_uuid(value: str | None) -> UUID | None:

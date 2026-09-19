@@ -9,7 +9,12 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
 from enterprise_rag.domain.jobs import JobSnapshot, JobStatus
-from enterprise_rag.observability import BufferedSpanExporter, start_span
+from enterprise_rag.observability import (
+    BufferedSpanExporter,
+    bind_context,
+    record_trace_io,
+    start_span,
+)
 from enterprise_rag.ports import TraceCompletion
 from enterprise_rag.services import (
     IngestionPipeline,
@@ -122,6 +127,31 @@ def test_buffered_exporter_keeps_rankings_and_drops_sensitive_values() -> None:
     assert "private question" not in serialized
     assert "private-token" not in serialized
     assert "database secret" not in serialized
+
+
+def test_query_io_is_json_encoded_and_redacts_credentials() -> None:
+    provider, exporter = _telemetry()
+    with bind_context(query_id=QUERY_ID), start_span(
+        "rag.answer_generation", tracer_provider=provider
+    ) as span:
+        trace_id = f"{span.get_span_context().trace_id:032x}"
+        record_trace_io(
+            "language_model",
+            "input",
+            {
+                "prompt": {"question": "可观测问题"},
+                "authorization": "Bearer private-token",
+            },
+        )
+
+    spans = exporter.take(trace_id)
+    attributes = _event_attributes(spans[0].events[0])
+    payload = attributes["rag.io.json"]
+
+    assert isinstance(payload, str)
+    assert "可观测问题" in payload
+    assert "[REDACTED]" in payload
+    assert "private-token" not in payload
 
 
 def test_diagnostic_attributes_preserve_safe_answer_degradation_state() -> None:

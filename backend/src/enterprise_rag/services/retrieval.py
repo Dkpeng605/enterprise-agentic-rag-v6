@@ -8,9 +8,14 @@ from uuid import UUID
 
 from enterprise_rag.domain.common import require_non_empty, require_uuid7
 from enterprise_rag.domain.retrieval import QueryScope
-from enterprise_rag.observability import current_metrics, start_span, trace_async
+from enterprise_rag.observability import (
+    current_metrics,
+    record_trace_io,
+    start_span,
+    trace_async,
+)
 from enterprise_rag.ports.embedding import EmbeddingProvider
-from enterprise_rag.ports.sparse import SparseEncoder
+from enterprise_rag.ports.sparse import SparseEncoder, SparseEncoding
 from enterprise_rag.ports.vector_store import (
     DenseSearchRequest,
     IndexSchema,
@@ -89,11 +94,7 @@ class DualSearchService:
                 self._embedding.embed_query(query),
                 attributes={"provider.name": self._embedding.info().name},
             ),
-            trace_async(
-                "rag.sparse_encoding",
-                self._sparse.encode_query(query),
-                attributes={"provider.name": self._sparse.info().name},
-            ),
+            self._encode_sparse_query(query),
         )
         dense_request = DenseSearchRequest(
             index_revision=index_revision,
@@ -178,11 +179,7 @@ class DualSearchService:
         await self._vector_store.ensure_revision(
             IndexSchema(index_revision, self._embedding.dimension, self._sparse.mode)
         )
-        encoding = await trace_async(
-            "rag.sparse_encoding",
-            self._sparse.encode_query(query),
-            attributes={"provider.name": self._sparse.info().name},
-        )
+        encoding = await self._encode_sparse_query(query)
         hits = await self._search_sparse(
             SparseSearchRequest(
                 index_revision=index_revision,
@@ -222,7 +219,23 @@ class DualSearchService:
                 "rag.scope.document_count": len(request.document_ids),
             },
         ) as span:
+            record_trace_io(
+                "dense_retrieval",
+                "input",
+                {
+                    "index_revision": request.index_revision,
+                    "vector": request.vector,
+                    "top_k": request.top_k,
+                    "collection_ids": request.collection_ids,
+                    "document_ids": request.document_ids,
+                },
+            )
             hits = await self._vector_store.dense_search(request)
+            record_trace_io(
+                "dense_retrieval",
+                "output",
+                {"hits": [_vector_hit_json(hit) for hit in hits]},
+            )
             span.set_attribute("rag.candidate_count", len(hits))
             span.set_attribute("rag.candidate_ids", tuple(hit.leaf_id for hit in hits))
             for rank, hit in enumerate(hits, start=1):
@@ -253,7 +266,24 @@ class DualSearchService:
                 "rag.scope.document_count": len(request.document_ids),
             },
         ) as span:
+            record_trace_io(
+                "sparse_retrieval",
+                "input",
+                {
+                    "index_revision": request.index_revision,
+                    "vector": request.vector,
+                    "query_text": request.query_text,
+                    "top_k": request.top_k,
+                    "collection_ids": request.collection_ids,
+                    "document_ids": request.document_ids,
+                },
+            )
             hits = await self._vector_store.sparse_search(request)
+            record_trace_io(
+                "sparse_retrieval",
+                "output",
+                {"hits": [_vector_hit_json(hit) for hit in hits]},
+            )
             span.set_attribute("rag.candidate_count", len(hits))
             span.set_attribute("rag.candidate_ids", tuple(hit.leaf_id for hit in hits))
             for rank, hit in enumerate(hits, start=1):
@@ -270,6 +300,24 @@ class DualSearchService:
             if (metrics := current_metrics()) is not None:
                 metrics.observe_candidates(stage="sparse", count=len(hits))
             return hits
+
+    async def _encode_sparse_query(self, query: str) -> SparseEncoding:
+        with start_span(
+            "rag.sparse_encoding",
+            attributes={"provider.name": self._sparse.info().name},
+        ):
+            record_trace_io("sparse_encoding", "input", {"text": query})
+            encoding = await self._sparse.encode_query(query)
+            record_trace_io(
+                "sparse_encoding",
+                "output",
+                {
+                    "mode": encoding.mode.value,
+                    "vector": encoding.vector,
+                    "text": encoding.text,
+                },
+            )
+            return encoding
 
     @staticmethod
     def _branch(
@@ -294,3 +342,12 @@ class DualSearchService:
                 len(scope.document_ids),
             ),
         )
+
+
+def _vector_hit_json(hit: VectorHit) -> dict[str, object]:
+    return {
+        "leaf_id": hit.leaf_id,
+        "root_id": hit.root_id,
+        "score": hit.score,
+        "metadata": dict(hit.metadata),
+    }

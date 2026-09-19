@@ -9,7 +9,7 @@ from typing import Protocol
 from enterprise_rag.domain.common import require_non_empty
 from enterprise_rag.domain.errors import AppError, ErrorCode
 from enterprise_rag.domain.retrieval import QueryScope
-from enterprise_rag.observability import current_metrics, start_span
+from enterprise_rag.observability import current_metrics, record_trace_io, start_span
 
 
 class EvidenceDecision(StrEnum):
@@ -270,10 +270,35 @@ class DeepRecoveryController:
                 "rag.recovery.initial_evidence_count": len(request.initial_evidence),
             },
         ) as span:
+            record_trace_io(
+                "deep_recovery",
+                "input",
+                {
+                    "query": request.query,
+                    "requirements": request.requirements,
+                    "scope": request.scope.to_dict(),
+                    "initial_evidence": [
+                        _evidence_json(item) for item in request.initial_evidence
+                    ],
+                    "repairable_scope_fields": request.repairable_scope_fields,
+                },
+            )
             outcome = await self._run_observed(request)
             span.set_attribute("rag.recovery.round_count", outcome.recovery_rounds)
             span.set_attribute("rag.recovery.decision", outcome.decision.value)
             span.set_attribute("rag.recovery.duplicate_count", outcome.duplicate_count)
+            record_trace_io(
+                "deep_recovery",
+                "output",
+                {
+                    "decision": outcome.decision.value,
+                    "assessment": _assessment_json(outcome.assessment),
+                    "evidence": [_evidence_json(item) for item in outcome.evidence],
+                    "actions": [_action_json(item) for item in outcome.actions],
+                    "recovery_rounds": outcome.recovery_rounds,
+                    "duplicate_count": outcome.duplicate_count,
+                },
+            )
             return outcome
 
     async def _run_observed(self, request: DeepRecoveryRequest) -> DeepRecoveryOutcome:
@@ -291,6 +316,14 @@ class DeepRecoveryController:
                     "rag.recovery.evidence_count": len(ledger.all()),
                 },
             ) as assessment_span:
+                record_trace_io(
+                    "evidence_assessment",
+                    "input",
+                    {
+                        "requirements": request.requirements,
+                        "evidence": [_evidence_json(item) for item in ledger.all()],
+                    },
+                )
                 provider_name = getattr(self._assessor, "provider_name", None)
                 if isinstance(provider_name, str) and provider_name:
                     assessment_span.set_attribute("provider.name", provider_name)
@@ -335,6 +368,9 @@ class DeepRecoveryController:
                     assessment_span.set_attribute(
                         "rag.recovery.assessor_failure_code", assessment.degradation_code
                     )
+                record_trace_io(
+                    "evidence_assessment", "output", _assessment_json(assessment)
+                )
             if used_assessor:
                 assessor_calls += max(1, assessment.llm_calls)
                 assessor_input_tokens += assessment.input_tokens
@@ -381,6 +417,7 @@ class DeepRecoveryController:
                     ),
                 },
             ) as recovery_span:
+                record_trace_io("recovery_round", "input", _action_json(action))
                 recovered = tuple(await self._executor.execute(action))
                 recovery_span.set_attribute(
                     "rag.recovery.returned_count", len(recovered)
@@ -397,6 +434,15 @@ class DeepRecoveryController:
                 recovery_span.set_attribute("rag.recovery.added_count", added)
                 recovery_span.set_attribute(
                     "rag.recovery.duplicate_count", len(recovered) - added
+                )
+                record_trace_io(
+                    "recovery_round",
+                    "output",
+                    {
+                        "evidence": [_evidence_json(item) for item in recovered],
+                        "added_count": added,
+                        "duplicate_count": len(recovered) - added,
+                    },
                 )
         raise AssertionError("Deep Recovery loop did not terminate")
 
@@ -535,6 +581,46 @@ def _repair_scope(scope: QueryScope, fields: tuple[str, ...]) -> tuple[QueryScop
     else:
         repaired = replace(scope, sections=())
     return repaired, (field,)
+
+
+def _evidence_json(item: EvidenceItem) -> dict[str, object]:
+    return {
+        "leaf_id": item.leaf_id,
+        "root_id": item.root_id,
+        "confidence": item.confidence,
+        "covered_requirements": list(item.covered_requirements),
+        "round_number": item.round_number,
+        "route": item.route.value if item.route else None,
+        "text": item.text,
+    }
+
+
+def _assessment_json(item: EvidenceAssessment) -> dict[str, object]:
+    return {
+        "score": item.score,
+        "covered_requirements": list(item.covered_requirements),
+        "missing_requirements": list(item.missing_requirements),
+        "conflicts": list(item.conflicts),
+        "decision": item.decision.value,
+        "reason": item.reason,
+        "llm_calls": item.llm_calls,
+        "input_tokens": item.input_tokens,
+        "output_tokens": item.output_tokens,
+        "degraded": item.degraded,
+        "degradation_code": item.degradation_code,
+    }
+
+
+def _action_json(item: RecoveryAction) -> dict[str, object]:
+    return {
+        "round_number": item.round_number,
+        "route": item.route.value,
+        "retrieval_mode": item.retrieval_mode.value,
+        "query": item.query,
+        "scope": item.scope.to_dict(),
+        "target_requirements": list(item.target_requirements),
+        "repaired_scope_fields": list(item.repaired_scope_fields),
+    }
 
 
 def _outcome(

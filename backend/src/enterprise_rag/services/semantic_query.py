@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from enterprise_rag.adapters.database import Database, PostgreSQLContextRepository
 from enterprise_rag.domain.errors import AppError
 from enterprise_rag.domain.retrieval import QueryMode, QueryPlan, QueryScope, RetrievalHit
-from enterprise_rag.observability import start_span
+from enterprise_rag.observability import record_trace_io, start_span
 from enterprise_rag.observability.tracing import AttributeValue
 from enterprise_rag.ports.context import ScopeAuthorization
 from enterprise_rag.ports.embedding import EmbeddingProvider
@@ -17,7 +17,12 @@ from enterprise_rag.ports.planner import PlannerRequest
 from enterprise_rag.ports.reranker import Reranker
 from enterprise_rag.ports.sparse import SparseEncoder
 from enterprise_rag.ports.vector_store import IndexSchema, VectorStore
-from enterprise_rag.services.answer_verification import AnswerStatus, AnswerVerificationService
+from enterprise_rag.services.answer_verification import (
+    AnswerDraft,
+    AnswerOutcome,
+    AnswerStatus,
+    AnswerVerificationService,
+)
 from enterprise_rag.services.deep_recovery import (
     DeepRecoveryController,
     DeepRecoveryRequest,
@@ -193,10 +198,33 @@ class SemanticQueryRunner:
             )
         await self._progress(emit, QueryProgressStage.PLANNING, "执行查询改写与子查询规划")
         with start_span("rag.query_planning") as span:
+            record_trace_io(
+                "query_planning",
+                "input",
+                {
+                    "query": command.query,
+                    "history": [
+                        {"role": turn.role.value, "content": turn.content}
+                        for turn in command.history
+                    ],
+                    "scope": command.scope.to_dict(),
+                    "mode": command.mode.value,
+                },
+            )
             planned = await self._planner.plan(
                 PlannerRequest(command.query, command.history, command.scope, command.mode)
             )
             plan = _effective_plan(planned.plan, original_query=command.query)
+            record_trace_io(
+                "query_planning",
+                "output",
+                {
+                    "plan": plan.to_dict(),
+                    "provider": planned.provider,
+                    "degraded": planned.degraded,
+                    "error_code": planned.error_code.value if planned.error_code else None,
+                },
+            )
             span.set_attribute("provider.name", planned.provider)
             span.set_attribute("rag.query.mode", command.mode.value)
             span.set_attribute("rag.plan.original", plan.original_query)
@@ -344,6 +372,14 @@ class SemanticQueryRunner:
             "rag.answer_generation",
             attributes={"provider.name": self._language_model.info().name},
         ) as span:
+            record_trace_io(
+                "answer_generation",
+                "input",
+                {
+                    "plan": effective_plan.to_dict(),
+                    "roots": [_root_json(root) for root in roots],
+                },
+            )
             span.set_attribute("rag.root_count", len(roots))
             span.set_attribute("rag.root_limit", answer_root_limit)
             span.set_attribute("rag.requirement_count", len(effective_plan.requirements))
@@ -378,8 +414,21 @@ class SemanticQueryRunner:
             span.set_attribute("rag.input_tokens", authored.input_tokens)
             span.set_attribute("rag.output_tokens", authored.output_tokens)
             span.set_attribute("rag.citation_count", len(authored.draft.citations))
+            record_trace_io(
+                "answer_generation", "output", _answer_draft_json(authored.draft)
+            )
         with start_span("rag.answer_verification") as span:
             span.set_attribute("provider.name", self._language_model.info().name)
+            record_trace_io(
+                "answer_verification",
+                "input",
+                {
+                    "plan": effective_plan.to_dict(),
+                    "draft": _answer_draft_json(authored.draft),
+                    "roots": [_root_json(root) for root in roots],
+                    "evidence_conflicts": evidence_conflicts,
+                },
+            )
             answer = await AnswerVerificationService(author).finalize(
                 plan=effective_plan,
                 roots=roots,
@@ -403,6 +452,9 @@ class SemanticQueryRunner:
             span.set_attribute("rag.llm_calls", author.repair_usage.llm_calls)
             span.set_attribute("rag.input_tokens", author.repair_usage.input_tokens)
             span.set_attribute("rag.output_tokens", author.repair_usage.output_tokens)
+            record_trace_io(
+                "answer_verification", "output", _answer_outcome_json(answer)
+            )
         total_usage = base_usage + ModelUsage(
             authored.llm_calls,
             authored.input_tokens,
@@ -474,6 +526,14 @@ class SemanticQueryRunner:
         with start_span(
             "rag.rrf_fusion", attributes={"rag.retrieval_mode": mode.value}
         ) as span:
+            record_trace_io(
+                "rrf_fusion",
+                "input",
+                {
+                    "branches": [_search_branch_json(branch) for branch in branches],
+                    "queries": queries,
+                },
+            )
             fused = self._fusion.fuse_branches(
                 branches,
                 branch_queries=(
@@ -504,6 +564,11 @@ class SemanticQueryRunner:
             span.set_attribute(
                 "rag.fusion.top_k_dropped", fused.diagnostic.top_k_dropped
             )
+            record_trace_io(
+                "rrf_fusion",
+                "output",
+                {"hits": [_retrieval_hit_json(hit) for hit in fused.hits]},
+            )
             for rank, hit in enumerate(fused.hits, start=1):
                 attributes: dict[str, AttributeValue] = {
                     "rag.rank": rank,
@@ -530,6 +595,14 @@ class SemanticQueryRunner:
                 max_parent_chars=self._max_parent_chars,
             )
             with start_span("rag.auth_and_scope") as span:
+                record_trace_io(
+                    "authorization_and_scope",
+                    "input",
+                    {
+                        "scope": scope.to_dict(),
+                        "hits": [_retrieval_hit_json(hit) for hit in fused.hits],
+                    },
+                )
                 if fused.hits:
                     prepared = await scope_root.prepare_candidates(
                         authorization, scope, fused.hits
@@ -544,6 +617,23 @@ class SemanticQueryRunner:
                 span.set_attribute("rag.input_count", len(fused.hits))
                 span.set_attribute("rag.output_count", len(items))
                 span.set_attribute("rag.rejected_count", rejected_count)
+                record_trace_io(
+                    "authorization_and_scope",
+                    "output",
+                    {
+                        "resolved_document_ids": [
+                            str(value) for value in resolved_scope.document_ids
+                        ],
+                        "rerank_items": [
+                            {
+                                "hit": _retrieval_hit_json(item.hit),
+                                "retrieval_text": item.retrieval_text,
+                            }
+                            for item in items
+                        ],
+                        "rejected_count": rejected_count,
+                    },
+                )
             with start_span("rag.rerank") as span:
                 reranked = await self._reranking.rerank(rerank_query, items)
                 selected_hits = _relevance_filtered_hits(
@@ -589,12 +679,27 @@ class SemanticQueryRunner:
             if emit is not None:
                 await self._progress(emit, QueryProgressStage.RECOVERING, "恢复授权 Root 原文")
             with start_span("rag.root_restore") as span:
+                record_trace_io(
+                    "root_restore",
+                    "input",
+                    {"selected_hits": [_retrieval_hit_json(hit) for hit in selected_hits]},
+                )
                 recovered = await scope_root.recover(resolved_scope, selected_hits)
                 span.set_attribute("rag.input_count", len(selected_hits))
                 span.set_attribute("rag.output_count", len(recovered.roots))
                 span.set_attribute("rag.rejected_count", recovered.rejected_count)
                 span.set_attribute("rag.truncated_count", recovered.truncated_count)
                 span.set_attribute("rag.used_chars", recovered.used_chars)
+                record_trace_io(
+                    "root_restore",
+                    "output",
+                    {
+                        "roots": [_root_json(root) for root in recovered.roots],
+                        "used_chars": recovered.used_chars,
+                        "rejected_count": recovered.rejected_count,
+                        "truncated_count": recovered.truncated_count,
+                    },
+                )
         return _RetrievalOutcome(
             recovered,
             selected_hits,
@@ -896,6 +1001,93 @@ def _repairable_scope_fields(
         for name in fields
         if not getattr(requested, name) and bool(getattr(planned, name))
     )
+
+
+def _retrieval_hit_json(hit: RetrievalHit) -> dict[str, object]:
+    return {
+        "leaf_id": hit.leaf_id,
+        "root_id": hit.root_id,
+        "dense_rank": hit.dense_rank,
+        "sparse_rank": hit.sparse_rank,
+        "fused_score": hit.fused_score,
+        "rerank_score": hit.rerank_score,
+        "selected": hit.selected,
+        "matched_queries": list(hit.matched_queries),
+    }
+
+
+def _search_branch_json(branch: SearchBranchResult) -> dict[str, object]:
+    return {
+        "method": branch.method.value,
+        "hits": [
+            {
+                "leaf_id": hit.leaf_id,
+                "root_id": hit.root_id,
+                "score": hit.score,
+                "metadata": dict(hit.metadata),
+            }
+            for hit in branch.hits
+        ],
+        "diagnostic": {
+            "requested_top_k": branch.diagnostic.requested_top_k,
+            "returned_count": branch.diagnostic.returned_count,
+            "collection_filter_count": branch.diagnostic.collection_filter_count,
+            "document_filter_count": branch.diagnostic.document_filter_count,
+        },
+    }
+
+
+def _root_json(root: RootContext) -> dict[str, object]:
+    return {
+        "root_id": root.root_id,
+        "document_id": str(root.document_id),
+        "version_id": str(root.version_id),
+        "source_name": root.source_name,
+        "title": root.title,
+        "organization": root.organization,
+        "media_type": root.media_type,
+        "source_locator": dict(root.source_locator),
+        "text": root.text,
+        "evidence_text": root.evidence_text,
+        "leaf_ids": list(root.leaf_ids),
+        "leaf_matched_queries": dict(root.leaf_matched_queries),
+        "score": root.score,
+        "truncated": root.truncated,
+    }
+
+
+def _answer_draft_json(draft: AnswerDraft) -> dict[str, object]:
+    return {
+        "paragraphs": [
+            {
+                "text": paragraph.text,
+                "citation_ids": list(paragraph.citation_ids),
+                "factual": paragraph.factual,
+            }
+            for paragraph in draft.paragraphs
+        ],
+        "citations": [
+            {
+                "id": citation.id,
+                "root_id": citation.root_id,
+                "leaf_ids": list(citation.leaf_ids),
+                "quote": citation.quote,
+            }
+            for citation in draft.citations
+        ],
+        "covered_requirements": list(draft.covered_requirements),
+    }
+
+
+def _answer_outcome_json(outcome: AnswerOutcome) -> dict[str, object]:
+    return {
+        "status": outcome.status.value,
+        "answer": outcome.answer,
+        "citations": [citation.to_dict() for citation in outcome.citations],
+        "missing_requirements": list(outcome.missing_requirements),
+        "issues": [issue.value for issue in outcome.issues],
+        "repair_count": outcome.repair_count,
+    }
 
 
 def _usage_dict(usage: ModelUsage) -> dict[str, int]:
